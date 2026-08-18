@@ -1,0 +1,140 @@
+-- =========================================================
+-- Smart Barangay System - MySQL Database Schema (DDL)
+-- Administrative Management and Public Health Monitoring
+-- =========================================================
+-- NOTE: If you want to change the database name for XAMPP / phpMyAdmin,
+-- change `smart_barangay_db` below and update `DB_NAME` in your `.env` file!
+
+CREATE DATABASE IF NOT EXISTS `smart_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `smart_db`;
+
+-- 1. System Users (Super Admin, Barangay Admin, Barangay Staff, BHW, Resident)
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `name` VARCHAR(100) NOT NULL,
+  `email` VARCHAR(100) NOT NULL UNIQUE,
+  `password_hash` VARCHAR(255) NOT NULL,
+  `role` ENUM('superadmin', 'admin', 'staff', 'bhw', 'resident') NOT NULL DEFAULT 'resident',
+  `status` ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
+  `last_login` DATETIME NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 2. Residents Demographic Records
+CREATE TABLE IF NOT EXISTS `residents` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `first_name` VARCHAR(50) NOT NULL,
+  `middle_name` VARCHAR(50) DEFAULT '',
+  `last_name` VARCHAR(50) NOT NULL,
+  `date_of_birth` DATE NOT NULL,
+  `gender` ENUM('Male', 'Female', 'Other') NOT NULL,
+  `civil_status` ENUM('Single', 'Married', 'Widowed', 'Separated') DEFAULT 'Single',
+  `address` VARCHAR(255) NOT NULL,
+  `household_id` VARCHAR(50) NOT NULL,
+  `phone` VARCHAR(20) DEFAULT '',
+  `email` VARCHAR(100) DEFAULT '',
+  `voter_status` BOOLEAN DEFAULT TRUE,
+  `verification_status` ENUM('Verified', 'Unverified', 'Pending_Review') DEFAULT 'Verified',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 3. Document Clearance & Certificate Requests
+CREATE TABLE IF NOT EXISTS `document_requests` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `request_code` VARCHAR(20) NOT NULL UNIQUE,
+  `resident_id` INT NOT NULL,
+  `resident_name` VARCHAR(100) NOT NULL,
+  `document_type` ENUM('Barangay Clearance', 'Certificate of Residency', 'Business Permit', 'Certificate of Indigency', 'Barangay ID') NOT NULL,
+  `purpose` VARCHAR(255) DEFAULT '',
+  `status` ENUM('Pending', 'Processing', 'Completed', 'Rejected') NOT NULL DEFAULT 'Pending',
+  `requested_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `processed_at` DATETIME NULL,
+  `processed_by` VARCHAR(100) DEFAULT '',
+  `remarks` TEXT DEFAULT NULL,
+  FOREIGN KEY (`resident_id`) REFERENCES `residents`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 4. Maternal Healthcare Records
+CREATE TABLE IF NOT EXISTS `maternal_records` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `resident_id` INT NOT NULL,
+  `mother_name` VARCHAR(100) NOT NULL,
+  `age` INT NOT NULL,
+  `pregnancy_status` VARCHAR(100) NOT NULL, -- e.g., Prenatal - 1st Trimester, Postnatal - 2 weeks
+  `expected_due_date` DATE NULL,
+  `last_visit` DATE NOT NULL,
+  `next_visit` DATE NOT NULL,
+  `risk_level` ENUM('Low', 'Moderate', 'High') DEFAULT 'Low',
+  `notes` TEXT DEFAULT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`resident_id`) REFERENCES `residents`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 5. Child Health & Growth Records
+CREATE TABLE IF NOT EXISTS `child_health_records` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `child_name` VARCHAR(100) NOT NULL,
+  `mother_id` INT NULL,
+  `mother_name` VARCHAR(100) DEFAULT '',
+  `date_of_birth` DATE NOT NULL,
+  `gender` ENUM('Male', 'Female') NOT NULL,
+  `weight_kg` DECIMAL(4,2) DEFAULT NULL,
+  `height_cm` DECIMAL(5,2) DEFAULT NULL,
+  `blood_type` VARCHAR(5) DEFAULT '',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 6. Immunization & Vaccine Logs
+CREATE TABLE IF NOT EXISTS `immunizations` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `child_name` VARCHAR(100) NOT NULL,
+  `parent_phone` VARCHAR(20) DEFAULT '',
+  `vaccine_name` VARCHAR(100) NOT NULL, -- BCG, Hepatitis B, DPT, Polio, MMR
+  `dose_number` INT DEFAULT 1,
+  `status` ENUM('Completed', 'Scheduled', 'Overdue') NOT NULL DEFAULT 'Scheduled',
+  `date_administered` DATE NULL,
+  `due_date` DATE NOT NULL,
+  `days_overdue` INT DEFAULT 0,
+  `administered_by` VARCHAR(100) DEFAULT '',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 7. SMS Notification Logs
+CREATE TABLE IF NOT EXISTS `sms_notifications` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `recipient_name` VARCHAR(100) NOT NULL,
+  `recipient_phone` VARCHAR(20) NOT NULL,
+  `type` ENUM('Immunization Reminder', 'Document Ready', 'Barangay Announcement', 'Maternal Checkup Alert') NOT NULL,
+  `message` TEXT NOT NULL,
+  `status` ENUM('Sent', 'Failed', 'Pending') DEFAULT 'Sent',
+  `sent_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 8. Barangay Activity Audit Logs
+CREATE TABLE IF NOT EXISTS `activity_logs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_name` VARCHAR(100) NOT NULL,
+  `user_role` VARCHAR(50) NOT NULL,
+  `action` VARCHAR(255) NOT NULL,
+  `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 9. Intra-System Messenger (Barangay Admin <-> BHW Staff Chat)
+CREATE TABLE IF NOT EXISTS `messages` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `sender_name` VARCHAR(100) NOT NULL,
+  `sender_role` ENUM('superadmin', 'admin', 'bhw', 'resident') NOT NULL,
+  `recipient_role` ENUM('admin', 'bhw', 'all') NOT NULL DEFAULT 'all',
+  `message` TEXT NOT NULL,
+  `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 10. FAQ Chatbot Knowledge Base
+CREATE TABLE IF NOT EXISTS `faq_knowledge` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `topic` VARCHAR(100) NOT NULL,
+  `keywords` TEXT NOT NULL,
+  `response` TEXT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
