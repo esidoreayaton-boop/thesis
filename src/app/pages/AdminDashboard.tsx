@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Clock,
   Shield,
+  Heart,
   UserPlus,
   PlusCircle,
   Trash2,
@@ -20,12 +21,21 @@ import {
   Check,
   RefreshCcw,
   Activity,
-  AlertCircle
+  AlertCircle,
+  Printer,
+  Download,
+  UserCheck,
+  Eye,
+  AlertTriangle,
+  Tag
 } from 'lucide-react';
 import { apiService, DocumentRequest, Resident, SystemUser } from '../../services/api';
-import DatabaseStatusBadge from '../components/DatabaseStatusBadge';
 import SystemMessenger from '../components/SystemMessenger';
 import ResidentProfileModal from '../components/ResidentProfileModal';
+import DocumentPrintModal from '../components/DocumentPrintModal';
+import DocumentInfoModal from '../components/DocumentInfoModal';
+import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
+import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -67,6 +77,27 @@ export default function AdminDashboard() {
     setProfileModalOpen(true);
   };
 
+  // Print Document Certificate Modal State
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [selectedPrintDoc, setSelectedPrintDoc] = useState<DocumentRequest | null>(null);
+
+  // Submitted ID Photo Preview Modal State
+  const [selectedIdPreview, setSelectedIdPreview] = useState<string | null>(null);
+
+  // Document Info / Details Modal State
+  const [selectedInfoDoc, setSelectedInfoDoc] = useState<DocumentRequest | null>(null);
+  const [isDocInfoOpen, setIsDocInfoOpen] = useState(false);
+
+  const openDocInfo = (doc: DocumentRequest) => {
+    setSelectedInfoDoc(doc);
+    setIsDocInfoOpen(true);
+  };
+
+  const openPrintModal = (doc: DocumentRequest) => {
+    setSelectedPrintDoc(doc);
+    setPrintModalOpen(true);
+  };
+
   // Search & Filter
   const [docSearch, setDocSearch] = useState('');
   const [docStatusFilter, setDocStatusFilter] = useState('all');
@@ -91,7 +122,24 @@ export default function AdminDashboard() {
 
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('123');
   const [newUserRole, setNewUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident'>('staff');
+
+  // Category Management (Super Admin only)
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryType, setNewCategoryType] = useState<'barangay' | 'health'>('barangay');
+  const [newCategoryDesc, setNewCategoryDesc] = useState('');
+  const [categories, setCategories] = useState([
+    { id: 1, name: 'Barangay Clearance', type: 'barangay', desc: 'Clearance for general purposes', active: true },
+    { id: 2, name: 'Certificate of Residency', type: 'barangay', desc: 'Proof of residency', active: true },
+    { id: 3, name: 'Business Permit', type: 'barangay', desc: 'Permit for sari-sari stores and businesses', active: true },
+    { id: 4, name: 'Barangay ID', type: 'barangay', desc: 'Official Barangay Identification Card', active: true },
+    { id: 5, name: 'Certificate of Indigency', type: 'barangay', desc: 'For low-income families', active: true },
+    { id: 6, name: 'Medical Certificate', type: 'health', desc: 'General health certificate issued by health center', active: true },
+    { id: 7, name: 'Immunization Card', type: 'health', desc: 'Child immunization record and card', active: true },
+    { id: 8, name: 'Health Clearance', type: 'health', desc: 'Health status clearance for employment/school', active: true },
+  ]);
 
   // Load Data
   const loadData = async () => {
@@ -123,17 +171,25 @@ export default function AdminDashboard() {
         const parsed = JSON.parse(storedUser);
         setUser(parsed);
         if (parsed.role === 'resident') {
-          setIsVisitorMode(true);
+          toast.error('Access Denied', {
+            description: 'Resident accounts cannot access the Barangay Admin Portal.'
+          });
+          navigate('/resident');
+          return;
         } else if (parsed.role !== 'admin' && parsed.role !== 'superadmin' && parsed.role !== 'staff') {
           toast.error('Access Denied', {
-            description: 'You do not have permission to view the Admin Portal.'
+            description: 'You do not have administrative permission to view this portal.'
           });
           navigate('/login');
           return;
         }
       } catch (e) {}
     } else {
-      setIsVisitorMode(true);
+      toast.error('Authentication Required', {
+        description: 'Please sign in with your administrative account.'
+      });
+      navigate('/login');
+      return;
     }
     loadData();
   }, []);
@@ -162,11 +218,23 @@ export default function AdminDashboard() {
   };
 
   const handleUpdateDocStatus = async (id: number, currentStatus: string) => {
-    const nextStatus = currentStatus === 'Pending' ? 'Processing' : currentStatus === 'Processing' ? 'Completed' : 'Completed';
+    const nextStatus = currentStatus === 'Pending' ? 'Processing' : 'Completed';
+    const targetDoc = documents.find(d => d.id === id);
+    const resName = targetDoc?.resident_name || 'Resident';
+
     try {
-      await apiService.updateDocumentStatus(id, nextStatus, 'Admin Juan');
-      setDocuments(documents.map(d => d.id === id ? { ...d, status: nextStatus, processed_at: new Date().toLocaleTimeString(), processed_by: 'Admin Juan' } : d));
-      toast.success(`Document status updated to ${nextStatus}`);
+      await apiService.updateDocumentStatus(id, nextStatus, user?.name || 'Admin Juan');
+      setDocuments(documents.map(d => d.id === id ? { ...d, status: nextStatus, processed_at: new Date().toLocaleTimeString(), processed_by: user?.name || 'Admin Juan' } : d));
+      
+      if (nextStatus === 'Completed') {
+        toast.success(`Document Approved & Ready for Pickup!`, {
+          description: `📲 Auto-SMS sent to ${resName}: "Your document is approved & ready for release at the Barangay Hall."`
+        });
+      } else {
+        toast.info(`Document status set to ${nextStatus}`, {
+          description: `📲 Auto-SMS sent to ${resName}: "Your document is now being processed."`
+        });
+      }
       loadData();
     } catch (err) {
       toast.error('Failed to update document status');
@@ -177,9 +245,28 @@ export default function AdminDashboard() {
     try {
       await apiService.deleteDocument(id);
       setDocuments(documents.filter(d => d.id !== id));
-      toast.success('Document request removed');
     } catch (err) {
       toast.error('Delete failed');
+    }
+  };
+
+  const handleApproveResident = async (id: number) => {
+    try {
+      await apiService.approveResident(id, user?.name || 'Admin Juan');
+      toast.success('Resident application approved! Account is now Verified.');
+      loadData();
+    } catch (err) {
+      toast.error('Failed to approve resident');
+    }
+  };
+
+  const handleRejectResident = async (id: number) => {
+    try {
+      await apiService.rejectResident(id);
+      toast.warning('Resident application rejected.');
+      loadData();
+    } catch (err) {
+      toast.error('Failed to reject resident');
     }
   };
 
@@ -192,7 +279,7 @@ export default function AdminDashboard() {
         last_name: newResLastName,
         date_of_birth: '1990-01-01',
         gender: newResGender,
-        address: newResAddress || 'Zone 1, Barangay Main',
+        address: newResAddress || 'Purok 1, Barangay Pianing, Butuan City',
         household_id: newResHousehold,
         phone: newResPhone || '09170000000'
       });
@@ -266,10 +353,17 @@ export default function AdminDashboard() {
     { id: 'records', label: 'Resident Records', icon: FolderOpen },
     { id: 'users', label: 'User Accounts', icon: Users },
     { id: 'reports', label: 'System Reports', icon: BarChart },
+    ...(user?.role === 'superadmin' ? [{ id: 'categories', label: 'Category Manager', icon: Tag }] : []),
   ];
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
+      {/* Super Admin Unified Ecosystem Switcher */}
+      <SuperAdminNavigationDock
+        currentRole={user?.role}
+        onSelectCategoryTab={user?.role === 'superadmin' ? () => setActiveTab('categories') : undefined}
+      />
+
       {/* Top Navbar */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 py-3 shadow-xs">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
@@ -303,7 +397,7 @@ export default function AdminDashboard() {
                 Switch to BHW Portal
               </Button>
             )}
-            <DatabaseStatusBadge />
+
             <Button
               variant="outline"
               size="sm"
@@ -334,14 +428,21 @@ export default function AdminDashboard() {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                   activeTab === item.id
                     ? 'bg-indigo-600 text-white shadow-md'
                     : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
-                <item.icon size={18} className="shrink-0" />
-                {sidebarOpen && <span>{item.label}</span>}
+                <div className="flex items-center gap-3">
+                  <item.icon size={18} className="shrink-0" />
+                  {sidebarOpen && <span>{item.label}</span>}
+                </div>
+                {sidebarOpen && item.id === 'approvals' && pendingResidents.length > 0 && (
+                  <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0 h-4 border-0 font-bold">
+                    {pendingResidents.length}
+                  </Badge>
+                )}
               </button>
             ))}
           </nav>
@@ -374,6 +475,55 @@ export default function AdminDashboard() {
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
+              {/* Super Admin Unified Ecosystem Command Banner */}
+              {user?.role === 'superadmin' && (
+                <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-5 text-white shadow-xl border border-indigo-500/40 relative overflow-hidden">
+                  <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 relative z-10">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-extrabold px-2 py-0.5 rounded-md flex items-center gap-1">
+                          👑 SUPER ADMINISTRATOR COMMAND CENTER
+                        </span>
+                        <span className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Full Access Active
+                        </span>
+                      </div>
+                      <h3 className="text-lg font-bold text-white">Barangay Pianing Complete Public Ecosystem</h3>
+                      <p className="text-xs text-indigo-200/80 max-w-2xl">
+                        You have master oversight across both Barangay Administrative Operations and the Barangay Health Worker (BHW) Clinic.
+                      </p>
+                    </div>
+
+                    {/* Quick Access Portal Launchers */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => navigate('/bhw')}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-md gap-1.5"
+                      >
+                        <Activity size={14} /> Open BHW Health Hub
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate('/resident/barangay')}
+                        className="bg-indigo-900/60 border-indigo-400/40 text-indigo-200 hover:text-white hover:bg-indigo-800 text-xs gap-1.5"
+                      >
+                        <FileText size={14} /> Resident Brgy Hub
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate('/resident/health')}
+                        className="bg-teal-900/60 border-teal-400/40 text-teal-200 hover:text-white hover:bg-teal-800 text-xs gap-1.5"
+                      >
+                        <Heart size={14} /> Resident Health Hub
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Header Title */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
@@ -423,6 +573,32 @@ export default function AdminDashboard() {
                   </Dialog>
                 </div>
               </div>
+
+              {/* Pending Resident Approvals Alert Banner */}
+              {pendingResidents.length > 0 && (
+                <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-300 dark:border-amber-700/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <UserCheck size={22} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                        {pendingResidents.length} Pending Resident Account {pendingResidents.length > 1 ? 'Registrations' : 'Registration'}
+                      </h4>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                        New resident submitted government ID for account verification. Review & approve to unlock online requests.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => setActiveTab('approvals')}
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs shrink-0 font-semibold shadow-xs"
+                  >
+                    Review Applications →
+                  </Button>
+                </div>
+              )}
 
               {/* Stats Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -500,7 +676,16 @@ export default function AdminDashboard() {
                     <TableBody>
                       {documents.slice(0, 5).map(doc => (
                         <TableRow key={doc.id} className="text-xs">
-                          <TableCell className="font-mono font-semibold text-indigo-600">{doc.request_code}</TableCell>
+                          <TableCell>
+                            <button
+                              onClick={() => openDocInfo(doc)}
+                              className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+                              title="Click to view document info"
+                            >
+                              {doc.request_code}
+                              <Eye size={12} className="opacity-70" />
+                            </button>
+                          </TableCell>
                           <TableCell>
                             <button
                               onClick={() => openResidentProfile(doc.resident_id || 1)}
@@ -526,6 +711,119 @@ export default function AdminDashboard() {
                           </TableCell>
                         </TableRow>
                       ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* TAB: PENDING APPROVALS */}
+          {activeTab === 'approvals' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Resident Account Approvals</h2>
+                    <Badge className="bg-amber-500 text-white text-xs">{pendingResidents.length} Pending</Badge>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Review submitted Government IDs from residents who created an account. Approve to unlock online certificate & clearance requests.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={loadData} className="gap-1.5 text-xs">
+                  <RefreshCcw size={13} className={loading ? "animate-spin" : ""} /> Refresh List
+                </Button>
+              </div>
+
+              <Card className="border-slate-200 bg-white dark:bg-slate-900 shadow-xs">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-bold flex items-center gap-2">
+                    <UserCheck className="text-amber-600" size={18} />
+                    Pending Resident Verification Requests
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                        <TableHead className="text-xs">Resident Name</TableHead>
+                        <TableHead className="text-xs">Contact Info</TableHead>
+                        <TableHead className="text-xs">Address</TableHead>
+                        <TableHead className="text-xs">Submitted ID</TableHead>
+                        <TableHead className="text-xs">Submitted Date</TableHead>
+                        <TableHead className="text-xs">Status</TableHead>
+                        <TableHead className="text-xs text-right">Admin Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pendingResidents.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-xs py-12 text-slate-400">
+                            <CheckCircle size={32} className="mx-auto mb-2 text-emerald-500 opacity-80" />
+                            No pending resident account applications! All registrations have been reviewed.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        pendingResidents.map((r) => (
+                          <TableRow key={r.id} className="text-xs hover:bg-slate-50/50">
+                            <TableCell className="font-semibold text-slate-900 dark:text-white">
+                              {r.name || `${r.first_name || ''} ${r.last_name || ''}`}
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-0.5">
+                                <p className="text-slate-700 dark:text-slate-300 font-medium">{r.email}</p>
+                                <p className="text-[11px] text-slate-400">{r.phone || 'No phone'}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-slate-600 dark:text-slate-400">
+                              {r.address || 'Zone 1'}
+                            </TableCell>
+                            <TableCell>
+                              {r.submitted_id ? (
+                                <button
+                                  onClick={() => setSelectedIdPreview(r.submitted_id)}
+                                  className="flex items-center gap-1.5 text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1 rounded-md transition-colors"
+                                >
+                                  <Eye size={13} />
+                                  <span>View ID Photo</span>
+                                </button>
+                              ) : (
+                                <span className="text-slate-400 text-[11px] italic">No ID attached</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="font-mono text-slate-400 text-[11px]">
+                              {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : 'Recent'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]">
+                                Pending Review
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleApproveResident(r.id)}
+                                  className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-semibold"
+                                >
+                                  <Check size={12} />
+                                  Approve & Verify
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleRejectResident(r.id)}
+                                  className="h-7 text-[11px] gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                                >
+                                  <X size={12} />
+                                  Reject
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -585,28 +883,38 @@ export default function AdminDashboard() {
               </div>
 
               {/* Filters */}
-              <div className="flex flex-col sm:flex-row gap-3 bg-white p-3 rounded-xl border border-slate-200">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                  <Input
-                    placeholder="Search by Resident Name or Request Code..."
-                    value={docSearch}
-                    onChange={e => setDocSearch(e.target.value)}
-                    className="pl-9 h-9 text-xs"
-                  />
+              <div className="flex flex-col sm:flex-row gap-3 bg-white p-3 rounded-xl border border-slate-200 justify-between items-center">
+                <div className="flex flex-1 flex-col sm:flex-row gap-3 w-full">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                    <Input
+                      placeholder="Search by Resident Name or Request Code..."
+                      value={docSearch}
+                      onChange={e => setDocSearch(e.target.value)}
+                      className="pl-9 h-9 text-xs"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Filter size={14} className="text-slate-400" />
+                    <Select value={docStatusFilter} onValueChange={setDocStatusFilter}>
+                      <SelectTrigger className="w-36 h-9 text-xs"><SelectValue placeholder="Status Filter" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="Pending">Pending</SelectItem>
+                        <SelectItem value="Processing">Processing</SelectItem>
+                        <SelectItem value="Completed">Completed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Filter size={14} className="text-slate-400" />
-                  <Select value={docStatusFilter} onValueChange={setDocStatusFilter}>
-                    <SelectTrigger className="w-36 h-9 text-xs"><SelectValue placeholder="Status Filter" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Statuses</SelectItem>
-                      <SelectItem value="Pending">Pending</SelectItem>
-                      <SelectItem value="Processing">Processing</SelectItem>
-                      <SelectItem value="Completed">Completed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <Button
+                  onClick={() => exportToCsv('Barangay_Document_Requests', filteredDocuments)}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
+                >
+                  <Download size={14} /> Export CSV
+                </Button>
               </div>
 
               {/* Full Document Table */}
@@ -634,7 +942,16 @@ export default function AdminDashboard() {
                       ) : (
                         filteredDocuments.map(doc => (
                           <TableRow key={doc.id} className="text-xs">
-                            <TableCell className="font-mono font-semibold text-indigo-600">{doc.request_code}</TableCell>
+                            <TableCell>
+                              <button
+                                onClick={() => openDocInfo(doc)}
+                                className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+                                title="Click to view document info"
+                              >
+                                {doc.request_code}
+                                <Eye size={12} className="opacity-70" />
+                              </button>
+                            </TableCell>
                             <TableCell className="font-semibold text-slate-900">{doc.resident_name}</TableCell>
                             <TableCell>{doc.document_type}</TableCell>
                             <TableCell className="text-slate-500 max-w-[150px] truncate">{doc.purpose || '-'}</TableCell>
@@ -649,6 +966,22 @@ export default function AdminDashboard() {
                             <TableCell className="text-slate-500 text-[11px]">{doc.requested_at || 'Today'}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-1.5">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openDocInfo(doc)}
+                                  className="h-7 text-[11px] gap-1 text-slate-700 border-slate-300 hover:bg-slate-50"
+                                >
+                                  <Eye size={13} /> Details
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openPrintModal(doc)}
+                                  className="h-7 text-[11px] gap-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                                >
+                                  <Printer size={13} /> Print
+                                </Button>
                                 {doc.status !== 'Completed' && (
                                   <Button size="sm" variant="outline" onClick={() => handleUpdateDocStatus(doc.id, doc.status)} className="h-7 text-[11px] gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50">
                                     <Check size={12} />
@@ -734,14 +1067,34 @@ export default function AdminDashboard() {
                 </Dialog>
               </div>
 
-              <div className="relative max-w-md">
-                <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                <Input
-                  placeholder="Search by Name, Household ID, or Address..."
-                  value={residentSearch}
-                  onChange={e => setResidentSearch(e.target.value)}
-                  className="pl-9 h-9 text-xs"
-                />
+              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                  <Input
+                    placeholder="Search by Name, Household ID, or Address..."
+                    value={residentSearch}
+                    onChange={e => setResidentSearch(e.target.value)}
+                    className="pl-9 h-9 text-xs"
+                  />
+                </div>
+                <Button
+                  onClick={() => {
+                    exportToCsv('Barangay_Pianing_Resident_Records', filteredResidents.map(r => ({
+                      'ID': r.id,
+                      'Full Name': `${r.first_name} ${r.last_name}`,
+                      'Gender': r.gender,
+                      'Purok / Address': r.address,
+                      'Household ID': r.household_id,
+                      'Contact Phone': r.phone || 'N/A'
+                    })));
+                    toast.success('Resident records exported (CSV)');
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
+                >
+                  <Download size={14} /> Export Residents (CSV)
+                </Button>
               </div>
 
               <Card className="border-slate-200 bg-white">
@@ -788,51 +1141,59 @@ export default function AdminDashboard() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                   <h2 className="text-xl font-bold text-slate-900 dark:text-white">System Accounts Management</h2>
-                  <p className="text-xs text-slate-500">Authorized Admin, BHW, and Resident portal credentials stored in MySQL <code className="font-mono text-indigo-600">users</code> table.</p>
+                  <p className="text-xs text-slate-500">
+                    {user?.role === 'superadmin'
+                      ? 'Full account control — create, manage, or delete any system user.'
+                      : 'View admin, staff, and BHW accounts. Account management is restricted to Super Admin.'}
+                  </p>
                 </div>
 
-                <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm">
-                      <UserPlus size={15} />
-                      Add System Account
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-white">
-                    <DialogHeader>
-                      <DialogTitle>Add System User</DialogTitle>
-                      <DialogDescription className="text-xs">Grant login access to an official or health nurse.</DialogDescription>
-                    </DialogHeader>
-                    <form onSubmit={handleCreateUser} className="space-y-3 py-2">
-                      <div>
-                        <Label className="text-xs">Full Name</Label>
-                        <Input value={newUserName} onChange={e => setNewUserName(e.target.value)} required placeholder="e.g. Dr. Roberto Cruz" />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Email Address</Label>
-                        <Input type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} required placeholder="roberto.nurse@barangay.gov" />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Role</Label>
-                        <Select value={newUserRole} onValueChange={(val: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident') => setNewUserRole(val)}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {user?.role === 'superadmin' && (
+                {/* Only Super Admin can add new accounts */}
+                {user?.role === 'superadmin' && (
+                  <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm">
+                        <UserPlus size={15} />
+                        Add System Account
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-white">
+                      <DialogHeader>
+                        <DialogTitle>Add System User</DialogTitle>
+                        <DialogDescription className="text-xs">Grant login access to an official or health nurse.</DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleCreateUser} className="space-y-3 py-2">
+                        <div>
+                          <Label className="text-xs">Full Name</Label>
+                          <Input value={newUserName} onChange={e => setNewUserName(e.target.value)} required placeholder="e.g. Dr. Roberto Cruz" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Email Address</Label>
+                          <Input type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} required placeholder="roberto.nurse@barangay.gov" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Password</Label>
+                          <Input type="password" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} placeholder="Default: 123" required />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Role</Label>
+                          <Select value={newUserRole} onValueChange={(val: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident') => setNewUserRole(val)}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
                               <SelectItem value="superadmin">Super Admin</SelectItem>
-                            )}
-                            <SelectItem value="admin">Barangay Admin</SelectItem>
-                            <SelectItem value="staff">Barangay Staff</SelectItem>
-                            <SelectItem value="bhw">BHW (Barangay Health Worker)</SelectItem>
-                            <SelectItem value="resident">Resident</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <DialogFooter>
-                        <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white">Create Account</Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
+                              <SelectItem value="admin">Barangay Admin</SelectItem>
+                              <SelectItem value="staff">Barangay Staff</SelectItem>
+                              <SelectItem value="bhw">BHW (Barangay Health Worker)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <DialogFooter>
+                          <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white">Create Account</Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
 
               <Card className="border-slate-200 bg-white">
@@ -850,17 +1211,25 @@ export default function AdminDashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {users.map(u => (
+                      {users
+                        .filter(u => {
+                          // Barangay Admin: cannot see resident accounts
+                          if (user?.role === 'admin') return u.role !== 'resident';
+                          return true;
+                        })
+                        .map(u => (
                         <TableRow key={u.id} className="text-xs">
                           <TableCell className="font-mono text-slate-400">#{u.id}</TableCell>
                           <TableCell className="font-semibold text-slate-900">{u.name}</TableCell>
                           <TableCell className="font-mono text-slate-600">{u.email}</TableCell>
                           <TableCell>
                             <Badge variant="outline" className={
+                              u.role === 'superadmin' ? 'border-violet-500 text-violet-700 bg-violet-50' :
                               u.role === 'admin' ? 'border-indigo-500 text-indigo-700 bg-indigo-50' :
-                              u.role === 'nurse' ? 'border-blue-500 text-blue-700 bg-blue-50' : 'border-slate-300'
+                              u.role === 'bhw' ? 'border-emerald-500 text-emerald-700 bg-emerald-50' :
+                              u.role === 'staff' ? 'border-blue-500 text-blue-700 bg-blue-50' : 'border-slate-300'
                             }>
-                              {u.role.toUpperCase()}
+                              {u.role === 'superadmin' ? 'SUPER ADMIN' : u.role.toUpperCase()}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -870,9 +1239,14 @@ export default function AdminDashboard() {
                           </TableCell>
                           <TableCell className="text-slate-500 text-[11px]">{u.last_login || 'Never'}</TableCell>
                           <TableCell className="text-right">
-                            <Button size="sm" variant="ghost" onClick={() => handleDeleteUser(u.id)} className="h-7 text-red-600 hover:bg-red-50">
-                              <Trash2 size={13} />
-                            </Button>
+                            {/* Only Super Admin can delete accounts */}
+                            {user?.role === 'superadmin' ? (
+                              <Button size="sm" variant="ghost" onClick={() => handleDeleteUser(u.id)} className="h-7 text-red-600 hover:bg-red-50">
+                                <Trash2 size={13} />
+                              </Button>
+                            ) : (
+                              <span className="text-slate-300 text-[11px] italic">View only</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -883,123 +1257,332 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 6: PENDING APPROVALS */}
-          {activeTab === 'approvals' && (
+
+
+          {/* TAB: CATEGORY MANAGER (Super Admin Only) */}
+          {activeTab === 'categories' && user?.role === 'superadmin' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Resident Account Verification Queue</h2>
-                <p className="text-xs text-slate-500">Review submitted Government IDs and approve or reject resident portal accounts.</p>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Category Manager</h2>
+                  <p className="text-xs text-slate-500">Add or manage document categories available to Barangay and Health Center portals.</p>
+                </div>
+                <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1.5 shadow-sm">
+                      <PlusCircle size={15} />
+                      Add Category
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-white">
+                    <DialogHeader>
+                      <DialogTitle>Add Document Category</DialogTitle>
+                      <DialogDescription className="text-xs">Define a new document type available for residents to request.</DialogDescription>
+                    </DialogHeader>
+                    <form
+                      onSubmit={e => {
+                        e.preventDefault();
+                        if (!newCategoryName.trim()) return;
+                        setCategories(prev => [
+                          ...prev,
+                          { id: Date.now(), name: newCategoryName.trim(), type: newCategoryType, desc: newCategoryDesc.trim(), active: true }
+                        ]);
+                        setNewCategoryName('');
+                        setNewCategoryDesc('');
+                        setIsAddCategoryOpen(false);
+                        toast.success(`Category "${newCategoryName}" added successfully.`);
+                      }}
+                      className="space-y-3 py-2"
+                    >
+                      <div>
+                        <Label className="text-xs">Category Name</Label>
+                        <Input value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} required placeholder="e.g. Solo Parent ID" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Portal Type</Label>
+                        <Select value={newCategoryType} onValueChange={(val: 'barangay' | 'health') => setNewCategoryType(val)}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="barangay">Barangay Portal</SelectItem>
+                            <SelectItem value="health">Health Center Portal</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Description</Label>
+                        <Input value={newCategoryDesc} onChange={e => setNewCategoryDesc(e.target.value)} placeholder="Short description of purpose" />
+                      </div>
+                      <DialogFooter>
+                        <Button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white">Save Category</Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
               </div>
 
-              <Card className="border-slate-200 bg-white">
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Resident Name</TableHead>
-                        <TableHead className="text-xs">Email</TableHead>
-                        <TableHead className="text-xs">Contact Phone</TableHead>
-                        <TableHead className="text-xs">Address</TableHead>
-                        <TableHead className="text-xs">Submitted Date</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {pendingResidents.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center text-xs py-8 text-slate-400">
-                            No pending resident accounts to review.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        pendingResidents.map(item => (
-                          <TableRow key={item.id} className="text-xs">
-                            <TableCell className="font-semibold text-slate-900">{item.name || `${item.first_name} ${item.last_name}`}</TableCell>
-                            <TableCell>{item.email}</TableCell>
-                            <TableCell className="font-mono">{item.phone || 'N/A'}</TableCell>
-                            <TableCell className="max-w-[150px] truncate">{item.address || 'N/A'}</TableCell>
-                            <TableCell className="font-mono text-slate-400 text-[11px]">{item.submitted_at || 'Just now'}</TableCell>
-                            <TableCell>
-                              <Badge className="bg-amber-500">{item.verification_status || 'Pending_Review'}</Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                <Dialog>
-                                  <DialogTrigger asChild>
-                                    <Button size="sm" variant="outline" className="h-7 text-[11px] border-slate-300">
-                                      View ID
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent className="bg-white">
-                                    <DialogHeader>
-                                      <DialogTitle>Government ID Document</DialogTitle>
-                                      <DialogDescription className="text-xs">Uploaded identification image for {item.name || `${item.first_name} ${item.last_name}`}</DialogDescription>
-                                    </DialogHeader>
-                                    <div className="flex items-center justify-center p-4 border rounded-lg bg-slate-50 min-h-[200px]">
-                                      {item.submitted_id ? (
-                                        <img src={item.submitted_id} alt="Government ID" className="max-h-[300px] object-contain rounded-md shadow-sm" />
-                                      ) : (
-                                        <div className="text-slate-400 text-xs text-center">
-                                          <AlertCircle size={32} className="mx-auto mb-2 text-slate-300" />
-                                          No ID photo uploaded (Using default fallback ID for demo)
-                                          <div className="mt-4 p-3 bg-white border rounded text-[10px] text-slate-500 max-w-xs mx-auto leading-relaxed">
-                                            [Demo Government ID Card: Juan Dela Cruz, Barangay Resident ID #BR-99120]
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </DialogContent>
-                                </Dialog>
-
-                                <Button
-                                  size="sm"
-                                  onClick={async () => {
-                                    try {
-                                      await apiService.approveResident(item.id, user?.name || 'Admin Juan');
-                                      toast.success('Resident account approved successfully');
-                                      loadData();
-                                    } catch (e) {
-                                      toast.error('Failed to approve account');
-                                    }
-                                  }}
-                                  className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
-                                >
-                                  Approve
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={async () => {
-                                    try {
-                                      await apiService.rejectResident(item.id);
-                                      toast.success('Resident registration rejected');
-                                      loadData();
-                                    } catch (e) {
-                                      toast.error('Failed to reject registration');
-                                    }
-                                  }}
-                                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white"
-                                >
-                                  Reject
-                                </Button>
-                              </div>
-                            </TableCell>
+              {/* Barangay Categories */}
+              <div className="grid gap-6">
+                {(['barangay', 'health'] as const).map(type => (
+                  <Card key={type} className="border-slate-200 bg-white">
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="text-sm font-bold flex items-center gap-2">
+                        {type === 'barangay'
+                          ? <><Shield size={15} className="text-indigo-500" /> Barangay Portal Categories</>
+                          : <><Activity size={15} className="text-emerald-500" /> Health Center Portal Categories</>}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50">
+                            <TableHead className="text-xs">Category Name</TableHead>
+                            <TableHead className="text-xs">Description</TableHead>
+                            <TableHead className="text-xs">Status</TableHead>
+                            <TableHead className="text-xs text-right">Actions</TableHead>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                        </TableHeader>
+                        <TableBody>
+                          {categories.filter(c => c.type === type).map(cat => (
+                            <TableRow key={cat.id} className="text-xs">
+                              <TableCell className="font-semibold text-slate-800 flex items-center gap-2">
+                                <Tag size={13} className={type === 'barangay' ? 'text-indigo-400' : 'text-emerald-400'} />
+                                {cat.name}
+                              </TableCell>
+                              <TableCell className="text-slate-500">{cat.desc}</TableCell>
+                              <TableCell>
+                                <Badge className={cat.active ? 'bg-emerald-600' : 'bg-slate-400'}>{cat.active ? 'Active' : 'Inactive'}</Badge>
+                              </TableCell>
+                              <TableCell className="text-right flex items-center justify-end gap-1">
+                                <Button
+                                  size="sm" variant="outline"
+                                  onClick={() => {
+                                    setCategories(prev => prev.map(c => c.id === cat.id ? { ...c, active: !c.active } : c));
+                                    toast.success(`${cat.name} ${cat.active ? 'deactivated' : 'activated'}.`);
+                                  }}
+                                  className="h-7 text-[11px] gap-1"
+                                >
+                                  {cat.active ? 'Deactivate' : 'Activate'}
+                                </Button>
+                                <Button
+                                  size="sm" variant="ghost"
+                                  onClick={() => {
+                                    setCategories(prev => prev.filter(c => c.id !== cat.id));
+                                    toast.success(`"${cat.name}" removed.`);
+                                  }}
+                                  className="h-7 text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 size={13} />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
+
+
 
           {/* TAB 5: SYSTEM REPORTS */}
           {activeTab === 'reports' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Barangay System Analytics & MySQL Reports</h2>
-                <p className="text-xs text-slate-500">Summary reports generated directly from database tables.</p>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Barangay Administrative & System Reports</h2>
+                  <p className="text-xs text-slate-500">Official Barangay Pianing, Butuan City analytics, resident registry, and database export center.</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    onClick={() => {
+                      exportToCsv('Barangay_Pianing_All_Clearances_Log', documents.map(d => ({
+                        'Request Code': d.request_code,
+                        'Resident Name': d.resident_name,
+                        'Document Type': d.document_type,
+                        'Purpose': d.purpose,
+                        'Status': d.status,
+                        'Requested Date': d.requested_at || 'Recent',
+                        'Processed By': d.processed_by || 'Pending',
+                        'Processed Date': d.processed_at || 'N/A'
+                      })));
+                      toast.success('Clearance records downloaded (CSV)');
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 border-slate-300"
+                  >
+                    <Download size={13} /> Export Clearances (CSV)
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      exportToCsv('Barangay_Pianing_Resident_Demographics', residents.map(r => ({
+                        'Resident ID': r.id,
+                        'First Name': r.first_name,
+                        'Last Name': r.last_name,
+                        'Gender': r.gender,
+                        'Address': r.address,
+                        'Household ID': r.household_id,
+                        'Phone': r.phone || 'N/A',
+                        'Email': r.email || 'N/A',
+                        'Verification Status': (r as any).verification_status || 'Verified'
+                      })));
+                      toast.success('Resident registry downloaded (CSV)');
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 border-slate-300"
+                  >
+                    <Download size={13} /> Export Residents (CSV)
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      printOfficialReport({
+                        title: 'Official Barangay System & Administrative Report',
+                        subtitle: 'Barangay Pianing, Butuan City, Agusan del Norte • Administrative Operations & Registry',
+                        department: 'Office of the Barangay Captain • Administrative Division',
+                        preparedBy: user?.name || 'Admin Juan Dela Cruz',
+                        preparedByTitle: user?.role === 'superadmin' ? 'Super Administrator' : user?.role === 'staff' ? 'Barangay Staff / Clerk' : 'Barangay Administrator',
+                        stats: [
+                          { label: 'Total Residents', value: residents.length, color: '#2563eb' },
+                          { label: 'Clearance Requests', value: documents.length, color: '#4f46e5' },
+                          { label: 'Completed Clearances', value: documents.filter(d => d.status === 'Completed').length, color: '#059669' },
+                          { label: 'Pending Approvals', value: pendingResidents.length, color: '#d97706' }
+                        ],
+                        tables: [
+                          {
+                            title: 'Recent Document Clearances & Certification Issuances',
+                            headers: ['Control Code', 'Resident Applicant', 'Document Type', 'Status', 'Date'],
+                            rows: documents.slice(0, 10).map(d => [
+                              d.request_code,
+                              d.resident_name,
+                              d.document_type,
+                              d.status,
+                              d.requested_at || 'Recent'
+                            ])
+                          },
+                          {
+                            title: 'Barangay Resident Demographic Sample',
+                            headers: ['Resident ID', 'Full Name', 'Gender', 'Purok / Address', 'Household ID', 'Contact'],
+                            rows: residents.slice(0, 10).map(r => [
+                              `#${r.id}`,
+                              `${r.first_name} ${r.last_name}`,
+                              r.gender,
+                              r.address,
+                              r.household_id,
+                              r.phone || 'N/A'
+                            ])
+                          }
+                        ]
+                      });
+                    }}
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs font-semibold"
+                  >
+                    <Printer size={13} /> Print Official System Report
+                  </Button>
+                </div>
+              </div>
+
+              {/* Data Export Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="border-indigo-200 bg-indigo-50/50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                      <FolderOpen size={16} className="text-indigo-600" />
+                      Resident Registry Dataset
+                    </CardTitle>
+                    <CardDescription className="text-[11px] text-indigo-700">Demographic census & household records</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-slate-600 mb-3">Total registered residents: <strong>{residents.length}</strong> in database.</p>
+                    <Button
+                      onClick={() => {
+                        exportToCsv('Barangay_Pianing_Resident_Census_Export', residents.map(r => ({
+                          'ID': r.id,
+                          'Name': `${r.first_name} ${r.last_name}`,
+                          'Gender': r.gender,
+                          'Address': r.address,
+                          'Household': r.household_id,
+                          'Phone': r.phone
+                        })));
+                        toast.success('Resident census dataset exported');
+                      }}
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-xs h-7 text-indigo-700 border-indigo-300 hover:bg-indigo-100"
+                    >
+                      <Download size={12} className="mr-1" /> Export Full Census (CSV)
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-emerald-200 bg-emerald-50/50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                      <FileText size={16} className="text-emerald-600" />
+                      Document Clearances Log
+                    </CardTitle>
+                    <CardDescription className="text-[11px] text-emerald-700">Clearances, permits & certificate requests</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-slate-600 mb-3">Total processed requests: <strong>{documents.length}</strong> documents.</p>
+                    <Button
+                      onClick={() => {
+                        exportToCsv('Barangay_Pianing_Clearance_Requests_Master', documents.map(d => ({
+                          'Code': d.request_code,
+                          'Applicant': d.resident_name,
+                          'Type': d.document_type,
+                          'Purpose': d.purpose,
+                          'Status': d.status,
+                          'Processed By': d.processed_by
+                        })));
+                        toast.success('Clearance requests master list exported');
+                      }}
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-xs h-7 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                    >
+                      <Download size={12} className="mr-1" /> Export Clearances Master (CSV)
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-blue-200 bg-blue-50/50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                      <Users size={16} className="text-blue-600" />
+                      System User Accounts
+                    </CardTitle>
+                    <CardDescription className="text-[11px] text-blue-700">Administrator, BHW & staff account list</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-slate-600 mb-3">Active authorized accounts: <strong>{users.length}</strong> users.</p>
+                    <Button
+                      onClick={() => {
+                        exportToCsv('Barangay_Pianing_System_Users_List', users.map(u => ({
+                          'User ID': u.id,
+                          'Full Name': u.name,
+                          'Email Address': u.email,
+                          'Assigned Role': u.role,
+                          'Status': u.status,
+                          'Last Login': u.last_login || 'Never'
+                        })));
+                        toast.success('System user accounts list exported');
+                      }}
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-xs h-7 text-blue-700 border-blue-300 hover:bg-blue-100"
+                    >
+                      <Download size={12} className="mr-1" /> Export User Accounts (CSV)
+                    </Button>
+                  </CardContent>
+                </Card>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1043,8 +1626,8 @@ export default function AdminDashboard() {
                       <p className="text-[11px] text-emerald-700 mt-1">Average document processing turn-around time: 15 minutes.</p>
                     </div>
                     <div className="p-3 bg-blue-50 rounded-xl border border-blue-200">
-                      <h4 className="font-bold text-xs text-blue-900">Database Driver Health</h4>
-                      <p className="text-[11px] text-blue-700 mt-1">Connected via MySQL2 connection pool with automatic error recovery.</p>
+                      <h4 className="font-bold text-xs text-blue-900">Barangay Pianing Database Driver Health</h4>
+                      <p className="text-[11px] text-blue-700 mt-1">Active MySQL2 connection pool with automatic error recovery.</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -1059,10 +1642,56 @@ export default function AdminDashboard() {
 
       {/* Resident 360° Profile Modal */}
       <ResidentProfileModal
-        residentId={selectedResidentId}
         isOpen={profileModalOpen}
-        onClose={() => { setProfileModalOpen(false); setSelectedResidentId(null); }}
+        onClose={() => setProfileModalOpen(false)}
+        residentId={selectedResidentId}
       />
+
+      {/* Official Document Print & Download Modal */}
+      <DocumentPrintModal
+        isOpen={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        document={selectedPrintDoc}
+      />
+
+      {/* Document Info / Specifics Viewer Modal */}
+      <DocumentInfoModal
+        isOpen={isDocInfoOpen}
+        onClose={() => setIsDocInfoOpen(false)}
+        document={selectedInfoDoc}
+        onUpdateStatus={(id, status) => handleUpdateDocStatus(id, status)}
+        onPrint={(doc) => openPrintModal(doc)}
+        canEdit={true}
+      />
+
+      {/* Submitted Government ID Photo Preview Modal */}
+      <Dialog open={!!selectedIdPreview} onOpenChange={(open) => !open && setSelectedIdPreview(null)}>
+        <DialogContent className="bg-white dark:bg-slate-900 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold flex items-center gap-2">
+              <Shield className="text-indigo-600" size={18} />
+              Submitted Resident Government ID
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Review the uploaded identification document to verify resident authenticity.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 flex items-center justify-center min-h-[220px]">
+            {selectedIdPreview ? (
+              <img
+                src={selectedIdPreview}
+                alt="Submitted Government ID"
+                className="max-h-[380px] w-auto max-w-full object-contain rounded-lg shadow-sm"
+              />
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button size="sm" variant="outline" onClick={() => setSelectedIdPreview(null)} className="text-xs">
+              Close Preview
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

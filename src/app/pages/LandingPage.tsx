@@ -1,6 +1,5 @@
 import { useNavigate } from 'react-router';
 import { FileText, Users, Baby, Bell, BarChart, Shield, ArrowRight, Activity, Database, CheckCircle2 } from 'lucide-react';
-import DatabaseStatusBadge from '../components/DatabaseStatusBadge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -63,7 +62,7 @@ export default function LandingPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <DatabaseStatusBadge />
+
             <Button
               onClick={() => navigate('/login')}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 px-4 shadow-sm"
@@ -78,13 +77,13 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12 text-center">
         <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 px-3 py-1 mb-4 text-xs font-semibold rounded-full">
-          ✨ Powered by Tailwind CSS, shadcn/ui & MySQL Database
+          ✨ Barangay Pianing, Butuan City, Agusan del Norte
         </Badge>
         <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4 max-w-4xl mx-auto leading-tight">
-          Modern Digital Transformation for <span className="text-blue-600">Barangay Administration</span> & Public Health
+          Modern Digital Transformation for <span className="text-blue-600">Barangay Pianing</span>, Butuan City
         </h1>
         <p className="text-lg text-slate-600 dark:text-slate-400 max-w-3xl mx-auto mb-8 leading-relaxed">
-          An integrated web system streamlining document clearance processing, resident household management, maternal care schedules, infant immunization tracking, and SMS alert dispatch.
+          An integrated web system streamlining document clearance processing, resident household management, maternal care schedules, infant immunization tracking, and SMS alert dispatch for Barangay Pianing.
         </p>
 
         <div className="flex justify-center">

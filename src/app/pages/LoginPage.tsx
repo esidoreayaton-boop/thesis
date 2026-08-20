@@ -25,7 +25,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   
   // Login State
-  const [email, setEmail] = useState('maria.bhw@barangay.gov');
+  const [email, setEmail] = useState('admin@barangay.gov');
   const [password, setPassword] = useState('123');
   const [loading, setLoading] = useState(false);
 
@@ -50,24 +50,44 @@ export default function LoginPage() {
     }
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const inferNameFromEmail = (emailStr: string): string => {
+    const e = (emailStr || '').toLowerCase();
+    if (e.includes('superadmin')) return 'Super Admin Rodrigo Lim';
+    if (e.includes('admin')) return 'Captain Juan Dela Cruz (Admin)';
+    if (e.includes('staff')) return 'Barangay Staff Ana Reyes';
+    if (e.includes('bhw')) return 'Nurse Maria Santos (BHW)';
+    if (e.includes('resident')) return 'Juan Resident Dela Cruz';
+    return 'Barangay User';
+  };
+
+  const executeLogin = async (targetEmail: string, targetPassword?: string) => {
+    const passToUse = targetPassword !== undefined ? targetPassword : password;
     setLoading(true);
     try {
-      const res = await apiService.login(email);
+      const res = await apiService.login(targetEmail, passToUse);
+      if (!res || res.success === false) {
+        toast.error('Invalid password', {
+          description: res?.message || 'Please check your email and password.'
+        });
+        return;
+      }
+
       const user = res.user;
-      if (!user) throw new Error('User not found');
-      
+      if (!user) {
+        toast.error('Account not found');
+        return;
+      }
+
       localStorage.setItem('barangay_user', JSON.stringify(user));
       
       if (user.role === 'resident') {
         setIsChoiceModalOpen(true);
       } else {
         const portalLabel = user.role === 'superadmin' ? 'Super Admin Portal'
-          : user.role === 'admin' ? 'Admin Portal'
+          : user.role === 'admin' ? 'Barangay Admin Portal'
           : user.role === 'staff' ? 'Barangay Staff Portal'
-          : 'BHW Health Portal';
-        toast.success(`Welcome back, ${user.name}!`, { description: `Accessing ${portalLabel}` });
+          : 'BHW Health Center Portal';
+        toast.success(`Welcome back, ${user.name}!`, { description: `Opening ${portalLabel}...` });
         
         if (user.role === 'superadmin' || user.role === 'admin' || user.role === 'staff') {
           navigate('/admin');
@@ -76,37 +96,15 @@ export default function LoginPage() {
         }
       }
     } catch (err) {
-      // Fallback
-      const inferredRole = inferRoleFromEmail(email);
-      const user = {
-        id: 1,
-        name: inferredRole === 'superadmin' ? 'Super Admin'
-          : inferredRole === 'admin' ? 'Juan Admin'
-          : inferredRole === 'staff' ? 'Pedro Staff'
-          : inferredRole === 'bhw' ? 'BHW Maria'
-          : 'Juan Resident',
-        email,
-        role: inferredRole
-      };
-      localStorage.setItem('barangay_user', JSON.stringify(user));
-      
-      if (inferredRole === 'resident') {
-        setIsChoiceModalOpen(true);
-      } else {
-        const portalLabel = inferredRole === 'superadmin' ? 'Super Admin Portal'
-          : inferredRole === 'admin' ? 'Admin Portal'
-          : inferredRole === 'staff' ? 'Barangay Staff Portal'
-          : 'BHW Health Portal';
-        toast.info(`Logged in: Accessing ${portalLabel}`);
-        if (inferredRole === 'superadmin' || inferredRole === 'admin' || inferredRole === 'staff') {
-          navigate('/admin');
-        } else if (inferredRole === 'bhw') {
-          navigate('/bhw');
-        }
-      }
+      toast.error('Login failed', { description: 'Please check your connection and try again.' });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    executeLogin(email, password);
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -159,8 +157,6 @@ export default function LoginPage() {
             <p className="text-xs text-slate-500 font-medium">Public Health & Admin Ecosystem</p>
           </div>
         </div>
-
-        <DatabaseStatusBadge />
       </header>
 
       {/* Main Login / Signup Card */}
@@ -245,14 +241,26 @@ export default function LoginPage() {
                     <Input type="email" value={regEmail} onChange={e => setRegEmail(e.target.value)} placeholder="name@domain.com" required className="h-9 text-xs" />
                   </div>
 
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-slate-700">Account Password</Label>
+                    <Input
+                      type="password"
+                      value={regPassword}
+                      onChange={e => setRegPassword(e.target.value)}
+                      placeholder="Create a password (e.g. 123)"
+                      required
+                      className="h-9 text-xs"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label className="text-xs font-semibold text-slate-700">Mobile Phone</Label>
                       <Input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder="09171234567" className="h-9 text-xs" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-slate-700">Zone / Address</Label>
-                      <Input value={regAddress} onChange={e => setRegAddress(e.target.value)} placeholder="Zone 2, Narra Ave" className="h-9 text-xs" />
+                      <Label className="text-xs font-semibold text-slate-700">Purok / Address</Label>
+                      <Input value={regAddress} onChange={e => setRegAddress(e.target.value)} placeholder="Purok 1, Barangay Pianing, Butuan City" className="h-9 text-xs" />
                     </div>
                   </div>
 
@@ -293,85 +301,6 @@ export default function LoginPage() {
           </CardFooter>
         </Card>
 
-        {/* Demo Credentials Panel */}
-        <div className="w-full max-w-md mt-6 bg-slate-100/90 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs">
-          <h3 className="text-xs font-bold text-slate-800 dark:text-white mb-2.5 text-center flex items-center justify-center gap-1.5">
-            <Shield size={14} className="text-indigo-600" />
-            Quick Login Presets (Demo Accounts)
-          </h3>
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <button
-              onClick={() => { setEmail('superadmin@barangay.gov'); setPassword('123'); toast.info('Super Admin credentials loaded'); }}
-              className="flex items-center gap-2 p-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 text-left font-medium transition-all cursor-pointer"
-            >
-              <Shield size={14} className="text-purple-600 shrink-0" />
-              <div>
-                <p className="font-semibold leading-tight">Super Admin</p>
-                <p className="text-[10px] text-slate-400 font-mono">superadmin@barangay.gov</p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setEmail('juan.admin@barangay.gov'); setPassword('123'); toast.info('Admin credentials loaded'); }}
-              className="flex items-center gap-2 p-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 text-left font-medium transition-all cursor-pointer"
-            >
-              <Shield size={14} className="text-indigo-600 shrink-0" />
-              <div>
-                <p className="font-semibold leading-tight">Brgy Admin</p>
-                <p className="text-[10px] text-slate-400 font-mono">juan.admin@barangay.gov</p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setEmail('pedro.staff@barangay.gov'); setPassword('123'); toast.info('Staff credentials loaded'); }}
-              className="flex items-center gap-2 p-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 text-left font-medium transition-all cursor-pointer"
-            >
-              <UserCircle size={14} className="text-emerald-600 shrink-0" />
-              <div>
-                <p className="font-semibold leading-tight">Barangay Staff</p>
-                <p className="text-[10px] text-slate-400 font-mono">pedro.staff@barangay.gov</p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setEmail('maria.bhw@barangay.gov'); setPassword('123'); toast.info('BHW credentials loaded'); }}
-              className="flex items-center gap-2 p-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 text-left font-medium transition-all cursor-pointer"
-            >
-              <Activity size={14} className="text-blue-600 shrink-0" />
-              <div>
-                <p className="font-semibold leading-tight">BHW Staff</p>
-                <p className="text-[10px] text-slate-400 font-mono">maria.bhw@barangay.gov</p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setEmail('juan.resident@gmail.com'); setPassword('123'); toast.info('Resident credentials loaded'); }}
-              className="flex items-center gap-2 p-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 text-left font-medium transition-all cursor-pointer"
-            >
-              <UserCheck size={14} className="text-teal-600 shrink-0" />
-              <div>
-                <p className="font-semibold leading-tight">Resident (Verified)</p>
-                <p className="text-[10px] text-slate-400 font-mono">juan.resident@gmail.com</p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                const unverifiedUser = { id: 101, name: 'Josefina Villanueva (Visitor)', email: 'josefina@gmail.com', role: 'resident', verification_status: 'Pending_Review' };
-                localStorage.setItem('barangay_user', JSON.stringify(unverifiedUser));
-                toast.info('Visitor/Pending Resident session loaded');
-                navigate('/resident');
-              }}
-              className="flex items-center gap-2 p-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 text-left font-medium transition-all cursor-pointer"
-            >
-              <AlertCircle size={14} className="text-amber-600 shrink-0" />
-              <div>
-                <p className="font-semibold leading-tight">Resident (Visitor)</p>
-                <p className="text-[10px] text-slate-400">Click to enter as guest</p>
-              </div>
-            </button>
-          </div>
-        </div>
       </main>
 
       {/* Portal Choice Modal - Residents Only */}

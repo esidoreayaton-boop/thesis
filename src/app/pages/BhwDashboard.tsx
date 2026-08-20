@@ -19,12 +19,21 @@ import {
   Search,
   PhoneCall,
   Calendar,
-  Shield
+  Shield,
+  Printer,
+  Download,
+  FileText,
+  Eye,
+  Check
 } from 'lucide-react';
-import { apiService, ImmunizationRecord, MaternalRecord, SmsNotification } from '../../services/api';
-import DatabaseStatusBadge from '../components/DatabaseStatusBadge';
+import { apiService, ImmunizationRecord, MaternalRecord, SmsNotification, DocumentRequest } from '../../services/api';
 import SystemMessenger from '../components/SystemMessenger';
 import ResidentProfileModal from '../components/ResidentProfileModal';
+import DocumentPrintModal from '../components/DocumentPrintModal';
+import DocumentInfoModal from '../components/DocumentInfoModal';
+import SmsDetailsModal from '../components/SmsDetailsModal';
+import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
+import { exportToCsv } from '../../utils/exportCsv';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -49,12 +58,31 @@ export default function BhwDashboard() {
   const [immunizations, setImmunizations] = useState<ImmunizationRecord[]>([]);
   const [maternalRecords, setMaternalRecords] = useState<MaternalRecord[]>([]);
   const [notifications, setNotifications] = useState<SmsNotification[]>([]);
+  const [documents, setDocuments] = useState<DocumentRequest[]>([]);
   const [stats, setStats] = useState({
     childrenMonitored: 245,
     maternalRecords: 89,
     vaccinationsMonth: 156,
     overdueImmunizations: 12
   });
+
+  // Document Info Modal State
+  const [selectedInfoDoc, setSelectedInfoDoc] = useState<DocumentRequest | null>(null);
+  const [isDocInfoOpen, setIsDocInfoOpen] = useState(false);
+
+  // Document Print Modal State
+  const [selectedPrintDoc, setSelectedPrintDoc] = useState<DocumentRequest | null>(null);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+
+  const openDocInfo = (doc: DocumentRequest) => {
+    setSelectedInfoDoc(doc);
+    setIsDocInfoOpen(true);
+  };
+
+  const openPrintModal = (doc: DocumentRequest) => {
+    setSelectedPrintDoc(doc);
+    setPrintModalOpen(true);
+  };
 
   // Resident Profile Modal
   const [profileModalOpen, setProfileModalOpen] = useState(false);
@@ -65,9 +93,21 @@ export default function BhwDashboard() {
     setProfileModalOpen(true);
   };
 
-  // Search
+  // SMS Details Modal State
+  const [selectedSms, setSelectedSms] = useState<SmsNotification | null>(null);
+  const [isSmsDetailsOpen, setIsSmsDetailsOpen] = useState(false);
+
+  const openSmsDetails = (sms: SmsNotification) => {
+    setSelectedSms(sms);
+    setIsSmsDetailsOpen(true);
+  };
+
+  // Search & Filters
   const [immSearch, setImmSearch] = useState('');
   const [maternalSearch, setMaternalSearch] = useState('');
+  const [docSearch, setDocSearch] = useState('');
+  const [smsSearch, setSmsSearch] = useState('');
+  const [smsFilterType, setSmsFilterType] = useState('all');
 
   // Modals state
   const [isAddImmOpen, setIsAddImmOpen] = useState(false);
@@ -97,20 +137,46 @@ export default function BhwDashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [immData, matData, smsData, statsData] = await Promise.all([
+      const [immData, matData, smsData, statsData, docsData] = await Promise.all([
         apiService.getImmunizations(),
         apiService.getMaternalRecords(),
         apiService.getNotifications(),
-        apiService.getBhwStats()
+        apiService.getBhwStats(),
+        apiService.getDocuments()
       ]);
       setImmunizations(immData);
       setMaternalRecords(matData);
       setNotifications(smsData);
       setStats(statsData);
+      setDocuments(docsData || []);
     } catch (err) {
       toast.error('Failed to load health monitoring data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdateDocStatus = async (id: number, currentStatus: string) => {
+    const nextStatus = currentStatus === 'Pending' ? 'Processing' : 'Completed';
+    const targetDoc = documents.find(d => d.id === id);
+    const resName = targetDoc?.resident_name || 'Resident';
+
+    try {
+      await apiService.updateDocumentStatus(id, nextStatus, user?.name || 'Nurse Maria (BHW)');
+      setDocuments(documents.map(d => d.id === id ? { ...d, status: nextStatus, processed_at: new Date().toLocaleDateString(), processed_by: user?.name || 'Nurse Maria (BHW)' } : d));
+      
+      if (nextStatus === 'Completed') {
+        toast.success(`Health Document Approved & Ready for Release!`, {
+          description: `📲 Auto-SMS sent to ${resName}: "Your certificate/clearance is approved & ready for pickup at the Health Center."`
+        });
+      } else {
+        toast.info(`Request marked as ${nextStatus}`, {
+          description: `📲 Auto-SMS sent to ${resName}: "Your request is now being processed."`
+        });
+      }
+      loadData();
+    } catch {
+      toast.error('Failed to update status');
     }
   };
 
@@ -122,7 +188,11 @@ export default function BhwDashboard() {
         const parsed = JSON.parse(storedUser);
         setUser(parsed);
         if (parsed.role === 'resident') {
-          setIsVisitorMode(true);
+          toast.error('Access Denied', {
+            description: 'Resident accounts cannot access the BHW Health Center Portal.'
+          });
+          navigate('/resident');
+          return;
         } else if (parsed.role !== 'bhw' && parsed.role !== 'superadmin') {
           toast.error('Access Denied', {
             description: 'You do not have permission to view the BHW Portal.'
@@ -134,7 +204,11 @@ export default function BhwDashboard() {
         // Fallback in case of parsing errors
       }
     } else {
-      setIsVisitorMode(true);
+      toast.error('Authentication Required', {
+        description: 'Please sign in with your BHW or Super Admin account.'
+      });
+      navigate('/login');
+      return;
     }
     loadData();
   }, [navigate]);
@@ -225,10 +299,20 @@ export default function BhwDashboard() {
     i.vaccine_name.toLowerCase().includes(immSearch.toLowerCase())
   );
 
+  const filteredNotifications = notifications.filter(n => {
+    const matchesSearch =
+      (n.recipient_name || '').toLowerCase().includes(smsSearch.toLowerCase()) ||
+      (n.recipient_phone || '').toLowerCase().includes(smsSearch.toLowerCase()) ||
+      (n.message || '').toLowerCase().includes(smsSearch.toLowerCase());
+    const matchesType = smsFilterType === 'all' || (n.type || '').toLowerCase().includes(smsFilterType.toLowerCase());
+    return matchesSearch && matchesType;
+  });
+
   const overdueVaccines = immunizations.filter(i => i.status === 'Overdue');
 
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: Home },
+    { id: 'requests', label: 'Health Document Requests', icon: FileText },
     { id: 'immunization', label: 'Immunization Tracking', icon: Syringe },
     { id: 'maternal', label: 'Maternal Health', icon: Heart },
     { id: 'notifications', label: 'SMS Notifications', icon: Bell },
@@ -237,6 +321,9 @@ export default function BhwDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
+      {/* Super Admin Unified Ecosystem Switcher */}
+      <SuperAdminNavigationDock currentRole={user?.role} />
+
       {/* Top Navbar */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 py-3 shadow-xs">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
@@ -270,7 +357,7 @@ export default function BhwDashboard() {
                 Switch to Admin Portal
               </Button>
             )}
-            <DatabaseStatusBadge />
+
             <Button
               variant="outline"
               size="sm"
@@ -507,6 +594,146 @@ export default function BhwDashboard() {
             </div>
           )}
 
+          {/* TAB: HEALTH DOCUMENT REQUESTS */}
+          {activeTab === 'requests' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Health Center Document Requests</h2>
+                  <p className="text-xs text-slate-500">Medical certificates, health clearances, immunization cards, and maternal records submitted by residents.</p>
+                </div>
+              </div>
+
+              {/* Filter and Export Toolbar */}
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
+                <div className="relative flex-1 max-w-md w-full">
+                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                  <Input
+                    placeholder="Search by request code, resident name, or type..."
+                    value={docSearch}
+                    onChange={e => setDocSearch(e.target.value)}
+                    className="pl-9 h-9 text-xs"
+                  />
+                </div>
+                <Button
+                  onClick={() => exportToCsv('BHW_Health_Document_Requests', documents)}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
+                >
+                  <Download size={14} /> Export CSV
+                </Button>
+              </div>
+
+              {/* Document Requests Table */}
+              <Card className="border-slate-200 bg-white shadow-xs">
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50">
+                        <TableHead className="text-xs font-bold">Request Code</TableHead>
+                        <TableHead className="text-xs font-bold">Resident Name</TableHead>
+                        <TableHead className="text-xs font-bold">Document Type</TableHead>
+                        <TableHead className="text-xs font-bold">Purpose / Details</TableHead>
+                        <TableHead className="text-xs font-bold">Status</TableHead>
+                        <TableHead className="text-xs font-bold">Requested At</TableHead>
+                        <TableHead className="text-xs font-bold text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {documents.filter(d =>
+                        d.request_code.toLowerCase().includes(docSearch.toLowerCase()) ||
+                        d.resident_name.toLowerCase().includes(docSearch.toLowerCase()) ||
+                        d.document_type.toLowerCase().includes(docSearch.toLowerCase())
+                      ).length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-xs py-8 text-slate-400">
+                            No document requests found.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        documents.filter(d =>
+                          d.request_code.toLowerCase().includes(docSearch.toLowerCase()) ||
+                          d.resident_name.toLowerCase().includes(docSearch.toLowerCase()) ||
+                          d.document_type.toLowerCase().includes(docSearch.toLowerCase())
+                        ).map(doc => (
+                          <TableRow key={doc.id} className="text-xs hover:bg-slate-50/80 transition-colors">
+                            <TableCell>
+                              <button
+                                onClick={() => openDocInfo(doc)}
+                                className="font-mono font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer flex items-center gap-1"
+                                title="Click to view document info"
+                              >
+                                {doc.request_code}
+                                <Eye size={12} className="opacity-70" />
+                              </button>
+                            </TableCell>
+                            <TableCell>
+                              <button
+                                onClick={() => openResidentProfile(doc.resident_id || 1)}
+                                className="font-semibold text-slate-900 hover:text-blue-600 hover:underline transition-colors"
+                              >
+                                {doc.resident_name}
+                              </button>
+                            </TableCell>
+                            <TableCell>
+                              <span className="font-medium text-slate-800">{doc.document_type}</span>
+                            </TableCell>
+                            <TableCell className="text-slate-500 max-w-[150px] truncate" title={doc.purpose}>
+                              {doc.purpose || '-'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={
+                                doc.status === 'Completed' ? 'bg-emerald-600' :
+                                doc.status === 'Processing' ? 'bg-amber-500' : 'bg-orange-500'
+                              }>
+                                {doc.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-slate-500 text-[11px] font-mono">
+                              {doc.requested_at || 'Recent'}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1.5">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openDocInfo(doc)}
+                                  className="h-7 text-[11px] gap-1 text-slate-700 border-slate-300 hover:bg-slate-50"
+                                >
+                                  <Eye size={13} /> Details
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openPrintModal(doc)}
+                                  className="h-7 text-[11px] gap-1 text-blue-700 border-blue-200 hover:bg-blue-50"
+                                >
+                                  <Printer size={13} /> Print
+                                </Button>
+                                {doc.status !== 'Completed' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleUpdateDocStatus(doc.id, doc.status)}
+                                    className="h-7 text-[11px] gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                                  >
+                                    <Check size={12} />
+                                    {doc.status === 'Pending' ? 'Process' : 'Approve'}
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* TAB 2: IMMUNIZATION TRACKING */}
           {activeTab === 'immunization' && (
             <div className="space-y-6">
@@ -569,14 +796,24 @@ export default function BhwDashboard() {
                 </Dialog>
               </div>
 
-              <div className="relative max-w-md">
-                <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                <Input
-                  placeholder="Search child name or vaccine..."
-                  value={immSearch}
-                  onChange={e => setImmSearch(e.target.value)}
-                  className="pl-9 h-9 text-xs"
-                />
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
+                <div className="relative flex-1 max-w-md w-full">
+                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                  <Input
+                    placeholder="Search child name or vaccine..."
+                    value={immSearch}
+                    onChange={e => setImmSearch(e.target.value)}
+                    className="pl-9 h-9 text-xs"
+                  />
+                </div>
+                <Button
+                  onClick={() => exportToCsv('BHW_Immunization_Records', filteredImmunizations)}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
+                >
+                  <Download size={14} /> Export CSV
+                </Button>
               </div>
 
               <Card className="border-slate-200 bg-white">
@@ -642,12 +879,22 @@ export default function BhwDashboard() {
                 </div>
 
                 <Dialog open={isAddMaternalOpen} onOpenChange={setIsAddMaternalOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="bg-pink-600 hover:bg-pink-700 text-white text-xs gap-1.5 shadow-sm">
-                      <PlusCircle size={15} />
-                      Add Maternal Record
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => exportToCsv('BHW_Maternal_Health_Records', maternalRecords)}
+                      variant="outline"
+                      size="sm"
+                      className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
+                    >
+                      <Download size={14} /> Export CSV
                     </Button>
-                  </DialogTrigger>
+                    <DialogTrigger asChild>
+                      <Button className="bg-pink-600 hover:bg-pink-700 text-white text-xs gap-1.5 shadow-sm">
+                        <PlusCircle size={15} />
+                        Add Maternal Record
+                      </Button>
+                    </DialogTrigger>
+                  </div>
                   <DialogContent className="bg-white">
                     <DialogHeader>
                       <DialogTitle>Add Maternal Care Record</DialogTitle>
@@ -749,85 +996,213 @@ export default function BhwDashboard() {
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">SMS Notification Dispatch</h2>
-                  <p className="text-xs text-slate-500">Send timely immunization alerts and maternal health checkup reminders directly to resident mobile phones.</p>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">SMS Notification Dispatch</h2>
+                    <Badge className="bg-blue-600 text-white text-[10px]">
+                      {notifications.length} Sent
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Live record of all SMS alerts dispatched to residents for clearances, immunization reminders, and maternal visits.
+                  </p>
                 </div>
 
-                <Dialog open={isSendSmsOpen} onOpenChange={setIsSendSmsOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow-sm">
-                      <Send size={15} />
-                      Compose SMS Alert
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-white">
-                    <DialogHeader>
-                      <DialogTitle>Send SMS Notification</DialogTitle>
-                    </DialogHeader>
-                    <form onSubmit={handleSendSms} className="space-y-3 py-2">
-                      <div>
-                        <Label className="text-xs">Recipient Name</Label>
-                        <Input value={smsRecipientName} onChange={e => setSmsRecipientName(e.target.value)} required placeholder="Sofia Martinez" />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Mobile Phone Number</Label>
-                        <Input value={smsPhone} onChange={e => setSmsPhone(e.target.value)} required placeholder="09226789012" />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Alert Type</Label>
-                        <Select value={smsType} onValueChange={setSmsType}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Immunization Reminder">Immunization Reminder</SelectItem>
-                            <SelectItem value="Maternal Checkup Alert">Maternal Checkup Alert</SelectItem>
-                            <SelectItem value="Document Ready">Document Ready</SelectItem>
-                            <SelectItem value="Barangay Announcement">Barangay Announcement</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-xs">SMS Message</Label>
-                        <textarea
-                          value={smsMessage}
-                          onChange={e => setSmsMessage(e.target.value)}
-                          rows={3}
-                          className="w-full border rounded-md p-2 text-xs border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                          placeholder="Reminder: Baby Sofia is scheduled for MMR vaccine at Barangay Health Center tomorrow."
-                          required
-                        />
-                      </div>
-                      <DialogFooter>
-                        <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white">Send SMS</Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Button
+                    onClick={() => {
+                      exportToCsv('Barangay_Pianing_SMS_Dispatch_Log', notifications.map(n => ({
+                        'ID': n.id,
+                        'Recipient': n.recipient_name,
+                        'Phone': n.recipient_phone,
+                        'Alert Type': n.type || 'General',
+                        'Message': n.message,
+                        'Status': n.status || 'Sent',
+                        'Dispatched At': n.sent_at || 'Recent'
+                      })));
+                      toast.success('SMS dispatch log exported (CSV)');
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
+                  >
+                    <Download size={14} /> Export Log
+                  </Button>
+
+                  <Dialog open={isSendSmsOpen} onOpenChange={setIsSendSmsOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow-sm h-9 font-semibold">
+                        <Send size={15} />
+                        Compose SMS Alert
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-white">
+                      <DialogHeader>
+                        <DialogTitle>Send SMS Notification</DialogTitle>
+                        <DialogDescription className="text-xs">
+                          Directly dispatch an SMS alert to a resident mobile phone.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleSendSms} className="space-y-3 py-2">
+                        <div>
+                          <Label className="text-xs">Recipient Name</Label>
+                          <Input value={smsRecipientName} onChange={e => setSmsRecipientName(e.target.value)} required placeholder="e.g. Sofia Martinez" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Mobile Phone Number</Label>
+                          <Input value={smsPhone} onChange={e => setSmsPhone(e.target.value)} required placeholder="09226789012" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Alert Type</Label>
+                          <Select value={smsType} onValueChange={setSmsType}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Immunization Reminder">Immunization Reminder</SelectItem>
+                              <SelectItem value="Maternal Checkup Alert">Maternal Checkup Alert</SelectItem>
+                              <SelectItem value="Document Ready">Document Ready</SelectItem>
+                              <SelectItem value="Account Verified">Account Verified</SelectItem>
+                              <SelectItem value="Barangay Announcement">Barangay Announcement</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">SMS Message</Label>
+                          <textarea
+                            value={smsMessage}
+                            onChange={e => setSmsMessage(e.target.value)}
+                            rows={3}
+                            className="w-full border rounded-md p-2.5 text-xs border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 leading-relaxed"
+                            placeholder="Reminder: Baby Sofia is scheduled for MMR vaccine at Barangay Health Center tomorrow."
+                            required
+                          />
+                        </div>
+                        <DialogFooter>
+                          <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                            <Send size={14} className="mr-1.5" />
+                            Dispatch SMS Alert
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
 
-              <Card className="border-slate-200 bg-white">
+              {/* Search & Filters */}
+              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                  <Input
+                    placeholder="Search by recipient name, phone number, or message text..."
+                    value={smsSearch}
+                    onChange={e => setSmsSearch(e.target.value)}
+                    className="pl-9 h-9 text-xs"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={smsFilterType} onValueChange={setSmsFilterType}>
+                    <SelectTrigger className="w-44 h-9 text-xs">
+                      <SelectValue placeholder="All Alert Types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Alert Types</SelectItem>
+                      <SelectItem value="Immunization">Immunization</SelectItem>
+                      <SelectItem value="Maternal">Maternal Checkup</SelectItem>
+                      <SelectItem value="Document">Document Ready</SelectItem>
+                      <SelectItem value="Verified">Account Verified</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={loadData}
+                    className="h-9 px-2.5 text-slate-600 hover:bg-slate-100"
+                    title="Refresh SMS records"
+                  >
+                    <RefreshCcw size={14} />
+                  </Button>
+                </div>
+              </div>
+
+              {/* SMS Records Table */}
+              <Card className="border-slate-200 bg-white shadow-xs">
                 <CardContent className="p-0">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Recipient</TableHead>
-                        <TableHead className="text-xs">Phone</TableHead>
-                        <TableHead className="text-xs">Type</TableHead>
-                        <TableHead className="text-xs">Message</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs">Sent At</TableHead>
+                      <TableRow className="bg-slate-50 text-slate-600">
+                        <TableHead className="text-xs font-semibold">Recipient</TableHead>
+                        <TableHead className="text-xs font-semibold">Mobile Phone</TableHead>
+                        <TableHead className="text-xs font-semibold">Alert Type</TableHead>
+                        <TableHead className="text-xs font-semibold">Message Preview (Click to View)</TableHead>
+                        <TableHead className="text-xs font-semibold">Status</TableHead>
+                        <TableHead className="text-xs font-semibold">Sent Timestamp</TableHead>
+                        <TableHead className="text-xs font-semibold text-right">Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {notifications.map(n => (
-                        <TableRow key={n.id} className="text-xs">
-                          <TableCell className="font-semibold text-slate-900">{n.recipient_name}</TableCell>
-                          <TableCell className="font-mono text-slate-600">{n.recipient_phone}</TableCell>
-                          <TableCell><Badge variant="outline">{n.type}</Badge></TableCell>
-                          <TableCell className="text-slate-600 max-w-[250px] truncate">{n.message}</TableCell>
-                          <TableCell><Badge className="bg-emerald-600">{n.status}</Badge></TableCell>
-                          <TableCell className="font-mono text-slate-400 text-[11px]">{n.sent_at || 'Just now'}</TableCell>
+                      {filteredNotifications.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-xs py-12 text-slate-400">
+                            <Bell size={28} className="mx-auto mb-2 opacity-40 text-blue-500" />
+                            No SMS notifications found matching your search.
+                          </TableCell>
                         </TableRow>
-                      ))}
+                      ) : (
+                        filteredNotifications.map(n => (
+                          <TableRow
+                            key={n.id}
+                            className="text-xs hover:bg-blue-50/40 cursor-pointer transition-colors group"
+                            onClick={() => openSmsDetails(n)}
+                          >
+                            <TableCell className="font-semibold text-slate-900 group-hover:text-blue-700">
+                              {n.recipient_name || 'Resident'}
+                            </TableCell>
+                            <TableCell className="font-mono font-medium text-slate-600">
+                              {n.recipient_phone || 'N/A'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  (n.type || '').includes('Immunization')
+                                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                                    : (n.type || '').includes('Maternal')
+                                    ? 'bg-pink-50 border-pink-200 text-pink-700'
+                                    : (n.type || '').includes('Document')
+                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                                    : (n.type || '').includes('Verified')
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                                }
+                              >
+                                {n.type || 'General'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-slate-600 max-w-[280px]">
+                              <p className="truncate font-sans">{n.message}</p>
+                            </TableCell>
+                            <TableCell>
+                              <Badge className="bg-emerald-600 hover:bg-emerald-600 text-[10px] gap-1 px-2 py-0.5">
+                                <Check size={11} />
+                                {n.status || 'Sent'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-slate-400 text-[11px]">
+                              {n.sent_at ? new Date(n.sent_at).toLocaleDateString() + ' ' + new Date(n.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                            </TableCell>
+                            <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openSmsDetails(n)}
+                                className="h-7 text-xs gap-1 text-blue-600 hover:bg-blue-50 font-medium px-2.5"
+                              >
+                                <Eye size={13} />
+                                <span>View SMS</span>
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -838,9 +1213,197 @@ export default function BhwDashboard() {
           {/* TAB 5: HEALTH REPORTS */}
           {activeTab === 'reports' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Public Health Reports & Vaccine Coverage</h2>
-                <p className="text-xs text-slate-500">Immunization rate analysis and maternal care summaries.</p>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Public Health Reports & Analytics</h2>
+                  <p className="text-xs text-slate-500">Official Barangay Pianing Health Center reports, vaccination coverage, and maternal monitoring.</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    onClick={() => {
+                      exportToCsv('Barangay_Pianing_Immunizations_Report', immunizations.map(i => ({
+                        'Child Name': i.child_name,
+                        'Parent Contact': i.parent_phone,
+                        'Vaccine Name': i.vaccine_name,
+                        'Dose Number': i.dose_number,
+                        'Status': i.status,
+                        'Administered Date': i.date_administered || 'N/A',
+                        'Due Date': i.due_date || 'N/A',
+                        'Days Overdue': i.days_overdue || 0,
+                        'Administered By': i.administered_by || 'BHW Clinic'
+                      })));
+                      toast.success('Immunization records downloaded (CSV)');
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 border-slate-300"
+                  >
+                    <Download size={13} /> Export Vaccines (CSV)
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      exportToCsv('Barangay_Pianing_Maternal_Health_Report', maternalRecords.map(m => ({
+                        'Mother Name': m.mother_name,
+                        'Age': m.age,
+                        'Pregnancy Status': m.pregnancy_status,
+                        'Expected Due Date': m.expected_due_date || 'N/A',
+                        'Last Clinic Visit': m.last_visit || 'N/A',
+                        'Next Scheduled Visit': m.next_visit || 'N/A',
+                        'Risk Level': m.risk_level,
+                        'Medical Notes': m.notes || ''
+                      })));
+                      toast.success('Maternal health records downloaded (CSV)');
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 border-slate-300"
+                  >
+                    <Download size={13} /> Export Maternal (CSV)
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      printOfficialReport({
+                        title: 'Public Health & Immunization Performance Report',
+                        subtitle: 'Barangay Pianing Health Center • Comprehensive Child Healthcare & Maternal Program',
+                        department: 'Barangay Health Center • Public Health Office',
+                        preparedBy: user?.name || 'Nurse Maria Santos',
+                        preparedByTitle: 'Barangay Health Worker / Nurse',
+                        stats: [
+                          { label: 'Children Monitored', value: stats.childrenMonitored, color: '#0284c7' },
+                          { label: 'Vaccines This Month', value: stats.vaccinationsMonth, color: '#059669' },
+                          { label: 'Overdue Doses', value: stats.overdueImmunizations, color: '#dc2626' },
+                          { label: 'Active Maternal Patients', value: maternalRecords.length, color: '#db2777' }
+                        ],
+                        tables: [
+                          {
+                            title: 'Recent Child Immunization Deliveries',
+                            headers: ['Child Patient', 'Parent Contact', 'Vaccine Administered', 'Dose', 'Status', 'Date'],
+                            rows: immunizations.slice(0, 10).map(i => [
+                              i.child_name,
+                              i.parent_phone || 'N/A',
+                              i.vaccine_name,
+                              `Dose ${i.dose_number}`,
+                              i.status,
+                              i.date_administered || i.due_date || 'Recent'
+                            ])
+                          },
+                          {
+                            title: 'Maternal Care & High-Risk Pregnancy Monitoring',
+                            headers: ['Mother Patient', 'Age', 'Pregnancy Stage', 'Expected Due Date', 'Risk Level', 'Next Visit'],
+                            rows: maternalRecords.map(m => [
+                              m.mother_name,
+                              m.age,
+                              m.pregnancy_status,
+                              m.expected_due_date || 'Postnatal',
+                              m.risk_level,
+                              m.next_visit || 'TBD'
+                            ])
+                          }
+                        ]
+                      });
+                    }}
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-xs font-semibold"
+                  >
+                    <Printer size={13} /> Print Official Health Report
+                  </Button>
+                </div>
+              </div>
+
+              {/* Action Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="border-blue-200 bg-blue-50/50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                      <Baby size={16} className="text-blue-600" />
+                      Immunization Dataset
+                    </CardTitle>
+                    <CardDescription className="text-[11px] text-blue-700">All child vaccine records & overdue logs</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-slate-600 mb-3">Total registered child vaccines: <strong>{immunizations.length}</strong> records.</p>
+                    <Button
+                      onClick={() => {
+                        exportToCsv('Barangay_Pianing_Overdue_Vaccines', immunizations.filter(i => i.status === 'Overdue').map(i => ({
+                          'Child Name': i.child_name,
+                          'Parent Phone': i.parent_phone,
+                          'Vaccine': i.vaccine_name,
+                          'Days Overdue': i.days_overdue || 'N/A'
+                        })));
+                        toast.success('Overdue vaccine alert list exported');
+                      }}
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-xs h-7 text-blue-700 border-blue-300 hover:bg-blue-100"
+                    >
+                      <Download size={12} className="mr-1" /> Export Overdue Vaccine List
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-pink-200 bg-pink-50/50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-bold text-pink-900 flex items-center gap-1.5">
+                      <Heart size={16} className="text-pink-600" />
+                      Maternal Health Registry
+                    </CardTitle>
+                    <CardDescription className="text-[11px] text-pink-700">Prenatal & postnatal patient monitoring</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-slate-600 mb-3">Active maternal cases: <strong>{maternalRecords.length}</strong> patients.</p>
+                    <Button
+                      onClick={() => {
+                        exportToCsv('Barangay_Pianing_HighRisk_Maternal', maternalRecords.filter(m => m.risk_level === 'High' || m.risk_level === 'Moderate').map(m => ({
+                          'Mother': m.mother_name,
+                          'Age': m.age,
+                          'Status': m.pregnancy_status,
+                          'Risk': m.risk_level,
+                          'Notes': m.notes
+                        })));
+                        toast.success('High-risk pregnancy list exported');
+                      }}
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-xs h-7 text-pink-700 border-pink-300 hover:bg-pink-100"
+                    >
+                      <Download size={12} className="mr-1" /> Export High-Risk Patients
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-purple-200 bg-purple-50/50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                      <Bell size={16} className="text-purple-600" />
+                      SMS Health Dispatch Log
+                    </CardTitle>
+                    <CardDescription className="text-[11px] text-purple-700">SMS notification history & alerts</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-xs text-slate-600 mb-3">Total health alerts dispatched: <strong>{notifications.length}</strong> sent.</p>
+                    <Button
+                      onClick={() => {
+                        exportToCsv('Barangay_Pianing_SMS_Health_Dispatch_Log', notifications.map(n => ({
+                          'Recipient': n.recipient_name,
+                          'Phone': n.recipient_phone,
+                          'Type': n.type,
+                          'Message': n.message,
+                          'Status': n.status,
+                          'Sent At': n.sent_at
+                        })));
+                        toast.success('SMS health dispatch log exported');
+                      }}
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-xs h-7 text-purple-700 border-purple-300 hover:bg-purple-100"
+                    >
+                      <Download size={12} className="mr-1" /> Export SMS Log (CSV)
+                    </Button>
+                  </CardContent>
+                </Card>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -907,6 +1470,35 @@ export default function BhwDashboard() {
         residentId={selectedResidentId}
         isOpen={profileModalOpen}
         onClose={() => { setProfileModalOpen(false); setSelectedResidentId(null); }}
+      />
+
+      {/* Official Document Print & Download Modal */}
+      <DocumentPrintModal
+        isOpen={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        document={selectedPrintDoc}
+      />
+
+      {/* Document Info / Specifics Viewer Modal */}
+      <DocumentInfoModal
+        isOpen={isDocInfoOpen}
+        onClose={() => setIsDocInfoOpen(false)}
+        document={selectedInfoDoc}
+        onUpdateStatus={(id, status) => handleUpdateDocStatus(id, status)}
+        onPrint={(doc) => openPrintModal(doc)}
+        canEdit={true}
+      />
+
+      {/* SMS Details & Message Viewer Modal */}
+      <SmsDetailsModal
+        isOpen={isSmsDetailsOpen}
+        onClose={() => setIsSmsDetailsOpen(false)}
+        notification={selectedSms}
+        onComposeReply={(recipient, phone) => {
+          setSmsRecipientName(recipient);
+          setSmsPhone(phone);
+          setIsSendSmsOpen(true);
+        }}
       />
     </div>
   );

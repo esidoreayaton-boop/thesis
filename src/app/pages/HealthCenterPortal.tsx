@@ -13,10 +13,13 @@ import {
   Baby,
   Stethoscope,
   Activity,
+  Clock,
+  Settings
 } from 'lucide-react';
-import { apiService } from '../../services/api';
-import DatabaseStatusBadge from '../components/DatabaseStatusBadge';
+import { apiService, DocumentRequest } from '../../services/api';
 import BarangayChatbot from '../components/BarangayChatbot';
+import ProfileSettingsModal from '../components/ProfileSettingsModal';
+import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -43,15 +46,90 @@ export default function HealthCenterPortal() {
   const [user, setUser] = useState<any>(null);
   const [docType, setDocType] = useState(HEALTH_DOCS[0].name);
   const [purpose, setPurpose] = useState('');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Dynamic extra fields per document type
+  const [extraFields, setExtraFields] = useState<Record<string, string>>({});
+  const setField = (key: string, val: string) => setExtraFields(prev => ({ ...prev, [key]: val }));
+  const handleDocTypeChange = (val: string) => { setDocType(val); setExtraFields({}); setPurpose(''); };
+
+
+  const loadData = async (currentUser?: any) => {
+    try {
+      const data = await apiService.getDocuments();
+      const loggedInUser = currentUser || user;
+      const healthDocNames = HEALTH_DOCS.map(d => d.name);
+      const healthDocs = data.filter(d => healthDocNames.includes(d.document_type));
+      if (loggedInUser?.name) {
+        const firstName = loggedInUser.name.split(' ')[0].toLowerCase();
+        const fullName = loggedInUser.name.toLowerCase();
+        const userDocs = healthDocs.filter(d =>
+          d.resident_name.toLowerCase().includes(firstName) ||
+          d.resident_name.toLowerCase().includes(fullName) ||
+          d.resident_id === loggedInUser.id
+        );
+        setRequests(userDocs.map(d => ({
+          id: d.id,
+          type: d.document_type,
+          purpose: d.purpose || 'Health Requirement',
+          status: d.status,
+          date: d.requested_at || 'Today'
+        })));
+      } else {
+        setRequests(healthDocs.slice(0, 3).map(d => ({
+          id: d.id,
+          type: d.document_type,
+          purpose: d.purpose || 'Health Requirement',
+          status: d.status,
+          date: d.requested_at || 'Today'
+        })));
+      }
+    } catch {
+      // Fallback
+    }
+  };
 
   useEffect(() => {
     const storedUser = localStorage.getItem('barangay_user');
     if (storedUser) {
       try {
         const parsed = JSON.parse(storedUser);
+        if (parsed.role === 'superadmin' || parsed.role === 'admin' || parsed.role === 'staff') {
+          navigate('/admin');
+          return;
+        }
+        if (parsed.role === 'bhw') {
+          navigate('/bhw');
+          return;
+        }
         setUser(parsed);
         setIsVerified(parsed.verification_status === 'Verified');
-      } catch {}
+        loadData(parsed);
+
+        // Live-check if admin has approved since last login
+        if (parsed.email) {
+          apiService.checkVerificationStatus(parsed.email).then(result => {
+            if (result?.success && result.user) {
+              const liveStatus = result.user.verification_status;
+              if (liveStatus && liveStatus !== parsed.verification_status) {
+                const updated = { ...parsed, verification_status: liveStatus };
+                setUser(updated);
+                setIsVerified(liveStatus === 'Verified');
+                localStorage.setItem('barangay_user', JSON.stringify(updated));
+                if (liveStatus === 'Verified') {
+                  toast.success('Account Verified!', {
+                    description: 'Your Barangay ID was approved. You can now request documents.'
+                  });
+                }
+              }
+            }
+          }).catch(() => {});
+        }
+      } catch {
+        loadData();
+      }
+    } else {
+      loadData();
     }
   }, []);
 
@@ -61,17 +139,36 @@ export default function HealthCenterPortal() {
       toast.error('Requests locked! Your account must be verified first.');
       return;
     }
-    const newRequest = {
-      id: Date.now(),
-      type: docType,
-      purpose: purpose || 'Personal Requirement',
-      status: 'Pending',
-      date: new Date().toLocaleString(),
-    };
-    setRequests((prev) => [newRequest, ...prev]);
-    toast.success('Health record request submitted!', { description: `Request for ${docType} is pending BHW review.` });
+    const fullPurpose = purpose || Object.entries(extraFields).map(([k, v]) => `${k}: ${v}`).join(' | ') || 'Personal Requirement';
+    try {
+      const created = await apiService.createDocument({
+        resident_name: user?.name || 'Resident',
+        document_type: docType,
+        purpose: fullPurpose,
+      });
+      const newReq = {
+        id: created.id,
+        type: created.document_type,
+        purpose: created.purpose || 'Personal Requirement',
+        status: created.status,
+        date: created.requested_at || new Date().toLocaleString(),
+      };
+      setRequests((prev) => [newReq, ...prev]);
+      toast.success('Health record request submitted!', { description: `Request code: ${created.request_code}` });
+    } catch (err) {
+      const fallbackReq = {
+        id: Date.now(),
+        type: docType,
+        purpose: purpose || 'Personal Requirement',
+        status: 'Pending',
+        date: new Date().toLocaleString(),
+      };
+      setRequests((prev) => [fallbackReq, ...prev]);
+      toast.success('Health record request submitted!', { description: `Request for ${docType} is pending BHW review.` });
+    }
     setIsAddOpen(false);
     setPurpose('');
+    setExtraFields({});
   };
 
   const statusColor = (s: string) =>
@@ -79,6 +176,9 @@ export default function HealthCenterPortal() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {/* Super Admin Unified Ecosystem Switcher */}
+      <SuperAdminNavigationDock currentRole={user?.role} />
+
       {/* Navbar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-3 shadow-sm">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
@@ -93,7 +193,17 @@ export default function HealthCenterPortal() {
           </div>
 
           <div className="flex items-center gap-2">
-            <DatabaseStatusBadge />
+            {user && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsProfileModalOpen(true)}
+                className="flex items-center gap-1.5 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              >
+                <Settings size={14} />
+                <span className="hidden sm:inline">Profile Settings</span>
+              </Button>
+            )}
 
             {/* Switch to Barangay */}
             <Button
@@ -152,19 +262,10 @@ export default function HealthCenterPortal() {
                 <p className="text-xs text-amber-800 mt-1">Your ID is under review by the Barangay Admin. Requests are locked until approved.</p>
               </div>
             </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setIsVerified(true);
-                const updated = { ...user, verification_status: 'Verified' };
-                setUser(updated);
-                localStorage.setItem('barangay_user', JSON.stringify(updated));
-                toast.success('Demo: Account verified!');
-              }}
-              className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-9 px-4 shrink-0"
-            >
-              <CheckCircle2 size={14} className="mr-1.5" /> Verify Demo Account
-            </Button>
+            <div className="flex items-center gap-2 bg-amber-100/80 border border-amber-300 text-amber-900 px-3.5 py-2 rounded-xl text-xs font-semibold shrink-0">
+              <Clock size={15} className="animate-spin text-amber-700" />
+              <span>Awaiting Barangay Admin Approval</span>
+            </div>
           </div>
         ) : (
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-3 text-xs text-emerald-900">
@@ -196,27 +297,205 @@ export default function HealthCenterPortal() {
                 Request Health Document
               </Button>
             </DialogTrigger>
-            <DialogContent className="bg-white">
+            <DialogContent className="bg-white max-w-lg">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <Heart size={18} className="text-emerald-600" /> Request Health Document
                 </DialogTitle>
-                <DialogDescription className="text-xs">Submit a health record request to the Barangay Health Center.</DialogDescription>
+                <DialogDescription className="text-xs">Fill in the fields specific to the health document you need.</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-3 py-2">
                 <div>
                   <Label className="text-xs font-semibold">Health Document Type</Label>
-                  <Select value={docType} onValueChange={setDocType}>
+                  <Select value={docType} onValueChange={handleDocTypeChange}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {HEALTH_DOCS.map((d) => <SelectItem key={d.name} value={d.name}>{d.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label className="text-xs font-semibold">Purpose</Label>
-                  <Input value={purpose} onChange={(e) => setPurpose(e.target.value)} required placeholder="e.g. School Requirement / Employment" />
-                </div>
+
+                {/* Medical Certificate */}
+                {docType === 'Medical Certificate' && (
+                  <>
+                    <div>
+                      <Label className="text-xs font-semibold">Purpose / Where to Submit</Label>
+                      <Select value={extraFields['Purpose'] || ''} onValueChange={v => setField('Purpose', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select purpose..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Employment / Pre-Employment">Employment / Pre-Employment</SelectItem>
+                          <SelectItem value="School / College Enrollment">School / College Enrollment</SelectItem>
+                          <SelectItem value="Driving License Application">Driving License Application</SelectItem>
+                          <SelectItem value="Senior Citizen ID">Senior Citizen ID</SelectItem>
+                          <SelectItem value="PWD ID Application">PWD ID Application</SelectItem>
+                          <SelectItem value="Others">Others</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Known Medical Condition (if any)</Label>
+                      <Input value={extraFields['Condition'] || ''} onChange={e => setField('Condition', e.target.value)} placeholder="e.g. None / Hypertension / Asthma" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs font-semibold">Date of Birth</Label>
+                        <Input type="date" value={extraFields['Date of Birth'] || ''} onChange={e => setField('Date of Birth', e.target.value)} required />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">Gender</Label>
+                        <Select value={extraFields['Gender'] || ''} onValueChange={v => setField('Gender', v)}>
+                          <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Male">Male</SelectItem>
+                            <SelectItem value="Female">Female</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Health Clearance */}
+                {docType === 'Health Clearance' && (
+                  <>
+                    <div>
+                      <Label className="text-xs font-semibold">Purpose of Health Clearance</Label>
+                      <Select value={extraFields['Purpose'] || ''} onValueChange={v => setField('Purpose', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select purpose..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Employment">Employment</SelectItem>
+                          <SelectItem value="School Enrollment">School Enrollment</SelectItem>
+                          <SelectItem value="Food Handler Permit">Food Handler Permit</SelectItem>
+                          <SelectItem value="Business Permit Application">Business Permit Application</SelectItem>
+                          <SelectItem value="Community Event Participation">Community Event Participation</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Employer / School / Institution Name</Label>
+                      <Input value={extraFields['Institution'] || ''} onChange={e => setField('Institution', e.target.value)} placeholder="e.g. Butuan City Hospital" required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Last Medical Check-Up Date</Label>
+                      <Input type="date" value={extraFields['Last Check-Up'] || ''} onChange={e => setField('Last Check-Up', e.target.value)} required />
+                    </div>
+                  </>
+                )}
+
+                {/* Immunization Record */}
+                {docType === 'Immunization Record' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs font-semibold">Child's Full Name</Label>
+                        <Input value={extraFields["Child's Name"] || ''} onChange={e => setField("Child's Name", e.target.value)} placeholder="First and Last Name" required />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">Child's Date of Birth</Label>
+                        <Input type="date" value={extraFields["Child's DOB"] || ''} onChange={e => setField("Child's DOB", e.target.value)} required />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Mother's Full Name</Label>
+                      <Input value={extraFields["Mother's Name"] || user?.name || ''} onChange={e => setField("Mother's Name", e.target.value)} required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Purpose</Label>
+                      <Select value={extraFields['Purpose'] || ''} onValueChange={v => setField('Purpose', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select purpose..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="School / Daycare Enrollment">School / Daycare Enrollment</SelectItem>
+                          <SelectItem value="Travel Requirements">Travel Requirements</SelectItem>
+                          <SelectItem value="PhilHealth Claims">PhilHealth Claims</SelectItem>
+                          <SelectItem value="Routine Health Record">Routine Health Record</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
+
+                {/* Prenatal Record */}
+                {docType === 'Prenatal Record' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs font-semibold">Mother's Age</Label>
+                        <Input type="number" min="14" max="60" value={extraFields["Mother's Age"] || ''} onChange={e => setField("Mother's Age", e.target.value)} placeholder="e.g. 28" required />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">Current Week of Pregnancy</Label>
+                        <Input type="number" min="1" max="42" value={extraFields['Pregnancy Week'] || ''} onChange={e => setField('Pregnancy Week', e.target.value)} placeholder="e.g. 20" required />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Expected Due Date</Label>
+                      <Input type="date" value={extraFields['Expected Due Date'] || ''} onChange={e => setField('Expected Due Date', e.target.value)} required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Risk Level (Self-Assessment)</Label>
+                      <Select value={extraFields['Risk Level'] || ''} onValueChange={v => setField('Risk Level', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select risk level..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Low">Low — Normal pregnancy</SelectItem>
+                          <SelectItem value="Moderate">Moderate — Pre-existing condition</SelectItem>
+                          <SelectItem value="High">High — Complications / Multiple births</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Number of Previous Pregnancies</Label>
+                      <Input type="number" min="0" value={extraFields['Previous Pregnancies'] || ''} onChange={e => setField('Previous Pregnancies', e.target.value)} placeholder="0 if first pregnancy" required />
+                    </div>
+                  </>
+                )}
+
+                {/* Postnatal Record */}
+                {docType === 'Postnatal Record' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs font-semibold">Delivery Date</Label>
+                        <Input type="date" value={extraFields['Delivery Date'] || ''} onChange={e => setField('Delivery Date', e.target.value)} required />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">Type of Delivery</Label>
+                        <Select value={extraFields['Delivery Type'] || ''} onValueChange={v => setField('Delivery Type', v)}>
+                          <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Normal / Vaginal">Normal / Vaginal</SelectItem>
+                            <SelectItem value="Cesarean Section (CS)">Cesarean Section (CS)</SelectItem>
+                            <SelectItem value="Assisted Delivery">Assisted Delivery</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Baby's Full Name</Label>
+                      <Input value={extraFields["Baby's Name"] || ''} onChange={e => setField("Baby's Name", e.target.value)} placeholder="As listed on birth record" required />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs font-semibold">Birth Weight (kg)</Label>
+                        <Input type="number" step="0.01" value={extraFields['Birth Weight'] || ''} onChange={e => setField('Birth Weight', e.target.value)} placeholder="e.g. 3.2" required />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">Baby's Gender</Label>
+                        <Select value={extraFields["Baby's Gender"] || ''} onValueChange={v => setField("Baby's Gender", v)}>
+                          <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Male">Male</SelectItem>
+                            <SelectItem value="Female">Female</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Delivery Hospital / Facility</Label>
+                      <Input value={extraFields['Delivery Facility'] || ''} onChange={e => setField('Delivery Facility', e.target.value)} placeholder="e.g. Butuan Medical Center / Home Delivery" required />
+                    </div>
+                  </>
+                )}
+
                 <DialogFooter>
                   <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white">Submit Request</Button>
                 </DialogFooter>
@@ -255,12 +534,13 @@ export default function HealthCenterPortal() {
                   <TableHead className="text-xs">Purpose</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Date Submitted</TableHead>
+                  <TableHead className="text-xs text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {requests.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-xs py-10 text-slate-400">
+                    <TableCell colSpan={5} className="text-center text-xs py-10 text-slate-400">
                       <Heart className="mx-auto mb-2 text-slate-300" size={28} />
                       No health requests yet. Click <strong>"Request Health Document"</strong> above.
                     </TableCell>
@@ -272,6 +552,17 @@ export default function HealthCenterPortal() {
                       <TableCell className="text-slate-500">{r.purpose}</TableCell>
                       <TableCell><Badge className={statusColor(r.status)}>{r.status}</Badge></TableCell>
                       <TableCell className="font-mono text-slate-400 text-[11px]">{r.date}</TableCell>
+                      <TableCell className="text-right">
+                        {r.status === 'Completed' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+                            <CheckCircle2 size={12} /> Ready for Pickup
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md">
+                            Processing
+                          </span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -301,6 +592,14 @@ export default function HealthCenterPortal() {
       </main>
 
       <BarangayChatbot />
+
+      {/* Resident Profile Settings Modal */}
+      <ProfileSettingsModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={user}
+        onProfileUpdated={(updated) => setUser(updated)}
+      />
     </div>
   );
 }

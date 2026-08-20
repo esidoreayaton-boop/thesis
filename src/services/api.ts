@@ -113,13 +113,22 @@ export const apiService = {
   },
 
   // Auth
-  async login(email: string) {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    });
-    return await res.json();
+  async login(email: string, password?: string) {
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        // Return error data but don't throw — caller checks data.success
+        return { success: false, message: data.message || `Server error: ${res.status}` };
+      }
+      return data;
+    } catch (err) {
+      return { success: false, message: 'Cannot connect to server. Please check your connection.' };
+    }
   },
 
   // Stats
@@ -261,10 +270,30 @@ export const apiService = {
     return await res.json();
   },
 
+  // Update Profile (password and contact number only)
+  async updateProfile(data: { id?: number; email?: string; password?: string; phone?: string }) {
+    const res = await fetch(`${API_BASE}/users/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return await res.json();
+  },
+
   // Pending Resident Registrations (Admin)
   async getPendingResidents(): Promise<PendingResident[]> {
     const res = await fetch(`${API_BASE}/residents/pending`);
     return await res.json();
+  },
+
+  // Check live verification status for a resident by email
+  async checkVerificationStatus(email: string) {
+    try {
+      const res = await fetch(`${API_BASE}/auth/check-status?email=${encodeURIComponent(email)}`);
+      return await res.json();
+    } catch {
+      return null;
+    }
   },
 
   async approveResident(id: number, approved_by?: string) {
@@ -287,8 +316,14 @@ export const apiService = {
 
   // Intra-System Messenger
   async getMessages() {
-    const res = await fetch(`${API_BASE}/messages`);
-    return await res.json();
+    try {
+      const res = await fetch(`${API_BASE}/messages`);
+      if (!res.ok) throw new Error('Failed to fetch messages');
+      return await res.json();
+    } catch (err) {
+      console.warn('getMessages error:', err);
+      return [];
+    }
   },
 
   async sendMessage(data: { sender_name: string; sender_role: string; recipient_role?: string; message: string }) {
@@ -297,6 +332,7 @@ export const apiService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
+    if (!res.ok) throw new Error('Failed to send message');
     return await res.json();
   },
 

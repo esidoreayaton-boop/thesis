@@ -11,10 +11,13 @@ import {
   Shield,
   Activity,
   CheckCircle2,
+  Settings,
+  User
 } from 'lucide-react';
 import { apiService, DocumentRequest } from '../../services/api';
-import DatabaseStatusBadge from '../components/DatabaseStatusBadge';
 import BarangayChatbot from '../components/BarangayChatbot';
+import ProfileSettingsModal from '../components/ProfileSettingsModal';
+import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -26,11 +29,25 @@ export default function ResidentPortal() {
   const [documents, setDocuments] = useState<DocumentRequest[]>([]);
   const [isVerified, setIsVerified] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
-  const loadData = async () => {
+  const loadData = async (currentUser?: any) => {
     try {
       const data = await apiService.getDocuments();
-      setDocuments(data.filter(d => d.resident_name.includes('Juan') || d.resident_id === 1));
+      const loggedInUser = currentUser || user;
+      if (loggedInUser?.name) {
+        // Match by resident name (first name or full name match)
+        const firstName = loggedInUser.name.split(' ')[0].toLowerCase();
+        const fullName = loggedInUser.name.toLowerCase();
+        setDocuments(data.filter(d =>
+          d.resident_name.toLowerCase().includes(firstName) ||
+          d.resident_name.toLowerCase().includes(fullName) ||
+          d.resident_id === loggedInUser.id
+        ));
+      } else {
+        // Visitor: show sample docs
+        setDocuments(data.slice(0, 3));
+      }
     } catch (e) {
       toast.error('Failed to load document requests');
     }
@@ -41,17 +58,51 @@ export default function ResidentPortal() {
     if (storedUser) {
       try {
         const parsed = JSON.parse(storedUser);
+        if (parsed.role === 'superadmin' || parsed.role === 'admin' || parsed.role === 'staff') {
+          navigate('/admin');
+          return;
+        }
+        if (parsed.role === 'bhw') {
+          navigate('/bhw');
+          return;
+        }
         setUser(parsed);
         setIsVerified(parsed.verification_status === 'Verified');
-      } catch (e) {}
+        loadData(parsed);
+
+        // Live-check if admin has approved the account since last login
+        if (parsed.email) {
+          apiService.checkVerificationStatus(parsed.email).then(result => {
+            if (result?.success && result.user) {
+              const liveStatus = result.user.verification_status;
+              if (liveStatus && liveStatus !== parsed.verification_status) {
+                const updated = { ...parsed, verification_status: liveStatus };
+                setUser(updated);
+                setIsVerified(liveStatus === 'Verified');
+                localStorage.setItem('barangay_user', JSON.stringify(updated));
+                if (liveStatus === 'Verified') {
+                  toast.success('Account Verified!', {
+                    description: 'Your Barangay ID was approved. You can now request documents.'
+                  });
+                }
+              }
+            }
+          }).catch(() => {});
+        }
+      } catch (e) {
+        loadData();
+      }
     } else {
       setIsVerified(false);
+      loadData();
     }
-    loadData();
   }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans relative">
+      {/* Super Admin Unified Ecosystem Switcher */}
+      <SuperAdminNavigationDock currentRole={user?.role} />
+
       {/* Top Navbar */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 py-3 shadow-xs">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
@@ -65,8 +116,19 @@ export default function ResidentPortal() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <DatabaseStatusBadge />
+          <div className="flex items-center gap-2 sm:gap-3">
+            {user && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsProfileModalOpen(true)}
+                className="flex items-center gap-1.5 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-400"
+              >
+                <Settings size={14} />
+                <span>Profile Settings</span>
+              </Button>
+            )}
+
             <Button
               variant="destructive"
               size="sm"
@@ -127,22 +189,10 @@ export default function ResidentPortal() {
                 </p>
               </div>
             </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setIsVerified(true);
-                if (user) {
-                  const updated = { ...user, verification_status: 'Verified' };
-                  setUser(updated);
-                  localStorage.setItem('barangay_user', JSON.stringify(updated));
-                }
-                toast.success('Demo: Account verified by Barangay Admin!');
-              }}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs h-9 px-4 shrink-0 shadow-sm"
-            >
-              <CheckCircle2 size={14} className="mr-1.5" />
-              Verify Demo Account
-            </Button>
+            <div className="flex items-center gap-2 bg-amber-100/80 border border-amber-300 text-amber-900 px-3.5 py-2 rounded-xl text-xs font-semibold shrink-0">
+              <Clock size={15} className="animate-spin text-amber-700" />
+              <span>Awaiting Barangay Admin Approval</span>
+            </div>
           </div>
         ) : (
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-3 text-xs text-emerald-900">
@@ -238,12 +288,13 @@ export default function ResidentPortal() {
                   <TableHead className="text-xs">Purpose</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Submitted Date</TableHead>
+                  <TableHead className="text-xs text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {documents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-xs py-8 text-slate-400">
+                    <TableCell colSpan={6} className="text-center text-xs py-8 text-slate-400">
                       No active requests found. Click on one of the portals above to submit a request.
                     </TableCell>
                   </TableRow>
@@ -259,6 +310,18 @@ export default function ResidentPortal() {
                         </Badge>
                       </TableCell>
                       <TableCell className="font-mono text-slate-400 text-[11px]">{doc.requested_at || 'Today'}</TableCell>
+                      <TableCell className="text-right">
+                        {doc.status === 'Completed' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+                            <CheckCircle2 size={12} className="text-emerald-600" />
+                            Ready for Pickup at Hall
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md">
+                            Pending Processing
+                          </span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -270,6 +333,14 @@ export default function ResidentPortal() {
 
       {/* Embedded Floating Resident Assistant Chatbot */}
       <BarangayChatbot />
+
+      {/* Resident Profile Settings Modal */}
+      <ProfileSettingsModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={user}
+        onProfileUpdated={(updated) => setUser(updated)}
+      />
     </div>
   );
 }

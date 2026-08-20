@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Send, X, Shield, Activity, RefreshCw } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { Button } from './ui/button';
@@ -16,28 +16,52 @@ export default function SystemMessenger({ currentUserRole, currentUserName }: Sy
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [seenCount, setSeenCount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(`system_messenger_seen_count_${currentUserRole}`);
+      return saved ? parseInt(saved, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchMessages = async () => {
     try {
       const data = await apiService.getMessages();
-      setMessages(data || []);
+      if (data && Array.isArray(data)) {
+        setMessages(data);
+      }
     } catch (e) {
       console.warn('Failed to fetch messages');
     }
   };
 
+  // Fetch on mount and set up polling
+  useEffect(() => {
+    fetchMessages();
+    const interval = setInterval(fetchMessages, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // When messenger opens, mark all current messages as seen
   useEffect(() => {
     if (isOpen) {
       fetchMessages();
-      const interval = setInterval(fetchMessages, 5000);
-      return () => clearInterval(interval);
+      const currentTotal = messages.length;
+      setSeenCount(currentTotal);
+      try {
+        localStorage.setItem(`system_messenger_seen_count_${currentUserRole}`, currentTotal.toString());
+      } catch {}
     }
-  }, [isOpen]);
+  }, [isOpen, messages.length]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (isOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isOpen]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,24 +75,45 @@ export default function SystemMessenger({ currentUserRole, currentUserName }: Sy
         recipient_role: (currentUserRole === 'admin' || currentUserRole === 'superadmin' || currentUserRole === 'staff') ? 'bhw' : 'admin',
         message: msgText
       });
-      setMessages(prev => [...prev, sent]);
+      const updated = [...messages, sent];
+      setMessages(updated);
+      setSeenCount(updated.length);
+      try {
+        localStorage.setItem(`system_messenger_seen_count_${currentUserRole}`, updated.length.toString());
+      } catch {}
     } catch (err) {
       toast.error('Could not send message');
     }
   };
 
+  const unreadCount = isOpen ? 0 : Math.max(0, messages.length - seenCount);
+
   return (
     <>
       {/* Floating Messenger Toggle Trigger */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!isOpen) {
+            const currentTotal = messages.length;
+            setSeenCount(currentTotal);
+            try {
+              localStorage.setItem(`system_messenger_seen_count_${currentUserRole}`, currentTotal.toString());
+            } catch {}
+          }
+          setIsOpen(!isOpen);
+        }}
         className="fixed bottom-5 right-5 z-40 bg-indigo-600 hover:bg-indigo-700 text-white p-3.5 rounded-full shadow-2xl flex items-center gap-2 cursor-pointer transition-all hover:scale-105"
+        title="Intercom / System Messenger"
       >
-        <MessageSquare size={22} />
+        <div className="relative flex items-center justify-center">
+          <MessageSquare size={22} />
+          {unreadCount > 0 && (
+            <span className="absolute -top-3 -right-3 bg-red-600 text-white text-[11px] font-extrabold rounded-full min-w-[20px] h-[20px] px-1 flex items-center justify-center shadow-lg border-2 border-white animate-pulse">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </div>
         <span className="text-xs font-bold hidden sm:inline">System Messenger</span>
-        {messages.length > 0 && (
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping absolute -top-1 -right-1" />
-        )}
       </button>
 
       {/* Chat Messenger Popup Drawer */}
@@ -81,15 +126,15 @@ export default function SystemMessenger({ currentUserRole, currentUserName }: Sy
                 {currentUserRole === 'admin' ? <Shield size={18} /> : <Activity size={18} />}
               </div>
               <div>
-                <h3 className="text-xs font-bold leading-tight">Barangay ↔ BHW Messenger</h3>
-                <p className="text-[11px] text-indigo-100 opacity-90">Internal Chat Channel</p>
+                <h3 className="text-xs font-bold leading-tight">Barangay ↔ BHW Intercom</h3>
+                <p className="text-[11px] text-indigo-100 opacity-90">{messages.length} messages in channel</p>
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={fetchMessages} className="p-1 hover:bg-indigo-500 rounded text-indigo-100">
+              <button onClick={fetchMessages} className="p-1 hover:bg-indigo-500 rounded text-indigo-100" title="Refresh messages">
                 <RefreshCw size={14} />
               </button>
-              <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-indigo-500 rounded text-indigo-100">
+              <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-indigo-500 rounded text-indigo-100" title="Close intercom">
                 <X size={16} />
               </button>
             </div>
@@ -101,13 +146,13 @@ export default function SystemMessenger({ currentUserRole, currentUserName }: Sy
               <div className="text-center text-slate-400 py-12">No messages yet. Send a memo or inquiry below!</div>
             ) : (
               messages.map((msg, index) => {
-                const isMe = msg.sender_role === currentUserRole;
+                const isMe = msg.sender_name === currentUserName || msg.sender_role === currentUserRole;
                 return (
                   <div key={index} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     <div className="flex items-center gap-1 mb-1">
                       <span className="text-[10px] font-semibold text-slate-500">{msg.sender_name}</span>
                       <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
-                      {msg.sender_role === 'superadmin' ? 'Super Admin' : msg.sender_role === 'admin' ? 'Admin' : msg.sender_role === 'staff' ? 'Staff' : 'BHW'}
+                        {msg.sender_role === 'superadmin' ? 'Super Admin' : msg.sender_role === 'admin' ? 'Admin' : msg.sender_role === 'staff' ? 'Staff' : 'BHW'}
                       </Badge>
                     </div>
                     <div className={`p-3 rounded-2xl max-w-[85%] leading-relaxed ${

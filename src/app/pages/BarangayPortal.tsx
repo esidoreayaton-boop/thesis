@@ -12,10 +12,13 @@ import {
   Building2,
   Heart,
   ArrowRight,
+  Settings,
+  Clock
 } from 'lucide-react';
 import { apiService, DocumentRequest } from '../../services/api';
-import DatabaseStatusBadge from '../components/DatabaseStatusBadge';
 import BarangayChatbot from '../components/BarangayChatbot';
+import ProfileSettingsModal from '../components/ProfileSettingsModal';
+import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -42,11 +45,36 @@ export default function BarangayPortal() {
   const [user, setUser] = useState<any>(null);
   const [docType, setDocType] = useState(BARANGAY_DOCS[0]);
   const [purpose, setPurpose] = useState('');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
-  const loadData = async () => {
+  // Dynamic extra fields per document type
+  const [extraFields, setExtraFields] = useState<Record<string, string>>({});
+
+  const setField = (key: string, val: string) => setExtraFields(prev => ({ ...prev, [key]: val }));
+
+  // Clear extra fields when doc type changes
+  const handleDocTypeChange = (val: string) => {
+    setDocType(val);
+    setExtraFields({});
+    setPurpose('');
+  };
+
+  const loadData = async (currentUser?: any) => {
     try {
       const data = await apiService.getDocuments();
-      setDocuments(data.filter((d) => BARANGAY_DOCS.includes(d.document_type)));
+      const loggedInUser = currentUser || user;
+      const barangayDocs = data.filter((d) => BARANGAY_DOCS.includes(d.document_type));
+      if (loggedInUser?.name) {
+        const firstName = loggedInUser.name.split(' ')[0].toLowerCase();
+        const fullName = loggedInUser.name.toLowerCase();
+        setDocuments(barangayDocs.filter(d =>
+          d.resident_name.toLowerCase().includes(firstName) ||
+          d.resident_name.toLowerCase().includes(fullName) ||
+          d.resident_id === loggedInUser.id
+        ));
+      } else {
+        setDocuments(barangayDocs.slice(0, 3));
+      }
     } catch {
       toast.error('Failed to load document requests');
     }
@@ -57,11 +85,43 @@ export default function BarangayPortal() {
     if (storedUser) {
       try {
         const parsed = JSON.parse(storedUser);
+        if (parsed.role === 'superadmin' || parsed.role === 'admin' || parsed.role === 'staff') {
+          navigate('/admin');
+          return;
+        }
+        if (parsed.role === 'bhw') {
+          navigate('/bhw');
+          return;
+        }
         setUser(parsed);
         setIsVerified(parsed.verification_status === 'Verified');
-      } catch {}
+        loadData(parsed);
+
+        // Live-check if admin has approved since last login
+        if (parsed.email) {
+          apiService.checkVerificationStatus(parsed.email).then(result => {
+            if (result?.success && result.user) {
+              const liveStatus = result.user.verification_status;
+              if (liveStatus && liveStatus !== parsed.verification_status) {
+                const updated = { ...parsed, verification_status: liveStatus };
+                setUser(updated);
+                setIsVerified(liveStatus === 'Verified');
+                localStorage.setItem('barangay_user', JSON.stringify(updated));
+                if (liveStatus === 'Verified') {
+                  toast.success('Account Verified!', {
+                    description: 'Your Barangay ID was approved. You can now request documents.'
+                  });
+                }
+              }
+            }
+          }).catch(() => {});
+        }
+      } catch {
+        loadData();
+      }
+    } else {
+      loadData();
     }
-    loadData();
   }, []);
 
   const handleRequestDocument = async (e: React.FormEvent) => {
@@ -72,16 +132,19 @@ export default function BarangayPortal() {
       });
       return;
     }
+    // Build purpose string from specific fields
+    const fullPurpose = purpose || Object.entries(extraFields).map(([k, v]) => `${k}: ${v}`).join(' | ') || 'Personal Requirement';
     try {
       const created = await apiService.createDocument({
         resident_name: user?.name || 'Resident',
         document_type: docType,
-        purpose: purpose || 'Personal Requirement',
+        purpose: fullPurpose,
       });
       setDocuments([created, ...documents]);
       toast.success('Request submitted!', { description: `Request Code: ${created.request_code}` });
       setIsAddDocOpen(false);
       setPurpose('');
+      setExtraFields({});
     } catch {
       toast.error('Submission failed. Please try again.');
     }
@@ -92,6 +155,9 @@ export default function BarangayPortal() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {/* Super Admin Unified Ecosystem Switcher */}
+      <SuperAdminNavigationDock currentRole={user?.role} />
+
       {/* Navbar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-3 shadow-sm">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
@@ -106,7 +172,17 @@ export default function BarangayPortal() {
           </div>
 
           <div className="flex items-center gap-2">
-            <DatabaseStatusBadge />
+            {user && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsProfileModalOpen(true)}
+                className="flex items-center gap-1.5 text-xs border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+              >
+                <Settings size={14} />
+                <span className="hidden sm:inline">Profile Settings</span>
+              </Button>
+            )}
 
             {/* Switch to Health Center */}
             <Button
@@ -165,19 +241,10 @@ export default function BarangayPortal() {
                 <p className="text-xs text-amber-800 mt-1">Your Government ID is under review. Document requests are locked until approval.</p>
               </div>
             </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setIsVerified(true);
-                const updated = { ...user, verification_status: 'Verified' };
-                setUser(updated);
-                localStorage.setItem('barangay_user', JSON.stringify(updated));
-                toast.success('Demo: Account verified!');
-              }}
-              className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-9 px-4 shrink-0"
-            >
-              <CheckCircle2 size={14} className="mr-1.5" /> Verify Demo Account
-            </Button>
+            <div className="flex items-center gap-2 bg-amber-100/80 border border-amber-300 text-amber-900 px-3.5 py-2 rounded-xl text-xs font-semibold shrink-0">
+              <Clock size={15} className="animate-spin text-amber-700" />
+              <span>Awaiting Barangay Admin Approval</span>
+            </div>
           </div>
         ) : (
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-3 text-xs text-emerald-900">
@@ -209,27 +276,163 @@ export default function BarangayPortal() {
                 Request Barangay Document
               </Button>
             </DialogTrigger>
-            <DialogContent className="bg-white">
+            <DialogContent className="bg-white max-w-lg">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <Building2 size={18} className="text-indigo-600" /> Request Barangay Document
                 </DialogTitle>
-                <DialogDescription className="text-xs">Submit a document request to the Barangay Office.</DialogDescription>
+                <DialogDescription className="text-xs">Submit a document request to the Barangay Office. Fill in all required fields.</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleRequestDocument} className="space-y-3 py-2">
+                {/* Step 1: Document Type */}
                 <div>
                   <Label className="text-xs font-semibold">Document Type</Label>
-                  <Select value={docType} onValueChange={setDocType}>
+                  <Select value={docType} onValueChange={handleDocTypeChange}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {BARANGAY_DOCS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label className="text-xs font-semibold">Purpose of Request</Label>
-                  <Input value={purpose} onChange={(e) => setPurpose(e.target.value)} required placeholder="e.g. Employment / Bank Requirement" />
-                </div>
+
+                {/* Dynamic fields per document type */}
+                {docType === 'Barangay Clearance' && (
+                  <>
+                    <div>
+                      <Label className="text-xs font-semibold">Purpose of Clearance</Label>
+                      <Select value={extraFields['Purpose'] || ''} onValueChange={v => setField('Purpose', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select purpose..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Employment">Employment</SelectItem>
+                          <SelectItem value="Bank Loan / Account">Bank Loan / Account</SelectItem>
+                          <SelectItem value="Travel / Visa Application">Travel / Visa Application</SelectItem>
+                          <SelectItem value="School Enrollment">School Enrollment</SelectItem>
+                          <SelectItem value="Government ID Application">Government ID Application</SelectItem>
+                          <SelectItem value="Others">Others</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Full Name of Applicant</Label>
+                      <Input value={extraFields['Applicant Name'] || user?.name || ''} onChange={e => setField('Applicant Name', e.target.value)} placeholder="As it appears on valid ID" required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Length of Residency in Barangay</Label>
+                      <Input value={extraFields['Residency Duration'] || ''} onChange={e => setField('Residency Duration', e.target.value)} placeholder="e.g. 5 years" required />
+                    </div>
+                  </>
+                )}
+
+                {docType === 'Certificate of Residency' && (
+                  <>
+                    <div>
+                      <Label className="text-xs font-semibold">Purpose</Label>
+                      <Input value={extraFields['Purpose'] || ''} onChange={e => setField('Purpose', e.target.value)} placeholder="e.g. School Enrollment / Bank Requirement" required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Purok / Home Address in Barangay Pianing</Label>
+                      <Input value={extraFields['Home Address'] || ''} onChange={e => setField('Home Address', e.target.value)} placeholder="e.g. Purok 3, Barangay Pianing, Butuan City" required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Duration of Residence</Label>
+                      <Input value={extraFields['Duration of Residence'] || ''} onChange={e => setField('Duration of Residence', e.target.value)} placeholder="e.g. 3 years, 6 months" required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Date of Birth</Label>
+                      <Input type="date" value={extraFields['Date of Birth'] || ''} onChange={e => setField('Date of Birth', e.target.value)} required />
+                    </div>
+                  </>
+                )}
+
+                {docType === 'Business Permit' && (
+                  <>
+                    <div>
+                      <Label className="text-xs font-semibold">Business Name</Label>
+                      <Input value={extraFields['Business Name'] || ''} onChange={e => setField('Business Name', e.target.value)} placeholder="Registered trade name" required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Type / Nature of Business</Label>
+                      <Select value={extraFields['Business Type'] || ''} onValueChange={v => setField('Business Type', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select type..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Retail / Sari-Sari Store">Retail / Sari-Sari Store</SelectItem>
+                          <SelectItem value="Food & Beverage">Food & Beverage</SelectItem>
+                          <SelectItem value="Salon / Beauty Services">Salon / Beauty Services</SelectItem>
+                          <SelectItem value="Repair Shop">Repair Shop</SelectItem>
+                          <SelectItem value="Home-Based Business">Home-Based Business</SelectItem>
+                          <SelectItem value="Other Trade">Other Trade</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Business Location / Address</Label>
+                      <Input value={extraFields['Business Address'] || ''} onChange={e => setField('Business Address', e.target.value)} placeholder="e.g. Purok 2, Brgy. Pianing" required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Name of Business Owner</Label>
+                      <Input value={extraFields['Owner Name'] || user?.name || ''} onChange={e => setField('Owner Name', e.target.value)} placeholder="Full legal name of owner" required />
+                    </div>
+                  </>
+                )}
+
+                {docType === 'Certificate of Indigency' && (
+                  <>
+                    <div>
+                      <Label className="text-xs font-semibold">Reason for Indigency Certificate</Label>
+                      <Select value={extraFields['Reason'] || ''} onValueChange={v => setField('Reason', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select reason..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Hospital / Medical Assistance">Hospital / Medical Assistance</SelectItem>
+                          <SelectItem value="Educational Financial Aid">Educational Financial Aid</SelectItem>
+                          <SelectItem value="DSWD / Government Assistance">DSWD / Government Assistance</SelectItem>
+                          <SelectItem value="Legal Aid / PAO">Legal Aid / PAO</SelectItem>
+                          <SelectItem value="Burial Assistance">Burial Assistance</SelectItem>
+                          <SelectItem value="Others">Others</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Monthly Household Income (Approximate)</Label>
+                      <Input value={extraFields['Monthly Income'] || ''} onChange={e => setField('Monthly Income', e.target.value)} placeholder="e.g. Below ₱5,000" required />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Number of Dependents</Label>
+                      <Input type="number" min="0" value={extraFields['Dependents'] || ''} onChange={e => setField('Dependents', e.target.value)} placeholder="e.g. 4" required />
+                    </div>
+                  </>
+                )}
+
+                {docType === 'Barangay ID' && (
+                  <>
+                    <div>
+                      <Label className="text-xs font-semibold">Complete Address in Barangay Pianing</Label>
+                      <Input value={extraFields['Complete Address'] || ''} onChange={e => setField('Complete Address', e.target.value)} placeholder="Purok #, Barangay Pianing, Butuan City" required />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs font-semibold">Date of Birth</Label>
+                        <Input type="date" value={extraFields['Date of Birth'] || ''} onChange={e => setField('Date of Birth', e.target.value)} required />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">Civil Status</Label>
+                        <Select value={extraFields['Civil Status'] || ''} onValueChange={v => setField('Civil Status', v)}>
+                          <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Single">Single</SelectItem>
+                            <SelectItem value="Married">Married</SelectItem>
+                            <SelectItem value="Widowed">Widowed</SelectItem>
+                            <SelectItem value="Separated">Separated</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Emergency Contact Person & Number</Label>
+                      <Input value={extraFields['Emergency Contact'] || ''} onChange={e => setField('Emergency Contact', e.target.value)} placeholder="e.g. Maria Santos — 09171234567" required />
+                    </div>
+                  </>
+                )}
+
                 <DialogFooter>
                   <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white">Submit Request</Button>
                 </DialogFooter>
@@ -268,12 +471,13 @@ export default function BarangayPortal() {
                   <TableHead className="text-xs">Purpose</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Date Submitted</TableHead>
+                  <TableHead className="text-xs text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {documents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-xs py-10 text-slate-400">
+                    <TableCell colSpan={6} className="text-center text-xs py-10 text-slate-400">
                       <Building2 className="mx-auto mb-2 text-slate-300" size={28} />
                       No barangay document requests yet. Click <strong>"Request Barangay Document"</strong> above.
                     </TableCell>
@@ -288,6 +492,17 @@ export default function BarangayPortal() {
                         <Badge className={statusColor(doc.status)}>{doc.status}</Badge>
                       </TableCell>
                       <TableCell className="font-mono text-slate-400 text-[11px]">{doc.requested_at || 'Today'}</TableCell>
+                      <TableCell className="text-right">
+                        {doc.status === 'Completed' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+                            <CheckCircle2 size={12} /> Ready for Pickup
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md">
+                            Processing
+                          </span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -317,6 +532,14 @@ export default function BarangayPortal() {
       </main>
 
       <BarangayChatbot />
+
+      {/* Resident Profile Settings Modal */}
+      <ProfileSettingsModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={user}
+        onProfileUpdated={(updated) => setUser(updated)}
+      />
     </div>
   );
 }

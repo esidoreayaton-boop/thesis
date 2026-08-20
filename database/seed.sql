@@ -17,24 +17,24 @@ TRUNCATE TABLE `faq_knowledge`;
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- Seed Users (5 Roles: superadmin, admin, staff, bhw, resident)
-INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `role`, `status`, `last_login`) VALUES
-(1, 'Super Admin Rodrigo Lim', 'superadmin@barangay.gov', '123', 'superadmin', 'Active', NOW()),
-(2, 'Admin Juan Dela Cruz', 'juan.admin@barangay.gov', '123', 'admin', 'Active', NOW()),
-(3, 'Clerk Ana Reyes', 'ana.staff@barangay.gov', '123', 'staff', 'Active', NOW() - INTERVAL 1 DAY),
-(4, 'Officer Pedro Garcia', 'pedro.staff@barangay.gov', '123', 'staff', 'Inactive', NOW() - INTERVAL 5 DAY),
-(5, 'BHW Maria Santos', 'maria.bhw@barangay.gov', '123', 'bhw', 'Active', NOW()),
-(6, 'BHW Ligaya Cruz', 'ligaya.bhw@barangay.gov', '123', 'bhw', 'Active', NOW() - INTERVAL 2 DAY),
-(7, 'Juan Resident', 'juan.resident@gmail.com', '123', 'resident', 'Active', NOW() - INTERVAL 1 DAY)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `role` = VALUES(`role`);
+INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `role`, `status`, `verification_status`, `last_login`) VALUES
+(1, 'Super Admin Rodrigo Lim', 'superadmin@barangay.gov', '123', 'superadmin', 'Active', 'Verified', NOW()),
+(2, 'Barangay Captain Juan Dela Cruz', 'admin@barangay.gov', '123', 'admin', 'Active', 'Verified', NOW()),
+(3, 'Barangay Clerk Ana Reyes', 'staff@barangay.gov', '123', 'staff', 'Active', 'Verified', NOW() - INTERVAL 1 DAY),
+(4, 'Nurse Maria Santos', 'bhw@barangay.gov', '123', 'bhw', 'Active', 'Verified', NOW()),
+(5, 'Juan Resident Dela Cruz', 'resident@gmail.com', '123', 'resident', 'Active', 'Verified', NOW() - INTERVAL 1 DAY),
+(6, 'Josefina Villanueva', 'josefina@gmail.com', '123', 'resident', 'Active', 'Pending_Review', NOW() - INTERVAL 3 DAY)
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `email` = VALUES(`email`), `role` = VALUES(`role`), `verification_status` = VALUES(`verification_status`);
 
 -- Seed Residents
-INSERT INTO `residents` (`id`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `civil_status`, `address`, `household_id`, `phone`, `email`) VALUES
-(1, 'Juan', 'Perez', 'Dela Cruz', '1988-04-12', 'Male', 'Married', '123 Sampaguita St, Zone 1', 'HH-001', '09171234567', 'juan.delacruz@gmail.com'),
-(2, 'Maria', 'Clara', 'Santos', '1992-08-25', 'Female', 'Single', '456 Narra Ave, Zone 2', 'HH-002', '09182345678', 'maria.santos@gmail.com'),
-(3, 'Pedro', 'Alcantara', 'Garcia', '1985-11-03', 'Male', 'Married', '789 Mabini St, Zone 1', 'HH-003', '09193456789', 'pedro.garcia@gmail.com'),
-(4, 'Ana', 'Bautista', 'Reyes', '1995-02-14', 'Female', 'Single', '101 Rizal St, Zone 3', 'HH-004', '09204567890', 'ana.reyes@gmail.com'),
-(5, 'Teresa', 'Luna', 'Ramos', '1994-06-18', 'Female', 'Married', '202 Acacia St, Zone 2', 'HH-005', '09215678901', 'teresa.ramos@gmail.com')
-ON DUPLICATE KEY UPDATE `first_name` = VALUES(`first_name`);
+INSERT INTO `residents` (`id`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `civil_status`, `address`, `household_id`, `phone`, `email`, `verification_status`, `submitted_id`) VALUES
+(1, 'Juan', 'Perez', 'Dela Cruz', '1988-04-12', 'Male', 'Married', 'Purok 1, Barangay Pianing, Butuan City', 'HH-001', '09171234567', 'juan.resident@gmail.com', 'Verified', NULL),
+(2, 'Maria', 'Clara', 'Santos', '1992-08-25', 'Female', 'Single', 'Purok 2, Barangay Pianing, Butuan City', 'HH-002', '09182345678', 'maria.santos@gmail.com', 'Verified', NULL),
+(3, 'Pedro', 'Alcantara', 'Garcia', '1985-11-03', 'Male', 'Married', 'Purok 3, Barangay Pianing, Butuan City', 'HH-003', '09193456789', 'pedro.garcia@gmail.com', 'Verified', NULL),
+(4, 'Ana', 'Bautista', 'Reyes', '1995-02-14', 'Female', 'Single', 'Purok 4, Barangay Pianing, Butuan City', 'HH-004', '09204567890', 'ana.reyes@gmail.com', 'Verified', NULL),
+(5, 'Teresa', 'Luna', 'Ramos', '1994-06-18', 'Female', 'Married', 'Purok 5, Barangay Pianing, Butuan City', 'HH-005', '09215678901', 'teresa.ramos@gmail.com', 'Verified', NULL),
+(6, 'Josefina', '', 'Villanueva', '1996-09-10', 'Female', 'Single', 'Purok 1, Barangay Pianing, Butuan City', 'HH-006', '09311234567', 'josefina.resident@gmail.com', 'Pending_Review', 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400')
+ON DUPLICATE KEY UPDATE `first_name` = VALUES(`first_name`), `verification_status` = VALUES(`verification_status`);
 
 -- Seed Document Requests
 INSERT INTO `document_requests` (`id`, `request_code`, `resident_id`, `resident_name`, `document_type`, `purpose`, `status`, `requested_at`, `processed_at`, `processed_by`) VALUES
@@ -78,8 +78,14 @@ INSERT INTO `messages` (`id`, `sender_name`, `sender_role`, `recipient_role`, `m
 
 -- Seed FAQ Knowledge Base for Resident Chatbot
 INSERT INTO `faq_knowledge` (`id`, `topic`, `keywords`, `response`) VALUES
-(1, 'Barangay Clearance Requirements', 'clearance,requirement,document,get clearance,how to request', 'To request a Barangay Clearance, you need a valid Government ID, Cedula (Community Tax Certificate), and proof of residency in Zone 1-4. Processing takes 1-2 business days.'),
-(2, 'Health Center Hours', 'hours,open,schedule,time,health center,clinic', 'The Barangay Health Center is open Monday to Friday, from 8:00 AM to 5:00 PM. Immunizations are conducted every Wednesday and Friday morning.'),
-(3, 'Vaccination & Immunization', 'vaccine,immunization,baby,infant,bcg,polio,mmr,schedule', 'Free infant vaccines (BCG, Hepatitis B, DPT, Polio, MMR) are available for all barangay residents. Please bring your child mother-baby handbook during clinic visits.'),
-(4, 'Business Permit Requirements', 'business,permit,store,sari-sari,commercial', 'Barangay Business Permit requirements include: DTI Registration (if applicable), Lease Contract / Land Title, and Owner Valid ID. Submit requests through the Admin Portal.');
+(1, 'Barangay Clearance', 'clearance,barangay clearance,police clearance,nbi clearance', '📄 Barangay Clearance Requirements:\n• Valid Government-Issued ID\n• Cedula (Community Tax Certificate)\n• Proof of Residency (utility bill/lease)\nProcessing Time: Same day | Fee: Php 50.00 | Location: Barangay Hall, Room 1'),
+(2, 'Certificate of Residency', 'residency,certificate of residency,proof of residence', '🏠 Certificate of Residency Requirements:\n• Valid Government ID\n• Utility bill (electricity/water)\n• 2 pcs 1x1 ID photo\nProcessing Time: 1–2 hours | Fee: Php 50.00 | Submit online or at Barangay Hall.'),
+(3, 'Health Center Hours & Services', 'hours,clinic,open,schedule,time,health center,doctor,nurse', '🏥 Barangay Health Center Hours:\n• Monday to Friday: 8:00 AM – 5:00 PM\n• Infant Immunizations: Wednesdays & Fridays (8:00 AM – 12:00 PM)\n• Free consultations, prenatal checkups, and vitals monitoring.'),
+(4, 'Free Infant Immunizations', 'vaccine,vaccination,immunization,baby,infant,bcg,polio,mmr,dpt,hepatitis', '💉 Free Infant Vaccines Available:\n• BCG, Hepatitis B, DPT, OPV, and MMR\n• Schedule: Every Wednesday & Friday (8AM–12PM)\n• Please bring your Mother-Baby Handbook / Immunization Card.'),
+(5, 'Business Permit', 'business,permit,store,sari-sari,commercial,business permit', '🏪 Barangay Business Permit Requirements:\n• DTI / SEC Registration\n• Lease Contract / Proof of Property Ownership\n• Owner Valid ID & Cedula\nProcessing Time: 1–2 business days | Fee: Php 200–500.'),
+(6, 'Certificate of Indigency', 'indigency,certificate of indigency,poor,financial assistance', '📋 Certificate of Indigency:\n• Valid Government ID & Proof of Residency\n• Processing: Same day\n• Fee: FREE of charge for indigent families.'),
+(7, 'Account Registration & Verification', 'register,sign up,account,verification,verify,pending review', '📝 Account Verification:\n• Upload valid Government ID during registration.\n• Admin approves account in 1–2 business days.\n• Once verified, document requests unlock automatically.'),
+(8, 'How to Print Requested Documents', 'print,download,get certificate,print document,export', '🖨️ How to Print / Download Your Document:\n• Log in to your Resident Portal (Barangay or Health Center).\n• In your requests table, click "Print / Export" on your document.\n• Preview the official certificate and click "Print Official Copy" or "Download File".'),
+(9, 'Fees & Payments', 'fee,fees,how much,cost,price,payment', '💰 Document & Service Fees:\n• Barangay Clearance: Php 50.00\n• Residency Certificate: Php 50.00\n• Business Permit: Php 200–500\n• Indigency Certificate: FREE\n• All Health Center Services & Vaccines: FREE')
+ON DUPLICATE KEY UPDATE `topic` = VALUES(`topic`), `keywords` = VALUES(`keywords`), `response` = VALUES(`response`);
 

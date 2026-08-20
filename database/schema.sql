@@ -8,6 +8,19 @@
 CREATE DATABASE IF NOT EXISTS `smart_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `smart_db`;
 
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS `faq_knowledge`;
+DROP TABLE IF EXISTS `messages`;
+DROP TABLE IF EXISTS `activity_logs`;
+DROP TABLE IF EXISTS `sms_notifications`;
+DROP TABLE IF EXISTS `immunizations`;
+DROP TABLE IF EXISTS `child_health_records`;
+DROP TABLE IF EXISTS `maternal_records`;
+DROP TABLE IF EXISTS `document_requests`;
+DROP TABLE IF EXISTS `residents`;
+DROP TABLE IF EXISTS `users`;
+SET FOREIGN_KEY_CHECKS = 1;
+
 -- 1. System Users (Super Admin, Barangay Admin, Barangay Staff, BHW, Resident)
 CREATE TABLE IF NOT EXISTS `users` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -16,6 +29,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `password_hash` VARCHAR(255) NOT NULL,
   `role` ENUM('superadmin', 'admin', 'staff', 'bhw', 'resident') NOT NULL DEFAULT 'resident',
   `status` ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
+  `verification_status` ENUM('Verified', 'Unverified', 'Pending_Review', 'Rejected') NOT NULL DEFAULT 'Verified',
   `last_login` DATETIME NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -27,15 +41,17 @@ CREATE TABLE IF NOT EXISTS `residents` (
   `first_name` VARCHAR(50) NOT NULL,
   `middle_name` VARCHAR(50) DEFAULT '',
   `last_name` VARCHAR(50) NOT NULL,
-  `date_of_birth` DATE NOT NULL,
-  `gender` ENUM('Male', 'Female', 'Other') NOT NULL,
+  `date_of_birth` DATE NULL DEFAULT '2000-01-01',
+  `gender` ENUM('Male', 'Female', 'Other') DEFAULT 'Male',
   `civil_status` ENUM('Single', 'Married', 'Widowed', 'Separated') DEFAULT 'Single',
   `address` VARCHAR(255) NOT NULL,
-  `household_id` VARCHAR(50) NOT NULL,
+  `household_id` VARCHAR(50) NOT NULL DEFAULT 'HH-NEW',
   `phone` VARCHAR(20) DEFAULT '',
   `email` VARCHAR(100) DEFAULT '',
+  `submitted_id` LONGTEXT NULL,
+  `submitted_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `voter_status` BOOLEAN DEFAULT TRUE,
-  `verification_status` ENUM('Verified', 'Unverified', 'Pending_Review') DEFAULT 'Verified',
+  `verification_status` ENUM('Verified', 'Unverified', 'Pending_Review', 'Rejected') DEFAULT 'Pending_Review',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -120,12 +136,12 @@ CREATE TABLE IF NOT EXISTS `activity_logs` (
   `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 9. Intra-System Messenger (Barangay Admin <-> BHW Staff Chat)
+-- 9. Intra-System Messenger (Barangay Admin <-> BHW/Staff Chat)
 CREATE TABLE IF NOT EXISTS `messages` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `sender_name` VARCHAR(100) NOT NULL,
-  `sender_role` ENUM('superadmin', 'admin', 'bhw', 'resident') NOT NULL,
-  `recipient_role` ENUM('admin', 'bhw', 'all') NOT NULL DEFAULT 'all',
+  `sender_role` ENUM('superadmin', 'admin', 'staff', 'bhw', 'resident') NOT NULL,
+  `recipient_role` ENUM('admin', 'staff', 'bhw', 'all') NOT NULL DEFAULT 'all',
   `message` TEXT NOT NULL,
   `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
