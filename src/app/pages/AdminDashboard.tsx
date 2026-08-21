@@ -1262,7 +1262,7 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 3: RESIDENT RECORDS */
+          {/* TAB 3: RESIDENT RECORDS */}
           {activeTab === 'records' && (
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
