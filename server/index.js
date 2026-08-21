@@ -4,7 +4,14 @@ import dotenv from 'dotenv';
 import { testConnection, getPool, getStatus } from './config/db.js';
 import { sendLiveSms, formatPhoneNumber } from './services/smsService.js';
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -12,6 +19,12 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Serve compiled Vite frontend in production mode
+const distPath = path.resolve(__dirname, '../dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 
 // In-Memory Fallback Store (active if MySQL is unavailable)
 let mockData = {
@@ -1092,6 +1105,16 @@ app.post('/api/chatbot', async (req, res) => {
     topic: 'General',
     source: 'fallback'
   });
+});
+
+// Handle React SPA wildcard routing in production
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  const indexPath = path.resolve(__dirname, '../dist/index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  next();
 });
 
 // Start Server
