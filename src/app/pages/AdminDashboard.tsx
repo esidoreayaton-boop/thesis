@@ -1068,41 +1068,79 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Archive Stats Banner */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                    <CheckCircle size={20} />
+              {/* Interactive Clickable Archive Stats Banner */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('completed-docs-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 hover:border-emerald-300 rounded-2xl p-4 flex items-center justify-between text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 group-hover:bg-emerald-200 text-emerald-600 flex items-center justify-center shrink-0 transition-colors">
+                      <CheckCircle size={20} />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold text-emerald-700">Completed Documents</p>
+                      <h3 className="text-xl font-bold text-emerald-900">{archivedDocuments.length}</h3>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-[11px] font-semibold text-emerald-700">Completed Documents</p>
-                    <h3 className="text-xl font-bold text-emerald-900">{archivedDocuments.length}</h3>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-200/60 group-hover:bg-emerald-600 group-hover:text-white px-2 py-1 rounded-md transition-all shrink-0">
+                    View ↓
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('verified-residents-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="bg-blue-50 hover:bg-blue-100/80 border border-blue-200 hover:border-blue-300 rounded-2xl p-4 flex items-center justify-between text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 group-hover:bg-blue-200 text-blue-600 flex items-center justify-center shrink-0 transition-colors">
+                      <UserCheck size={20} />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold text-blue-700">Verified Residents</p>
+                      <h3 className="text-xl font-bold text-blue-900">
+                        {residents.filter(r => (r as any).verification_status === 'Verified').length}
+                      </h3>
+                    </div>
                   </div>
-                </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                    <UserCheck size={20} />
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-200/60 group-hover:bg-blue-600 group-hover:text-white px-2 py-1 rounded-md transition-all shrink-0">
+                    View ↓
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('completed-docs-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 hover:border-slate-300 rounded-2xl p-4 flex items-center justify-between text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group col-span-1 sm:col-span-1"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0 transition-colors">
+                      <Archive size={20} />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold text-slate-600">Total Archive Entries</p>
+                      <h3 className="text-xl font-bold text-slate-900">{archivedDocuments.length + residents.length}</h3>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-[11px] font-semibold text-blue-700">Verified Residents</p>
-                    <h3 className="text-xl font-bold text-blue-900">
-                      {residents.filter(r => (r as any).verification_status === 'Verified').length}
-                    </h3>
-                  </div>
-                </div>
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center gap-3 col-span-2 sm:col-span-1">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-                    <Archive size={20} />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold text-slate-600">Total Archive Entries</p>
-                    <h3 className="text-xl font-bold text-slate-900">{archivedDocuments.length + residents.length}</h3>
-                  </div>
-                </div>
+                  <span className="text-[10px] font-bold text-slate-700 bg-slate-200/60 group-hover:bg-slate-700 group-hover:text-white px-2 py-1 rounded-md transition-all shrink-0">
+                    View All ↓
+                  </span>
+                </button>
               </div>
 
               {/* Archived Documents Section */}
-              <Card className="border-slate-200 bg-white shadow-xs">
+              <Card id="completed-docs-section" className="border-slate-200 bg-white shadow-xs scroll-mt-6">
                 <CardHeader className="flex flex-row items-center justify-between pb-3">
                   <div>
                     <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -1198,7 +1236,7 @@ export default function AdminDashboard() {
               </Card>
 
               {/* Verified Residents Archive */}
-              <Card className="border-slate-200 bg-white shadow-xs">
+              <Card id="verified-residents-section" className="border-slate-200 bg-white shadow-xs scroll-mt-6">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <UserCheck className="text-blue-600" size={18} />
