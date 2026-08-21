@@ -29,7 +29,10 @@ import {
   AlertTriangle,
   Tag,
   Archive,
-  InboxIcon
+  InboxIcon,
+  Settings,
+  Sliders,
+  Database
 } from 'lucide-react';
 import { apiService, DocumentRequest, Resident, SystemUser } from '../../services/api';
 import SystemMessenger from '../components/SystemMessenger';
@@ -367,7 +370,7 @@ export default function AdminDashboard() {
     { id: 'records', label: 'Resident Records', icon: FolderOpen },
     { id: 'users', label: 'User Accounts', icon: Users },
     { id: 'reports', label: 'System Reports', icon: BarChart },
-    { id: 'archive', label: 'Archive / Records', icon: Archive },
+    { id: 'archive', label: 'Settings & Data Archive', icon: Settings },
     ...(user?.role === 'superadmin' ? [{ id: 'categories', label: 'Category Manager', icon: Tag }] : []),
   ];
 
@@ -1035,11 +1038,11 @@ export default function AdminDashboard() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <Archive className="text-slate-600" size={22} />
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Archive &amp; Completed Records</h2>
+                    <Settings className="text-indigo-600" size={22} />
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Settings &amp; Completed Records Archive</h2>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    All processed documents and verified/rejected resident applications are stored here.
+                    Central archive for all approved/completed clearance documents, residency certificates, and verified resident accounts.
                   </p>
                 </div>
                 <Button
@@ -1048,6 +1051,21 @@ export default function AdminDashboard() {
                 >
                   <Download size={14} /> Export Archive CSV
                 </Button>
+              </div>
+
+              {/* Data Migration Callout Banner */}
+              <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-4 text-white shadow-sm flex items-start gap-3 border border-indigo-500/30">
+                <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 flex items-center justify-center shrink-0 mt-0.5">
+                  <Database size={20} />
+                </div>
+                <div className="text-xs space-y-1">
+                  <h4 className="font-bold text-indigo-200 flex items-center gap-2">
+                    📥 Automated Archive Workflow Active
+                  </h4>
+                  <p className="text-slate-300 leading-relaxed">
+                    When you click <strong>Approve / Complete</strong> on a pending document request, the item is removed from the active <strong>Document Processing</strong> tab and moved here to <strong>Settings &amp; Data Archive</strong> for permanent record storage and printing.
+                  </p>
+                </div>
               </div>
 
               {/* Archive Stats Banner */}
