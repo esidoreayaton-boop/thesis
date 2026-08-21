@@ -27,7 +27,9 @@ import {
   UserCheck,
   Eye,
   AlertTriangle,
-  Tag
+  Tag,
+  Archive,
+  InboxIcon
 } from 'lucide-react';
 import { apiService, DocumentRequest, Resident, SystemUser } from '../../services/api';
 import SystemMessenger from '../components/SystemMessenger';
@@ -331,13 +333,25 @@ export default function AdminDashboard() {
     navigate('/login');
   };
 
-  // Filtered lists
-  const filteredDocuments = documents.filter(doc => {
+  // Filtered lists — Documents tab shows ONLY active (untouched/in-progress) requests
+  const activeDocuments = documents.filter(doc => doc.status === 'Pending' || doc.status === 'Processing');
+  const filteredDocuments = activeDocuments.filter(doc => {
     const matchesSearch = doc.resident_name.toLowerCase().includes(docSearch.toLowerCase()) ||
                           doc.request_code.toLowerCase().includes(docSearch.toLowerCase()) ||
                           doc.document_type.toLowerCase().includes(docSearch.toLowerCase());
-    const matchesStatus = docStatusFilter === 'all' || doc.status === docStatusFilter;
-    return matchesSearch && matchesStatus;
+    return matchesSearch;
+  });
+
+  // Archive lists — processed/completed records that moved out of the active queue
+  const [archiveDocSearch, setArchiveDocSearch] = useState('');
+  const [archiveDocTypeFilter, setArchiveDocTypeFilter] = useState('all');
+  const archivedDocuments = documents.filter(doc => doc.status === 'Completed');
+  const filteredArchivedDocs = archivedDocuments.filter(doc => {
+    const matchesSearch = doc.resident_name.toLowerCase().includes(archiveDocSearch.toLowerCase()) ||
+                          doc.request_code.toLowerCase().includes(archiveDocSearch.toLowerCase()) ||
+                          doc.document_type.toLowerCase().includes(archiveDocSearch.toLowerCase());
+    const matchesType = archiveDocTypeFilter === 'all' || doc.document_type === archiveDocTypeFilter;
+    return matchesSearch && matchesType;
   });
 
   const filteredResidents = residents.filter(res =>
@@ -349,10 +363,11 @@ export default function AdminDashboard() {
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: Home },
     { id: 'approvals', label: 'Pending Approvals', icon: CheckCircle },
-    { id: 'documents', label: 'Document Processing', icon: FileText },
+    { id: 'documents', label: 'Document Processing', icon: InboxIcon },
     { id: 'records', label: 'Resident Records', icon: FolderOpen },
     { id: 'users', label: 'User Accounts', icon: Users },
     { id: 'reports', label: 'System Reports', icon: BarChart },
+    { id: 'archive', label: 'Archive / Records', icon: Archive },
     ...(user?.role === 'superadmin' ? [{ id: 'categories', label: 'Category Manager', icon: Tag }] : []),
   ];
 
@@ -441,6 +456,16 @@ export default function AdminDashboard() {
                 {sidebarOpen && item.id === 'approvals' && pendingResidents.length > 0 && (
                   <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0 h-4 border-0 font-bold">
                     {pendingResidents.length}
+                  </Badge>
+                )}
+                {sidebarOpen && item.id === 'documents' && activeDocuments.length > 0 && (
+                  <Badge className="bg-indigo-500 text-white text-[10px] px-1.5 py-0 h-4 border-0 font-bold">
+                    {activeDocuments.length}
+                  </Badge>
+                )}
+                {sidebarOpen && item.id === 'archive' && archivedDocuments.length > 0 && (
+                  <Badge className="bg-emerald-500 text-white text-[10px] px-1.5 py-0 h-4 border-0 font-bold">
+                    {archivedDocuments.length}
                   </Badge>
                 )}
               </button>
@@ -831,13 +856,25 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 2: DOCUMENT PROCESSING */}
+          {/* TAB 2: DOCUMENT PROCESSING — Active (Pending/Processing) only */}
           {activeTab === 'documents' && (
             <div className="space-y-6">
+              {/* Active Queue Banner */}
+              <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-2xl">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                  <InboxIcon size={22} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-indigo-900">Active Document Queue</h3>
+                  <p className="text-xs text-indigo-700 mt-0.5">
+                    Showing <strong>{activeDocuments.length}</strong> unprocessed request{activeDocuments.length !== 1 ? 's' : ''} (Pending &amp; Processing). Once approved, documents automatically move to the <button onClick={() => setActiveTab('archive')} className="underline font-semibold hover:text-indigo-900 cursor-pointer">Archive tab</button>.
+                  </p>
+                </div>
+              </div>
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Document Clearance & Permits</h2>
-                  <p className="text-xs text-slate-500">Manage, update, and approve official barangay clearances, residency certificates, and business permits.</p>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Document Clearance &amp; Permits</h2>
+                  <p className="text-xs text-slate-500">Manage and approve active barangay clearances, residency certificates, and business permits.</p>
                 </div>
 
                 <Dialog open={isAddDocOpen} onOpenChange={setIsAddDocOpen}>
@@ -882,7 +919,7 @@ export default function AdminDashboard() {
                 </Dialog>
               </div>
 
-              {/* Filters */}
+              {/* Filters — Active queue only (no Completed filter needed) */}
               <div className="flex flex-col sm:flex-row gap-3 bg-white p-3 rounded-xl border border-slate-200 justify-between items-center">
                 <div className="flex flex-1 flex-col sm:flex-row gap-3 w-full">
                   <div className="relative flex-1">
@@ -894,21 +931,9 @@ export default function AdminDashboard() {
                       className="pl-9 h-9 text-xs"
                     />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Filter size={14} className="text-slate-400" />
-                    <Select value={docStatusFilter} onValueChange={setDocStatusFilter}>
-                      <SelectTrigger className="w-36 h-9 text-xs"><SelectValue placeholder="Status Filter" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        <SelectItem value="Pending">Pending</SelectItem>
-                        <SelectItem value="Processing">Processing</SelectItem>
-                        <SelectItem value="Completed">Completed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
                 <Button
-                  onClick={() => exportToCsv('Barangay_Document_Requests', filteredDocuments)}
+                  onClick={() => exportToCsv('Active_Document_Requests', filteredDocuments)}
                   variant="outline"
                   size="sm"
                   className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
@@ -1003,7 +1028,223 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 3: RESIDENT RECORDS */}
+          {/* TAB: ARCHIVE / RECORDS SETTINGS */}
+          {activeTab === 'archive' && (
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Archive className="text-slate-600" size={22} />
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Archive &amp; Completed Records</h2>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    All processed documents and verified/rejected resident applications are stored here.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => exportToCsv('Archive_Completed_Documents', archivedDocuments)}
+                  variant="outline" size="sm" className="text-xs gap-1.5 border-slate-300"
+                >
+                  <Download size={14} /> Export Archive CSV
+                </Button>
+              </div>
+
+              {/* Archive Stats Banner */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                    <CheckCircle size={20} />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-emerald-700">Completed Documents</p>
+                    <h3 className="text-xl font-bold text-emerald-900">{archivedDocuments.length}</h3>
+                  </div>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                    <UserCheck size={20} />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-blue-700">Verified Residents</p>
+                    <h3 className="text-xl font-bold text-blue-900">
+                      {residents.filter(r => (r as any).verification_status === 'Verified').length}
+                    </h3>
+                  </div>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center gap-3 col-span-2 sm:col-span-1">
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                    <Archive size={20} />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-600">Total Archive Entries</p>
+                    <h3 className="text-xl font-bold text-slate-900">{archivedDocuments.length + residents.length}</h3>
+                  </div>
+                </div>
+              </div>
+
+              {/* Archived Documents Section */}
+              <Card className="border-slate-200 bg-white shadow-xs">
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <div>
+                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <FileText className="text-emerald-600" size={18} />
+                      Completed Document Requests
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-1">All approved clearances, certificates, and permits</CardDescription>
+                  </div>
+                  <Badge className="bg-emerald-600 text-white text-xs">{archivedDocuments.length} Completed</Badge>
+                </CardHeader>
+                {/* Archive Doc Filters */}
+                <div className="px-6 pb-3 flex flex-col sm:flex-row gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <Input
+                      placeholder="Search archived documents..."
+                      value={archiveDocSearch}
+                      onChange={e => setArchiveDocSearch(e.target.value)}
+                      className="pl-8 h-8 text-xs"
+                    />
+                  </div>
+                  <Select value={archiveDocTypeFilter} onValueChange={setArchiveDocTypeFilter}>
+                    <SelectTrigger className="w-52 h-8 text-xs"><SelectValue placeholder="Filter by type" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Document Types</SelectItem>
+                      <SelectItem value="Barangay Clearance">Barangay Clearance</SelectItem>
+                      <SelectItem value="Certificate of Residency">Certificate of Residency</SelectItem>
+                      <SelectItem value="Business Permit">Business Permit</SelectItem>
+                      <SelectItem value="Barangay ID">Barangay ID</SelectItem>
+                      <SelectItem value="Certificate of Indigency">Certificate of Indigency</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-emerald-50/50">
+                        <TableHead className="text-xs">Request Code</TableHead>
+                        <TableHead className="text-xs">Resident Name</TableHead>
+                        <TableHead className="text-xs">Document Type</TableHead>
+                        <TableHead className="text-xs">Purpose</TableHead>
+                        <TableHead className="text-xs">Processed At</TableHead>
+                        <TableHead className="text-xs">Processed By</TableHead>
+                        <TableHead className="text-xs text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredArchivedDocs.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-xs py-10 text-slate-400">
+                            <Archive size={30} className="mx-auto mb-2 opacity-30" />
+                            No completed documents found.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredArchivedDocs.map(doc => (
+                          <TableRow key={doc.id} className="text-xs hover:bg-emerald-50/30">
+                            <TableCell>
+                              <button
+                                onClick={() => openDocInfo(doc)}
+                                className="font-mono font-bold text-indigo-600 hover:underline flex items-center gap-1"
+                              >
+                                {doc.request_code}<Eye size={11} className="opacity-60" />
+                              </button>
+                            </TableCell>
+                            <TableCell className="font-semibold text-slate-900">
+                              <button onClick={() => openResidentProfile(doc.resident_id || 1)} className="hover:underline text-indigo-700">
+                                {doc.resident_name}
+                              </button>
+                            </TableCell>
+                            <TableCell>{doc.document_type}</TableCell>
+                            <TableCell className="text-slate-500 max-w-[130px] truncate">{doc.purpose || '-'}</TableCell>
+                            <TableCell className="text-slate-400 text-[11px]">
+                              {doc.processed_at ? new Date(doc.processed_at).toLocaleDateString() : 'Today'}
+                            </TableCell>
+                            <TableCell className="text-slate-500">{doc.processed_by || 'Admin'}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1.5">
+                                <Button size="sm" variant="outline" onClick={() => openDocInfo(doc)} className="h-7 text-[11px] gap-1">
+                                  <Eye size={12} /> View
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => openPrintModal(doc)} className="h-7 text-[11px] gap-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50">
+                                  <Printer size={12} /> Print
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              {/* Verified Residents Archive */}
+              <Card className="border-slate-200 bg-white shadow-xs">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <UserCheck className="text-blue-600" size={18} />
+                    Verified &amp; Processed Resident Accounts
+                  </CardTitle>
+                  <CardDescription className="text-xs">Residents who have been reviewed and verified or rejected by admin</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-blue-50/50">
+                        <TableHead className="text-xs">Full Name</TableHead>
+                        <TableHead className="text-xs">Contact</TableHead>
+                        <TableHead className="text-xs">Address</TableHead>
+                        <TableHead className="text-xs">Household</TableHead>
+                        <TableHead className="text-xs">Verification</TableHead>
+                        <TableHead className="text-xs text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {residents.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-xs py-8 text-slate-400">
+                            No resident records found.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        residents.map(res => (
+                          <TableRow key={res.id} className="text-xs hover:bg-blue-50/20">
+                            <TableCell className="font-semibold text-slate-900">
+                              <button onClick={() => openResidentProfile(res.id)} className="hover:underline text-indigo-700">
+                                {res.first_name} {res.last_name}
+                              </button>
+                            </TableCell>
+                            <TableCell className="text-slate-600">{(res as any).phone || '—'}</TableCell>
+                            <TableCell className="text-slate-500 max-w-[140px] truncate">{res.address}</TableCell>
+                            <TableCell className="font-mono text-slate-500">{res.household_id}</TableCell>
+                            <TableCell>
+                              <Badge className={
+                                (res as any).verification_status === 'Verified'
+                                  ? 'bg-emerald-600 text-white'
+                                  : (res as any).verification_status === 'Rejected'
+                                  ? 'bg-red-100 text-red-700 border-red-300'
+                                  : 'bg-amber-100 text-amber-800 border-amber-300'
+                              }>
+                                {(res as any).verification_status || 'Verified'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button size="sm" variant="outline" onClick={() => openResidentProfile(res.id)} className="h-7 text-[11px] gap-1">
+                                <Eye size={12} /> Profile
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* TAB 3: RESIDENT RECORDS */
           {activeTab === 'records' && (
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
