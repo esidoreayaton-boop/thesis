@@ -1,8 +1,9 @@
 import { useRef } from 'react';
-import { Printer, Download, Shield } from 'lucide-react';
+import { Printer, Shield, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { DocumentRequest } from '../../services/api';
+import { PIANING_LOGO_BASE64, BUTUAN_LOGO_BASE64 } from './officialLogos';
 
 interface DocumentPrintModalProps {
   isOpen: boolean;
@@ -10,211 +11,881 @@ interface DocumentPrintModalProps {
   document: DocumentRequest | null;
 }
 
-export default function DocumentPrintModal({ isOpen, onClose, document }: DocumentPrintModalProps) {
-  const printRef = useRef<HTMLDivElement>(null);
-
-  if (!document) return null;
-
-  const handlePrint = () => {
-    const printContent = printRef.current;
-    if (!printContent) return;
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Please allow popups to print documents.');
-      return;
+function parseFields(doc: DocumentRequest): Record<string, string> {
+  try {
+    if (doc.extra_fields) {
+      if (typeof doc.extra_fields === 'string') return JSON.parse(doc.extra_fields);
+      if (typeof doc.extra_fields === 'object') return doc.extra_fields as Record<string, string>;
     }
+  } catch { /* noop */ }
+  return {};
+}
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${document.document_type} - ${document.resident_name}</title>
-          <style>
-            @page { size: A4 portrait; margin: 20mm; }
-            body { font-family: 'Times New Roman', serif; color: #1e293b; padding: 20px; line-height: 1.6; }
-            .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 15px; margin-bottom: 30px; }
-            .header h3 { margin: 0; font-size: 13pt; text-transform: uppercase; font-weight: normal; color: #475569; }
-            .header h2 { margin: 4px 0; font-size: 16pt; font-weight: bold; color: #0f172a; }
-            .header h1 { margin: 8px 0 0 0; font-size: 24pt; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; color: #1e3a8a; }
-            .header p { margin: 4px 0 0 0; font-size: 10pt; color: #64748b; font-style: italic; }
-            .doc-title { text-align: center; font-size: 22pt; font-weight: bold; text-transform: uppercase; text-decoration: underline; margin: 35px 0 25px 0; color: #0f172a; letter-spacing: 1.5px; }
-            .content { font-size: 13pt; text-align: justify; text-indent: 40px; margin-bottom: 22px; line-height: 1.8; }
-            .meta-box { border: 1px solid #cbd5e1; background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0 30px 0; font-size: 11pt; font-family: sans-serif; }
-            .meta-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
-            .signatures { margin-top: 50px; display: flex; justify-content: space-between; align-items: flex-end; }
-            .sig-block { text-align: center; width: 220px; }
-            .sig-line { border-top: 1px solid #0f172a; margin-top: 45px; padding-top: 5px; font-weight: bold; font-size: 12pt; text-transform: uppercase; }
-            .sig-title { font-size: 10pt; color: #64748b; font-style: italic; }
-            .watermark { position: absolute; top: 35%; left: 10%; opacity: 0.04; transform: rotate(-30deg); font-size: 65pt; font-weight: bold; text-transform: uppercase; pointer-events: none; }
-            .seal { width: 95px; height: 95px; border-radius: 50%; border: 3px double #1e3a8a; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 8pt; font-weight: bold; color: #1e3a8a; margin: 0 auto; text-transform: uppercase; padding: 5px; }
-          </style>
-        </head>
-        <body>
-          <div class="watermark">BARANGAY PIANING</div>
-          <div class="header">
-            <h3>Republic of the Philippines</h3>
-            <h3>Province of Agusan del Norte • City of Butuan</h3>
-            <h2>OFFICE OF THE BARANGAY CAPTAIN</h2>
-            <h1>BARANGAY PIANING</h1>
-            <p>Barangay Pianing, Butuan City, Agusan del Norte, Philippines 8600</p>
-          </div>
+function fDate(d?: string | null) {
+  if (!d) return new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+  try { return new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }); }
+  catch { return d; }
+}
 
-          <div class="doc-title">${document.document_type}</div>
+function getOrdinalDay(date?: Date): string {
+  const d = date ?? new Date();
+  const day = d.getDate();
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = day % 100;
+  return day + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
-          <p class="content">
-            <strong>TO WHOM IT MAY CONCERN:</strong>
-          </p>
-
-          <p class="content">
-            This is to certify that <strong>${document.resident_name.toUpperCase()}</strong>, of legal age, Filipino citizen, is a bonafide resident of <strong>Barangay Pianing, Butuan City</strong>, with registered residential address on record in the barangay database.
-          </p>
-
-          <p class="content">
-            This certification / clearance is issued upon the request of the above-named individual for the purpose of: <strong>${document.purpose || 'Official Documentation & Requirements'}</strong>.
-          </p>
-
-          <p class="content">
-            Based on existing barangay records and administrative verification, the named applicant is known to be a person of good moral character and has no derogatory record or pending criminal case filed against them in this barangay office.
-          </p>
-
-          <p class="content">
-            GIVEN this <strong>${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}</strong> at the Barangay Hall of Barangay Pianing, Butuan City.
-          </p>
-
-          <div class="meta-box">
-            <div class="meta-row"><span><strong>Control Request Code:</strong> ${document.request_code}</span><span><strong>Status:</strong> ${document.status}</span></div>
-            <div class="meta-row"><span><strong>Issued By:</strong> ${document.processed_by || 'Hon. Punong Barangay'}</span><span><strong>Date Processed:</strong> ${document.processed_at || new Date().toLocaleDateString()}</span></div>
-          </div>
-
-          <div class="signatures">
-            <div class="seal">
-              OFFICIAL SEAL<br/>BARANGAY<br/>PIANING<br/>BUTUAN CITY
-            </div>
-            <div class="sig-block">
-              <div style="font-weight: bold; text-transform: uppercase;">Ana Reyes</div>
-              <div class="sig-title">Barangay Secretary</div>
-            </div>
-            <div class="sig-block">
-              <div class="sig-line">HON. CAPTAIN JUAN DELA CRUZ</div>
-              <div class="sig-title">Punong Barangay / Captain</div>
-            </div>
-          </div>
-        </body>
-      </html>
-    `);
-
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
+function getMonthYear(date?: Date): { month: string; year: string } {
+  const d = date ?? new Date();
+  return {
+    month: d.toLocaleDateString('en-US', { month: 'long' }),
+    year: d.getFullYear().toString(),
   };
+}
 
-  const handleDownloadTxt = () => {
-    const textContent = `
-=========================================================
-REPUBLIC OF THE PHILIPPINES
-PROVINCE OF AGUSAN DEL NORTE • CITY OF BUTUAN
-OFFICE OF THE BARANGAY CAPTAIN - BARANGAY PIANING
-Barangay Pianing, Butuan City, Agusan del Norte, 8600
-=========================================================
+function cleanPurok(doc: DocumentRequest, f: Record<string, string>): string {
+  const raw = (doc as any).resident_address || f['Purok / Location'] || f['Home Address'] || (doc as any).address || '';
+  if (!raw) return '___';
+  
+  // If it contains "Purok X"
+  const match = raw.match(/purok\s*([0-9A-Za-z_-]+)/i);
+  if (match) {
+    return match[1].trim(); // e.g. "1", "2"
+  }
+  
+  // Otherwise take the first part before comma
+  const firstPart = raw.split(',')[0].replace(/Barangay.*/i, '').replace(/^purok\s*/i, '').trim();
+  return firstPart || '___';
+}
 
-DOCUMENT TYPE: ${document.document_type}
-CONTROL CODE: ${document.request_code}
-RESIDENT APPLICANT: ${document.resident_name}
-ADDRESS: Barangay Pianing, Butuan City, Agusan del Norte
-PURPOSE: ${document.purpose || 'Official Documentation'}
-STATUS: ${document.status}
-ISSUED DATE: ${new Date().toLocaleDateString()}
-PROCESSED BY: ${document.processed_by || 'Barangay Office'}
+function cleanPurpose(purposeStr?: string): string {
+  if (!purposeStr) return 'loan application';
+  // Strip any old concatenated extra fields formatted like "purpose — Applicant Name: ..." or " | Home Address: ..."
+  let p = purposeStr.split(' — ')[0].split(' | ')[0].trim();
+  p = p.replace(/^Purpose:\s*/i, '').trim();
+  return p || 'loan application';
+}
 
-This serves as an official electronic copy of the requested ${document.document_type}.
-Verify authenticity at the Barangay Pianing Office, Butuan City.
-=========================================================
+function cleanAge(doc: DocumentRequest, f: Record<string, string>): string {
+  const raw = f['Age'] || (doc as any).resident_age || (doc as any).age || '';
+  if (raw && !isNaN(Number(raw))) return `${raw} years old`;
+  if (raw && typeof raw === 'string' && raw.includes('year')) return raw;
+  if (raw) return `${raw}`;
+
+  const dobStr = (doc as any).resident_birth_date || (doc as any).date_of_birth || f['Date of Birth'] || f['Birthday'] || '';
+  if (dobStr) {
+    try {
+      const dob = new Date(dobStr);
+      if (!isNaN(dob.getTime())) {
+        const diff = Date.now() - dob.getTime();
+        const age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+        if (!isNaN(age) && age >= 0) return `${age} years old`;
+      }
+    } catch {}
+  }
+  return 'legal age';
+}
+
+function cleanCivilStatus(doc: DocumentRequest, f: Record<string, string>): string {
+  const raw = f['Civil Status'] || (doc as any).resident_civil_status || (doc as any).civil_status || '';
+  if (!raw) return 'single/married/widow/er';
+  const s = raw.toLowerCase().trim();
+  if (s === 'single') return 'single';
+  if (s === 'married') return 'married';
+  if (s === 'widow' || s === 'widower' || s === 'widowed') return 'widow/er';
+  return raw;
+}
+
+function cleanResidencyYears(f: Record<string, string>): string {
+  const raw = f['Duration of Residence'] || f['Years of Residency'] || f['Residing Since'] || f['Duration'] || f['Residency Years'] || '';
+  if (!raw) return 'for more than five (5) years';
+  const clean = raw.trim();
+  if (/^\d+$/.test(clean)) {
+    const num = Number(clean);
+    return `for ${num} year${num > 1 ? 's' : ''}`;
+  }
+  if (/^\d{4}$/.test(clean)) {
+    return `since ${clean}`;
+  }
+  if (clean.toLowerCase().startsWith('for ') || clean.toLowerCase().startsWith('since ')) {
+    return clean;
+  }
+  return `for ${clean}`;
+}
+
+function cleanGender(doc: DocumentRequest, f: Record<string, string>): 'Male' | 'Female' {
+  const raw = f['Gender'] || (doc as any).resident_gender || (doc as any).gender || '';
+  const g = String(raw).toLowerCase().trim();
+  if (g === 'female' || g === 'f') return 'Female';
+  return 'Male';
+}
+
+function cleanPronouns(doc: DocumentRequest, f: Record<string, string>) {
+  const g = cleanGender(doc, f);
+  const isFemale = g === 'Female';
+  return {
+    isFemale,
+    genderLabel: isFemale ? 'female' : 'male',
+    GenderLabel: isFemale ? 'Female' : 'Male',
+    heShe: isFemale ? 'she' : 'he',
+    HeShe: isFemale ? 'She' : 'He',
+    hisHer: isFemale ? 'her' : 'his',
+    HisHer: isFemale ? 'Her' : 'His',
+    himHer: isFemale ? 'her' : 'him',
+    HimHer: isFemale ? 'Her' : 'Him',
+  };
+}
+
+function cleanBusinessName(f: Record<string, string>, purpose?: string): string {
+  return f['Business Name'] || f['Store Name'] || f['Business Type'] || f['Nature of Business'] || 'sari-sari';
+}
+
+function cleanEmploymentDetails(f: Record<string, string>) {
+  const position = f['Job Position'] || f['Position'] || f['Role'] || f['Designation'] || 'Barangay Worker';
+  const employer = f['Employer'] || f['Company'] || f['Office'] || f['Establishment'] || 'Barangay Pianing';
+  const period = f['Employment Period'] || f['Period'] || (f['Start Date'] && f['End Date'] ? `${f['Start Date']} to ${f['End Date']}` : 'January 2024 to Present');
+  let startDate = f['Start Date'] || '';
+  let endDate = f['End Date'] || '';
+  if (!startDate && period.includes(' to ')) {
+    const parts = period.split(' to ');
+    startDate = parts[0].trim();
+    endDate = parts[1].trim();
+  } else if (!startDate) {
+    startDate = period;
+    endDate = 'Present';
+  }
+  return { position, employer, period, startDate, endDate };
+}
+
+function cleanLandDetails(f: Record<string, string>) {
+  let rawArea = f['Land Area'] || f['Area'] || 'Nine Hundred Thirty-One (931)';
+  // Strip trailing "square meters more or less" if present in input so it doesn't double
+  rawArea = rawArea.replace(/\s*(?:square\s*meters?\s*(?:more\s*or\s*less)?|sqm|sq\.?\s*m\.?).*$/i, '').trim();
+  if (!rawArea) rawArea = 'Nine Hundred Thirty-One (931)';
+
+  const lotNumber = f['Lot Number'] || f['Lot #'] || f['Lot No.'] || '1005';
+  const surveyInfo = f['Survey Info'] || f['Cadastral'] || f['Survey / PLS'] || 'PLS-74';
+  
+  let rawSince = f['Occupancy Since'] || f['Occupancy Period'] || f['Since Year'] || "1970's";
+  rawSince = rawSince.replace(/^(?:since\s*(?:the\s*year\s*)?|the\s*year\s*)/i, '').trim();
+  const yearStarted = rawSince || "1970's";
+
+  return { landArea: rawArea, lotNumber, surveyInfo, yearStarted };
+}
+
+function getHonorificAndLastName(fullName: string, gender: string, civilStatus: string) {
+  const isFemale = gender?.toLowerCase() === 'female';
+  const isMarried = civilStatus?.toLowerCase() === 'married';
+  const title = isFemale ? (isMarried ? 'Mrs.' : 'Ms.') : 'Mr.';
+  const parts = fullName.trim().split(/\s+/);
+  const lastName = parts.length > 1 ? parts.slice(1).join(' ') : fullName;
+  return { title, lastName };
+}
+
+// ── Exact Print CSS: Letter size (8.5in x 11in), Larger Logos, No Header Border, No Title Underline ──
+const PRINT_CSS = `
+  @page {
+    size: letter portrait;
+    margin: 0mm !important;
+  }
+  @page :left {
+    margin: 0mm !important;
+  }
+  @page :right {
+    margin: 0mm !important;
+  }
+  @page :first {
+    margin: 0mm !important;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  html, body {
+    width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff;
+    color: #000;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12pt;
+    line-height: 1.55;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .doc-wrapper {
+    width: 100%;
+    max-width: 8.5in;
+    min-height: 11in;
+    padding: 0.5in 0.8in 0.5in 0.8in;
+    margin: 0 auto;
+    font-family: Arial, Helvetica, sans-serif;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    box-sizing: border-box;
+  }
+
+  /* ── HEADER (ZOOMED-IN LARGE LOGOS) ── */
+  .hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 2px;
+    margin-bottom: 10px;
+  }
+  .hdr-logo-box {
+    width: 1.45in;
+    height: 1.45in;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .hdr-logo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scale(1.18);
+    display: block;
+  }
+  .hdr-center {
+    text-align: center;
+    flex: 1;
+    padding: 0 10px;
+  }
+  .hdr-center .rep {
+    font-size: 11pt;
+    margin-bottom: 2px;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .hdr-center .bold {
+    font-size: 13pt;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .hdr-center .loc {
+    font-size: 10.5pt;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  /* ── TITLE (22pt BOLD, NO UNDERLINE) ── */
+  .doc-title {
+    text-align: center;
+    font-size: 22pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin: 18px 0 18px 0;
+    letter-spacing: 0.5px;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  /* ── BODY (ARIAL 12pt) ── */
+  .salute {
+    font-size: 12pt;
+    margin-bottom: 12px;
+    font-weight: normal;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .para {
+    text-align: justify;
+    text-justify: inter-word;
+    font-size: 12pt;
+    line-height: 1.6;
+    margin-bottom: 14px;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  /* ── AFFIANT ── */
+  .affiant-wrap {
+    text-align: right;
+    margin: 20px 0 14px 0;
+    page-break-inside: avoid;
+  }
+  .affiant-line {
+    display: inline-block;
+    border-bottom: 1px solid #000;
+    width: 240px;
+    margin-bottom: 3px;
+  }
+  .affiant-label {
+    font-size: 10.5pt;
+    text-align: center;
+    width: 240px;
+    display: inline-block;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  /* ── SIGNATURE ROW ── */
+  .sig-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-top: 55px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .sig-left {
+    text-align: left;
+  }
+  .sig-right {
+    text-align: left;
+  }
+  .sig-label {
+    font-size: 11.5pt;
+    margin-bottom: 55px;
+    font-weight: normal;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .sig-name {
+    font-size: 12pt;
+    font-weight: bold;
+    text-decoration: underline;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .sig-title {
+    font-size: 10.5pt;
+    font-weight: normal;
+    font-family: Arial, Helvetica, sans-serif;
+  }
 `;
 
-    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = window.document.createElement('a');
-    link.href = url;
-    link.download = `${document.request_code}_${document.document_type.replace(/\s+/g, '_')}.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
+// ── HTML generator for Letter size print window ──────────────────────────────
+function getCertificateBody(doc: DocumentRequest): string {
+  const f = parseFields(doc);
+  const name = doc.resident_name ?? '';
+  const purpose = cleanPurpose(doc.purpose);
+  const purok = cleanPurok(doc, f);
+  const civilStatus = cleanCivilStatus(doc, f);
+  const now = new Date();
+  const day = getOrdinalDay(now);
+  const { month, year } = getMonthYear(now);
+
+  const pronouns = cleanPronouns(doc, f);
+  const emp = cleanEmploymentDetails(f);
+  const bizName = cleanBusinessName(f, purpose);
+
+  const logoHeaderPunong = `
+    <div class="hdr">
+      <div class="hdr-logo-box"><img src="${BUTUAN_LOGO_BASE64}" class="hdr-logo" alt="City of Butuan Seal" /></div>
+      <div class="hdr-center">
+        <p class="rep">Republic of the Philippines</p>
+        <p class="bold">OFFICE OF THE PUNONG BARANGAY</p>
+        <p class="loc">Pianing, Butuan City</p>
+      </div>
+      <div class="hdr-logo-box"><img src="${PIANING_LOGO_BASE64}" class="hdr-logo" alt="Barangay Pianing Seal" /></div>
+    </div>`;
+
+  const logoHeaderSangguniang = `
+    <div class="hdr">
+      <div class="hdr-logo-box"><img src="${BUTUAN_LOGO_BASE64}" class="hdr-logo" alt="City of Butuan Seal" /></div>
+      <div class="hdr-center">
+        <p class="rep">Republic of the Philippines</p>
+        <p class="bold">OFFICE OF THE SANGGUNIANG BARANGAY</p>
+        <p class="loc">Pianing, Butuan City</p>
+      </div>
+      <div class="hdr-logo-box"><img src="${PIANING_LOGO_BASE64}" class="hdr-logo" alt="Barangay Pianing Seal" /></div>
+    </div>`;
+
+  const logoHeader = logoHeaderPunong;
+
+  // Signatures
+  const attestedApproved = `
+    <div class="sig-row">
+      <div class="sig-left">
+        <div class="sig-label">ATTESTED BY:</div>
+        <div class="sig-name">TERESITA ROJO-ENTERO</div>
+        <div class="sig-title">Barangay Secretary</div>
+      </div>
+      <div class="sig-right">
+        <div class="sig-label">APPROVED BY:</div>
+        <div class="sig-name">VIRGENIA S. GOLANDRINA</div>
+        <div class="sig-title">Punong Barangay</div>
+      </div>
+    </div>`;
+
+  const certifiedBy = `
+    <div class="sig-row" style="justify-content: flex-end;">
+      <div class="sig-right">
+        <div class="sig-label">CERTIFIED BY:</div>
+        <div class="sig-name">VIRGENIA S. GOLANDRINA</div>
+        <div class="sig-title">Punong Barangay</div>
+      </div>
+    </div>`;
+
+  const affiantLine = `
+    <div class="affiant-wrap">
+      <div class="affiant-line">&nbsp;</div><br/>
+      <div class="affiant-label">Affiant's Signature</div>
+    </div>`;
+
+  switch (doc.document_type) {
+    // ── BARANGAY CLEARANCE ───────────────────────────────────────────────────
+    case 'Barangay Clearance':
+      return `
+        <div class="doc-wrapper">
+          ${logoHeader}
+          <div class="doc-title">BARANGAY CLEARANCE</div>
+          <p class="salute">TO WHOM IT MAY CONCERN:</p>
+          <p class="para">This is to certify that <strong>${name}</strong> of legal age,
+            ${civilStatus} is a bona fide resident of Purok ${purok}, Pianing, Butuan City.</p>
+          <p class="para"><strong>${pronouns.HeShe}</strong> is known to be a person of <strong>GOOD MORAL CHARACTER</strong>
+            and is a law-abiding citizen. Our records show that ${pronouns.heShe} is not currently been charged
+            of any crime against ${pronouns.hisHer} person, no pending case &nbsp; nor a member of any
+            subversive organization in our community.</p>
+          <p class="para">This clearance is being issued upon the request of ${name}
+            for ${pronouns.hisHer} <strong>${purpose}</strong> and for whatever legal purposes it may serve
+            best. This document is valid for six (6) months from the date of issuance.</p>
+          <p class="para">This is being issued on the <strong>${day}</strong> day of
+            <strong>${month}</strong>&nbsp;&nbsp;<strong>${year}</strong> at the Office of the
+            Punong Barangay of Pianing, Butuan City, Agusan Del Norte, Philippines.</p>
+          ${affiantLine}
+          ${attestedApproved}
+        </div>`;
+
+    // ── CERTIFICATE OF GOOD MORAL ─────────────────────────────────────────────
+    case 'Good Moral Clearance': {
+      const { title: honorific } = getHonorificAndLastName(name, pronouns.genderLabel, civilStatus);
+      // Salutation: "Mr." | "Ms." | "Mr./Ms." based on gender
+      const salutation = pronouns.isFemale ? 'Ms.' : (pronouns.genderLabel === 'male' ? 'Mr.' : 'Mr./Ms.');
+      // pronoun_slashed: he/she based on gender (no gender info → he/she)
+      const pronounSlashed = pronouns.heShe;
+      // possessive_slashed: his/her based on gender
+      const possessiveSlashed = pronouns.hisHer;
+      // full_name in ALL CAPS
+      const fullNameCaps = name.toUpperCase();
+      // full_address
+      const rawAddr = (doc as any).resident_address || '';
+      const fullAddress = rawAddr
+        ? rawAddr
+        : `${purok.startsWith('Purok') ? purok : `Purok ${purok}`}, Barangay Pianing, Butuan City`;
+      return `
+        <div class="doc-wrapper">
+          ${logoHeaderPunong}
+          <div class="doc-title" style="font-size: 20pt; letter-spacing: 0.5px; margin: 20px 0 16px 0;">Good Moral Clearance</div>
+          <p class="salute">TO WHOM IT MAY CONCERN:</p>
+          <p class="para" style="line-height: 1.65; margin-bottom: 14px;">This is to certify that <strong style="text-decoration: underline;">${salutation} ${fullNameCaps}</strong>, of legal age and a bonafide resident of ${fullAddress}.</p>
+          <p class="para" style="line-height: 1.65; margin-bottom: 14px;">This further certifies that <strong>${salutation} ${fullNameCaps}</strong> as per records on file of this office, <strong>${pronounSlashed}</strong> has not been involved in any unlawful act or activities within the barangay and <strong>NOT in the BADAC list</strong>.</p>
+          <p class="para" style="line-height: 1.65; margin-bottom: 22px;">This certification is being issued upon the request of the above-named person as a requirement for ${possessiveSlashed} <strong>${purpose}</strong>.</p>
+          <p class="para" style="line-height: 1.65; margin-bottom: 22px;">Issued this <strong>${day}</strong> day of <strong>${month}</strong>, <strong>${year}</strong> at the Office of the Punong Barangay of Pianing, Butuan City, Philippines.</p>
+          ${certifiedBy}
+        </div>`;
+    }
+
+    // ── CERTIFICATE OF RESIDENCY ──────────────────────────────────────────────
+    case 'Certificate of Residency':
+      return `
+        <div class="doc-wrapper">
+          ${logoHeader}
+          <div class="doc-title">CERTIFICATION OF RESIDENCY</div>
+          <p class="salute">TO WHOM IT MAY CONCERN:</p>
+          <p class="para">This is to certify that <strong>${name}</strong>, Filipino, is a bonafide <strong>resident</strong> of Purok ${purok}, Barangay Pianing, Butuan City together with ${pronouns.hisHer} entire family circle.</p>
+          <p class="para">This certifies further that the above-mentioned resident has been permanently living and residing at Purok ${purok}, Barangay Pianing, Butuan City <strong>${cleanResidencyYears(f)}</strong>.</p>
+          <p class="para">This certification is being issued upon the request of the concerned party for whatever legal purposes it may serve best.</p>
+          <p class="para">This document is given this <strong>${day}</strong> day of <strong>${month}</strong>&nbsp;&nbsp;<strong>${year}</strong> at the Office of the Punong Barangay of Pianing, Butuan City, Philippines.</p>
+          ${certifiedBy}
+        </div>`;
+
+    // ── CERTIFICATE OF INDIGENCY ──────────────────────────────────────────────
+    case 'Certificate of Indigency':
+      return `
+        <div class="doc-wrapper">
+          ${logoHeader}
+          <div class="doc-title">CERTIFICATE OF INDIGENCY</div>
+          <p class="salute">TO WHOM IT MAY CONCERN:</p>
+          <p class="para">This is to certify that <strong>${name}</strong>, <strong>${cleanAge(doc, f)}</strong>, <strong>${pronouns.genderLabel}</strong> and a resident of P ${purok}, Barangay Pianing, Butuan City.</p>
+          <p class="para">This certifies further that the above-mentioned-name and ${pronouns.hisHer} family is one of our identified <strong>INDIGENT</strong> constituents in the community and in need of <strong>${purpose}</strong> assistance.</p>
+          <p class="para">This certification is being issued upon the request of the above mentioned-name for whatever legal purposes it may serve best.</p>
+          <p class="para">Issued this <strong>${day}</strong> day of <strong>${month}</strong>&nbsp;&nbsp;<strong>${year}</strong> at Barangay Pianing, Butuan City, Philippines.</p>
+          ${certifiedBy}
+        </div>`;
+
+    // ── BUSINESS CLEARANCE / BUSINESS CERTIFICATE / PERMIT ───────────────────
+    case 'Business Clearance':
+    case 'Business Permit':
+    case 'Business Certificate':
+      return `
+        <div class="doc-wrapper">
+          ${logoHeaderSangguniang}
+          <div class="doc-title">CERTIFICATION</div>
+          <p class="salute">TO WHOM IT MAY CONCERN:</p>
+          <p class="para">This is to certify that <strong>${name}</strong>, of legal age, bona-fide resident of ${purok.includes('Purok') ? purok : `Purok ${purok}`}, Barangay Pianing, Butuan City, Philippines, has a <strong>${bizName}</strong> store business located in its/own residence Based on the verification gathered.</p>
+          <p class="para">This certification is issued upon the request of the above-named person for <strong>${purpose}</strong> and for whatever legal purpose it may serve.</p>
+          <p class="para">Issued this <strong>${day}</strong> day of <strong>${month}</strong>&nbsp;&nbsp;<strong>${year}</strong> at Barangay <strong>Pianing</strong>, Butuan City, Philippines.</p>
+          ${certifiedBy}
+        </div>`;
+
+    // ── CERTIFICATE OF EMPLOYMENT ─────────────────────────────────────────────
+    case 'Certificate of Employment':
+      return `
+        <div class="doc-wrapper">
+          ${logoHeaderPunong}
+          <div class="doc-title">CERTIFICATION</div>
+          <p class="salute">TO WHOM IT MAY CONCERN:</p>
+          <p class="para">This is to certify that <strong>${name}</strong>, of legal age, ${civilStatus} is a <strong>bona fide resident</strong> of Purok ${purok}, Barangay Pianing, Butuan City together with ${pronouns.hisHer} entire family.</p>
+          <p class="para">This certifies further that the above-mentioned person has worked as <strong>${emp.position}</strong> of <strong>${emp.employer}</strong> from <strong>${emp.startDate}</strong> to <strong>${emp.endDate}</strong>.</p>
+          <p class="para">This certification is being issued upon the request of the party for whatever legal purposes it may serve best.</p>
+          <p class="para">Issued this <strong>${day}</strong> day of <strong>${month}</strong>&nbsp;&nbsp;<strong>${year}</strong> at the Office of the Punong Barangay of Pianing, this City, Philippines.</p>
+          ${certifiedBy}
+        </div>`;
+
+    // ── CERTIFICATE OF LAND OCCUPANCY / ACTUAL OCCUPANCY ──────────────────────
+    case 'Certificate of Land Occupancy':
+    case 'Land Occupancy':
+    case 'Actual Occupancy':
+    case 'Certificate of Actual Occupancy': {
+      const land = cleanLandDetails(f);
+      const formattedPurok = purok.startsWith('Purok') ? purok : `Purok ${purok}`;
+      return `
+        <div class="doc-wrapper">
+          ${logoHeaderPunong}
+          <div class="doc-title" style="font-size: 20pt; letter-spacing: 1px; margin: 22px 0 18px 0;">ACTUAL OCCUPANCY</div>
+          <p class="salute">TO WHOM IT MAY CONCERN:</p>
+          <p class="para" style="line-height: 1.65; margin-bottom: 18px;">This is to certify that <strong style="text-decoration: underline;">${name.toUpperCase()}</strong>, Filipino, ${civilStatus.toLowerCase()}, a bona fide resident of ${formattedPurok} Pianing, Butuan City is the <strong style="text-decoration: underline;">ACTUAL OCCUPANT</strong> on a parcel of land with an area of <strong style="text-decoration: underline;">${land.landArea}</strong> square meters more or less, identified as Lot # ${land.lotNumber}, ${land.surveyInfo} <span style="text-decoration: underline;">since</span> the year ${land.yearStarted} until this document has been made.</p>
+          <p class="para" style="line-height: 1.65; margin-bottom: 22px;">This certification is being issued upon the requesting party for whatever legal purposes it may serve best.</p>
+          <p class="para" style="line-height: 1.65; margin-bottom: 24px;">Given this <strong>${day}</strong> day of <strong>${month}</strong>&nbsp;&nbsp;<strong>${year}</strong> at the Office of the Punong Barangay of Pianing, Butuan City, Philippines.</p>
+          ${certifiedBy}
+        </div>`;
+    }
+
+    // ── DEFAULT ───────────────────────────────────────────────────────────────
+    default:
+      return `
+        <div class="doc-wrapper">
+          ${logoHeader}
+          <div class="doc-title">${doc.document_type?.toUpperCase()}</div>
+          <p class="salute">TO WHOM IT MAY CONCERN:</p>
+          <p class="para">This is to certify that <strong>${name}</strong>, of legal age,
+            ${civilStatus}, Filipino citizen, and a bonafide resident of Purok ${purok},
+            Pianing, Butuan City, Agusan Del Norte. This certification is issued for the purpose
+            of <strong>${purpose}</strong> and for whatever legal purposes it may serve.</p>
+          <p class="para">This document is issued on the <strong>${day}</strong> day of
+            <strong>${month}</strong>, <strong>${year}</strong> at the Office of the Punong Barangay
+            of Pianing, Butuan City, Agusan Del Norte, Philippines.</p>
+          ${attestedApproved}
+        </div>`;
+  }
+}
+
+// ── React On-screen Preview ───────────────────────────────────────────────────
+function CertificatePreview({ doc }: { doc: DocumentRequest }) {
+  const f = parseFields(doc);
+  const name = doc.resident_name ?? '';
+  const purpose = cleanPurpose(doc.purpose);
+  const purok = cleanPurok(doc, f);
+  const civilStatus = cleanCivilStatus(doc, f);
+  const now = new Date();
+  const day = getOrdinalDay(now);
+  const { month, year } = getMonthYear(now);
+
+  const pronouns = cleanPronouns(doc, f);
+  const emp = cleanEmploymentDetails(f);
+  const bizName = cleanBusinessName(f, purpose);
+
+  const OfficialHeader = ({ office = 'OFFICE OF THE PUNONG BARANGAY' }: { office?: string }) => (
+    <div className="flex items-center justify-between pb-2 mb-3">
+      <div style={{ width: '1.45in', height: '1.45in' }} className="flex-shrink-0 flex items-center justify-center overflow-hidden">
+        <img src={BUTUAN_LOGO_BASE64} alt="City of Butuan Seal" className="w-full h-full object-cover scale-115" />
+      </div>
+      <div className="text-center flex-1 px-3 font-sans">
+        <p className="text-[11pt] text-black">Republic of the Philippines</p>
+        <p className="text-[13pt] font-bold text-black uppercase tracking-wide">{office}</p>
+        <p className="text-[11pt] text-black">Pianing, Butuan City</p>
+      </div>
+      <div style={{ width: '1.45in', height: '1.45in' }} className="flex-shrink-0 flex items-center justify-center overflow-hidden">
+        <img src={PIANING_LOGO_BASE64} alt="Barangay Pianing Seal" className="w-full h-full object-cover scale-115" />
+      </div>
+    </div>
+  );
+
+  const AttestedApprovedSig = () => (
+    <div className="mt-12 flex justify-between font-sans">
+      <div>
+        <p className="font-normal mb-12 text-[11.5pt]">ATTESTED BY:</p>
+        <p className="font-bold uppercase underline text-[12pt]">TERESITA ROJO-ENTERO</p>
+        <p className="text-[10.5pt]">Barangay Secretary</p>
+      </div>
+      <div>
+        <p className="font-normal mb-12 text-[11.5pt]">APPROVED BY:</p>
+        <p className="font-bold uppercase underline text-[12pt]">VIRGENIA S. GOLANDRINA</p>
+        <p className="text-[10.5pt]">Punong Barangay</p>
+      </div>
+    </div>
+  );
+
+  const CertifiedBySig = () => (
+    <div className="mt-14 flex justify-end font-sans">
+      <div>
+        <p className="font-normal mb-12 text-[11.5pt]">CERTIFIED BY:</p>
+        <p className="font-bold uppercase underline text-[12pt]">VIRGENIA S. GOLANDRINA</p>
+        <p className="text-[10.5pt]">Punong Barangay</p>
+      </div>
+    </div>
+  );
+
+  const AffiantLine = () => (
+    <div className="flex justify-end mt-5 mb-2 font-sans">
+      <div className="text-center">
+        <div className="border-b border-black w-56 mb-1">&nbsp;</div>
+        <p className="text-[10.5pt]">Affiant's Signature</p>
+      </div>
+    </div>
+  );
+
+  const p = "text-[12pt] text-justify leading-relaxed mb-3.5 font-sans";
+  const title = "text-center text-[22pt] font-bold uppercase tracking-wide my-4 font-sans";
+
+  const renderBody = () => {
+    switch (doc.document_type) {
+      case 'Barangay Clearance':
+        return (<>
+          <OfficialHeader />
+          <h2 className={title}>BARANGAY CLEARANCE</h2>
+          <p className="text-[12pt] font-normal mb-3 font-sans">TO WHOM IT MAY CONCERN:</p>
+          <p className={p}>This is to certify that <strong>{name}</strong> of legal age,
+            {' '}{civilStatus} is a bona fide resident of Purok {purok}, Pianing, Butuan City.</p>
+          <p className={p}><strong>{pronouns.HeShe}</strong> is known to be a person of <strong>GOOD MORAL CHARACTER</strong> and
+            is a law-abiding citizen. Our records show that {pronouns.heShe} is not currently been charged of any
+            crime against {pronouns.hisHer} person, no pending case &nbsp; nor a member of any subversive
+            organization in our community.</p>
+          <p className={p}>This clearance is being issued upon the request of {name} for {pronouns.hisHer}{' '}
+            <strong>{purpose}</strong> and for whatever legal purposes it may serve best. This
+            document is valid for six (6) months from the date of issuance.</p>
+          <p className={p}>This is being issued on the <strong>{day}</strong> day of{' '}
+            <strong>{month}</strong>&nbsp;&nbsp;<strong>{year}</strong> at the Office of the Punong
+            Barangay of Pianing, Butuan City, Agusan Del Norte, Philippines.</p>
+          <AffiantLine />
+          <AttestedApprovedSig />
+        </>);
+
+      case 'Good Moral Clearance': {
+        const { title: honorific } = getHonorificAndLastName(name, pronouns.genderLabel, civilStatus);
+        const salutation = pronouns.isFemale ? 'Ms.' : (pronouns.genderLabel === 'male' ? 'Mr.' : 'Mr./Ms.');
+        const pronounSlashed = pronouns.heShe;
+        const possessiveSlashed = pronouns.hisHer;
+        const fullNameCaps = name.toUpperCase();
+        const rawAddr = (doc as any).resident_address || '';
+        const fullAddress = rawAddr
+          ? rawAddr
+          : `${purok.startsWith('Purok') ? purok : `Purok ${purok}`}, Barangay Pianing, Butuan City`;
+        return (<>
+          <OfficialHeader office="OFFICE OF THE PUNONG BARANGAY" />
+          <h2 className={title}>Good Moral Clearance</h2>
+          <p className="text-[12pt] font-normal mb-3 font-sans">TO WHOM IT MAY CONCERN:</p>
+          <p className={p}>This is to certify that <strong className="underline">{salutation} {fullNameCaps}</strong>, of legal age and a bonafide resident of {fullAddress}.</p>
+          <p className={p}>This further certifies that <strong>{salutation} {fullNameCaps}</strong> as per records on file of this office, <strong>{pronounSlashed}</strong> has not been involved in any unlawful act or activities within the barangay and <strong>NOT in the BADAC list</strong>.</p>
+          <p className={p}>This certification is being issued upon the request of the above-named person as a requirement for {possessiveSlashed} <strong>{purpose}</strong>.</p>
+          <p className={p}>Issued this <strong>{day}</strong> day of{' '}
+            <strong>{month}</strong>, <strong>{year}</strong> at the Office of the Punong Barangay of Pianing, Butuan City, Philippines.</p>
+          <CertifiedBySig />
+        </>);
+      }
+
+      case 'Certificate of Residency':
+        return (<>
+          <OfficialHeader />
+          <h2 className={title}>CERTIFICATION OF RESIDENCY</h2>
+          <p className="text-[12pt] font-normal mb-3 font-sans">TO WHOM IT MAY CONCERN:</p>
+          <p className={p}>This is to certify that <strong>{name}</strong>, Filipino, is a bonafide <strong>resident</strong> of Purok {purok}, Barangay Pianing, Butuan City together with {pronouns.hisHer} entire family circle.</p>
+          <p className={p}>This certifies further that the above-mentioned resident has been permanently living and residing at Purok {purok}, Barangay Pianing, Butuan City <strong>{cleanResidencyYears(f)}</strong>.</p>
+          <p className={p}>This certification is being issued upon the request of the concerned party for whatever legal purposes it may serve best.</p>
+          <p className={p}>This document is given this <strong>{day}</strong> day of{' '}
+            <strong>{month}</strong>&nbsp;&nbsp;<strong>{year}</strong> at the Office of the Punong Barangay of Pianing, Butuan City, Philippines.</p>
+          <CertifiedBySig />
+        </>);
+
+      case 'Certificate of Indigency':
+        return (<>
+          <OfficialHeader />
+          <h2 className={title}>CERTIFICATE OF INDIGENCY</h2>
+          <p className="text-[12pt] font-normal mb-3 font-sans">TO WHOM IT MAY CONCERN:</p>
+          <p className={p}>This is to certify that <strong>{name}</strong>, <strong>{cleanAge(doc, f)}</strong>, <strong>{pronouns.genderLabel}</strong> and a resident of P {purok}, Barangay Pianing, Butuan City.</p>
+          <p className={p}>This certifies further that the above-mentioned-name and {pronouns.hisHer} family is one of our identified <strong>INDIGENT</strong> constituents in the community and in need of <strong>{purpose}</strong> assistance.</p>
+          <p className={p}>This certification is being issued upon the request of the above mentioned-name for whatever legal purposes it may serve best.</p>
+          <p className={p}>Issued this <strong>{day}</strong> day of{' '}
+            <strong>{month}</strong>&nbsp;&nbsp;<strong>{year}</strong> at Barangay Pianing, Butuan City, Philippines.</p>
+          <CertifiedBySig />
+        </>);
+
+      case 'Business Clearance':
+      case 'Business Permit':
+      case 'Business Certificate':
+        return (<>
+          <OfficialHeader office="OFFICE OF THE SANGGUNIANG BARANGAY" />
+          <h2 className={title}>CERTIFICATION</h2>
+          <p className="text-[12pt] font-normal mb-3 font-sans">TO WHOM IT MAY CONCERN:</p>
+          <p className={p}>This is to certify that <strong>{name}</strong>, of legal age, bona-fide resident of {purok.includes('Purok') ? purok : `Purok ${purok}`}, Barangay Pianing, Butuan City, Philippines, has a <strong>{bizName}</strong> store business located in its/own residence Based on the verification gathered.</p>
+          <p className={p}>This certification is issued upon the request of the above-named person for <strong>{purpose}</strong> and for whatever legal purpose it may serve.</p>
+          <p className={p}>Issued this <strong>{day}</strong> day of{' '}
+            <strong>{month}</strong>&nbsp;&nbsp;<strong>{year}</strong> at Barangay <strong>Pianing</strong>, Butuan City, Philippines.</p>
+          <CertifiedBySig />
+        </>);
+
+      case 'Certificate of Employment':
+        return (<>
+          <OfficialHeader office="OFFICE OF THE PUNONG BARANGAY" />
+          <h2 className={title}>CERTIFICATION</h2>
+          <p className="text-[12pt] font-normal mb-3 font-sans">TO WHOM IT MAY CONCERN:</p>
+          <p className={p}>This is to certify that <strong>{name}</strong>, of legal age, {civilStatus} is a <strong>bona fide resident</strong> of Purok {purok}, Barangay Pianing, Butuan City together with {pronouns.hisHer} entire family.</p>
+          <p className={p}>This certifies further that the above-mentioned person has worked as <strong>{emp.position}</strong> of <strong>{emp.employer}</strong> from <strong>{emp.startDate}</strong> to <strong>{emp.endDate}</strong>.</p>
+          <p className={p}>This certification is being issued upon the request of the party for whatever legal purposes it may serve best.</p>
+          <p className={p}>Issued this <strong>{day}</strong> day of{' '}
+            <strong>{month}</strong>&nbsp;&nbsp;<strong>{year}</strong> at the Office of the Punong Barangay of Pianing, this City, Philippines.</p>
+          <CertifiedBySig />
+        </>);
+
+      case 'Certificate of Land Occupancy':
+      case 'Land Occupancy':
+      case 'Actual Occupancy':
+      case 'Certificate of Actual Occupancy': {
+        const land = cleanLandDetails(f);
+        const formattedPurok = purok.startsWith('Purok') ? purok : `Purok ${purok}`;
+        return (<>
+          <OfficialHeader office="OFFICE OF THE PUNONG BARANGAY" />
+          <h2 className={title}>ACTUAL OCCUPANCY</h2>
+          <p className="text-[12pt] font-normal mb-3 font-sans">TO WHOM IT MAY CONCERN:</p>
+          <p className={p}>This is to certify that <strong className="underline uppercase">{name}</strong>, Filipino, {civilStatus.toLowerCase()}, a bona fide resident of {formattedPurok} Pianing, Butuan City is the <strong className="underline">ACTUAL OCCUPANT</strong> on a parcel of land with an area of <strong className="underline">{land.landArea}</strong> square meters more or less, identified as Lot # {land.lotNumber}, {land.surveyInfo} <span className="underline">since</span> the year {land.yearStarted} until this document has been made.</p>
+          <p className={p}>This certification is being issued upon the requesting party for whatever legal purposes it may serve best.</p>
+          <p className={p}>Given this <strong>{day}</strong> day of{' '}
+            <strong>{month}</strong>&nbsp;&nbsp;<strong>{year}</strong> at the Office of the Punong Barangay of Pianing, Butuan City, Philippines.</p>
+          <CertifiedBySig />
+        </>);
+      }
+
+      default:
+        return (<>
+          <OfficialHeader />
+          <h2 className={title}>{doc.document_type?.toUpperCase()}</h2>
+          <p className="text-[12pt] font-normal mb-3 font-sans">TO WHOM IT MAY CONCERN:</p>
+          <p className={p}>This is to certify that <strong>{name}</strong>, of legal age,
+            {' '}{civilStatus}, Filipino citizen, and a bonafide resident of Purok {purok},
+            Pianing, Butuan City, Agusan Del Norte. This certification is issued for the purpose
+            of <strong>{purpose}</strong> and for whatever legal purposes it may serve.</p>
+          <p className={p}>This document is issued on the <strong>{day}</strong> day of{' '}
+            <strong>{month}</strong>, <strong>{year}</strong> at the Office of the Punong Barangay
+            of Pianing, Butuan City, Agusan Del Norte, Philippines.</p>
+          <AttestedApprovedSig />
+        </>);
+    }
+  };
+
+  return (
+    <div className="font-sans">
+      <div>{renderBody()}</div>
+    </div>
+  );
+}
+
+// ── Main Modal ────────────────────────────────────────────────────────────────
+export default function DocumentPrintModal({ isOpen, onClose, document: docItem }: DocumentPrintModalProps) {
+  if (!docItem) return null;
+
+  const handlePrint = () => {
+    const originalTitle = window.document.title;
+    window.document.title = ' ';
+
+    // Remove any previous print iframe
+    const oldIframe = window.document.getElementById('print-doc-iframe');
+    if (oldIframe) oldIframe.remove();
+
+    const iframe = window.document.createElement('iframe');
+    iframe.id = 'print-doc-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    window.document.body.appendChild(iframe);
+
+    const frameDoc = iframe.contentWindow?.document;
+    if (!frameDoc) return;
+
+    frameDoc.open();
+    frameDoc.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title> </title>
+  <style>
+    @page {
+      size: letter portrait;
+      margin: 0mm !important;
+    }
+    ${PRINT_CSS}
+  </style>
+</head>
+<body>
+  ${getCertificateBody(docItem)}
+</body>
+</html>`);
+    frameDoc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        window.document.title = originalTitle;
+      }, 2500);
+    }, 400);
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-        <DialogHeader className="flex flex-row justify-between items-center border-b pb-3">
+      <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-5">
+        <DialogHeader className="flex flex-row justify-between items-center border-b pb-3 bg-white dark:bg-slate-900 -mx-5 -mt-5 px-4 pt-3 pb-3 rounded-t-lg shadow-xs sticky top-0 z-10">
           <div className="flex items-center gap-2">
-            <Shield className="text-indigo-600" size={24} />
+            <Shield className="text-indigo-600" size={18} />
             <div>
-              <DialogTitle className="text-lg font-bold">Official Barangay Document Preview</DialogTitle>
-              <DialogDescription className="text-xs text-slate-500">Barangay Pianing, Butuan City — Ready for Printing or Digital Export</DialogDescription>
+              <DialogTitle className="text-sm font-bold">Official Barangay Document</DialogTitle>
+              <DialogDescription className="text-[10px] text-slate-500">
+                Office of the Punong Barangay — Pianing, Butuan City
+              </DialogDescription>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button onClick={handleDownloadTxt} variant="outline" size="sm" className="gap-1 text-xs">
-              <Download size={14} /> Download File
+          <div className="flex items-center gap-2">
+            <Button onClick={handlePrint} size="sm" className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 shadow-sm cursor-pointer h-8">
+              <Printer size={13} /> Print
             </Button>
-            <Button onClick={handlePrint} size="sm" className="gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs">
-              <Printer size={14} /> Print Official Copy
-            </Button>
+            <button
+              onClick={onClose}
+              className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 transition-colors"
+              title="Close"
+            >
+              <X size={18} />
+            </button>
           </div>
         </DialogHeader>
 
-        {/* Certificate Display Area */}
-        <div ref={printRef} className="bg-white text-slate-900 p-8 rounded-xl shadow-md border border-slate-200 my-4 relative font-serif leading-relaxed">
-          <div className="text-center border-b-2 border-slate-900 pb-4 mb-6">
-            <p className="text-xs uppercase tracking-wider text-slate-600 font-sans">Republic of the Philippines</p>
-            <p className="text-xs uppercase tracking-wider text-slate-600 font-sans">Province of Agusan del Norte • City of Butuan</p>
-            <h3 className="text-sm font-bold text-slate-800 font-sans uppercase mt-1">OFFICE OF THE BARANGAY CAPTAIN</h3>
-            <h1 className="text-2xl font-black text-indigo-950 font-sans uppercase tracking-widest mt-1">BARANGAY PIANING</h1>
-            <p className="text-[11px] text-slate-500 font-sans mt-0.5">Barangay Pianing, Butuan City, Agusan del Norte, Philippines 8600</p>
-          </div>
+        {/* Clean Print Reminder Banner */}
+        <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 px-3 py-2 rounded-lg text-[10px] flex items-center gap-2 mt-2">
+          <span>
+            💡 <strong>Print Tip:</strong> In the browser print dialog, expand <em>"More settings"</em> and <strong>uncheck "Headers and footers"</strong> to remove the date, URL, and page numbers.
+          </span>
+        </div>
 
-          <div className="text-center my-6">
-            <h2 className="text-xl font-bold uppercase underline tracking-wider text-slate-900">{document.document_type}</h2>
-            <p className="text-xs font-mono text-indigo-600 mt-1">Control Code: {document.request_code}</p>
-          </div>
-
-          <div className="space-y-4 text-sm text-justify">
-            <p><strong>TO WHOM IT MAY CONCERN:</strong></p>
-            <p className="indent-8">
-              THIS IS TO CERTIFY that <strong>{document.resident_name.toUpperCase()}</strong>, of legal age, Filipino citizen, is an official resident of <strong>Barangay Pianing, Butuan City</strong>, with records registered in this office.
-            </p>
-            <p className="indent-8">
-              This certification / clearance is issued upon the request of the interested party for the following purpose: <strong>{document.purpose || 'Official Documentation Requirements'}</strong>.
-            </p>
-            <p className="indent-8">
-              Based on official barangay records, the aforementioned applicant is known to be of good moral character and has no adverse or criminal case recorded in this office.
-            </p>
-            <p className="indent-8">
-              GIVEN this <strong>{new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}</strong> at the Barangay Hall of Barangay Pianing, Butuan City.
-            </p>
-          </div>
-
-          <div className="mt-8 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-sans space-y-1">
-            <div className="flex justify-between">
-              <span><strong>Status:</strong> <span className="text-emerald-700 font-semibold">{document.status}</span></span>
-              <span><strong>Processed By:</strong> {document.processed_by || 'Admin Juan Dela Cruz'}</span>
-            </div>
-          </div>
-
-          <div className="mt-12 flex justify-between items-end text-xs font-sans pt-4 border-t border-slate-200">
-            <div className="text-center w-28 p-2 border-2 border-dashed border-indigo-300 rounded-full text-[10px] text-indigo-900 font-bold uppercase">
-              Official<br/>Barangay Seal<br/>Pianing, Butuan
-            </div>
-            <div className="text-center">
-              <p className="font-bold uppercase">Ana Reyes</p>
-              <p className="text-slate-500 text-[11px] italic">Barangay Secretary</p>
-            </div>
-            <div className="text-center">
-              <div className="border-t border-slate-900 pt-1 font-bold uppercase">HON. JUAN DELA CRUZ</div>
-              <p className="text-slate-500 text-[11px] italic">Punong Barangay / Captain</p>
-            </div>
-          </div>
+        {/* Letter preview — scaled down to fit screen */}
+        <div
+          className="bg-white text-black shadow-md border border-slate-300 mx-auto my-3 rounded-sm overflow-hidden"
+          style={{
+            width: '100%',
+            maxWidth: '680px',
+            minHeight: '960px',
+            padding: '40px 52px',
+            boxSizing: 'border-box',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '10pt',
+            transform: 'scale(0.9)',
+            transformOrigin: 'top center',
+            marginBottom: '-80px'
+          }}
+        >
+          <CertificatePreview doc={docItem} />
         </div>
       </DialogContent>
     </Dialog>

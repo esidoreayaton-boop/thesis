@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <!-- Outer circle with golden & blue border -->
+  <circle cx="100" cy="100" r="96" fill="#ffffff" stroke="#1e3a8a" stroke-width="4" />
+  <circle cx="100" cy="100" r="90" fill="#eff6ff" stroke="#ca8a04" stroke-width="2" stroke-dasharray="4,2" />
+  
+  <!-- Text on Path: CITY OF BUTUAN OFFICIAL SEAL -->
+  <path id="butuanTop" d="M 30,100 A 70,70 0 1,1 170,100" fill="none" />
+  <path id="butuanBottom" d="M 170,100 A 70,70 0 0,1 30,100" fill="none" />
+  
+  <text font-family="'Times New Roman', serif" font-size="14" font-weight="bold" fill="#1e3a8a" letter-spacing="2">
+    <textPath href="#butuanTop" startOffset="50%" text-anchor="middle">
+      CITY OF BUTUAN
+    </textPath>
+  </text>
+  
+  <text font-family="'Times New Roman', serif" font-size="13" font-weight="bold" fill="#1e3a8a" letter-spacing="2">
+    <textPath href="#butuanBottom" startOffset="50%" text-anchor="middle">
+      OFFICIAL SEAL
+    </textPath>
+  </text>
+
+  <!-- Inner shield with Balangay boat and City colors (Blue, Red, Yellow) -->
+  <circle cx="100" cy="100" r="54" fill="#ffffff" stroke="#ca8a04" stroke-width="2.5" />
+  
+  <!-- Shield Upper (Blue) and Lower (Red) -->
+  <path d="M 60 80 Q 100 65 140 80 L 140 110 Q 100 145 60 110 Z" fill="#1e40af" stroke="#ca8a04" stroke-width="1.5" />
+  <path d="M 60 100 Q 100 95 140 100 L 140 110 Q 100 145 60 110 Z" fill="#dc2626" />
+  
+  <!-- Golden Balangay Boat Symbol -->
+  <path d="M 70 102 Q 100 120 130 102 Q 115 110 100 110 Q 85 110 70 102 Z" fill="#facc15" stroke="#b45309" stroke-width="1" />
+  <path d="M 98 85 L 102 85 L 102 105 L 98 105 Z" fill="#fef08a" />
+  <polygon points="102,86 118,94 102,98" fill="#facc15" stroke="#ca8a04" stroke-width="0.8" />
+</svg>

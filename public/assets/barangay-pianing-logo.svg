@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <!-- Outer circle with golden border -->
+  <circle cx="100" cy="100" r="96" fill="#ffffff" stroke="#15803d" stroke-width="4" />
+  <circle cx="100" cy="100" r="90" fill="#f0fdf4" stroke="#16a34a" stroke-width="2" stroke-dasharray="4,2" />
+  
+  <!-- Text on Path: BARANGAY PIANING BUTUAN CITY -->
+  <path id="textCircleTop" d="M 30,100 A 70,70 0 1,1 170,100" fill="none" />
+  <path id="textCircleBottom" d="M 170,100 A 70,70 0 0,1 30,100" fill="none" />
+  
+  <text font-family="'Times New Roman', serif" font-size="14" font-weight="bold" fill="#14532d" letter-spacing="2">
+    <textPath href="#textCircleTop" startOffset="50%" text-anchor="middle">
+      BARANGAY PIANING
+    </textPath>
+  </text>
+  
+  <text font-family="'Times New Roman', serif" font-size="13" font-weight="bold" fill="#14532d" letter-spacing="2">
+    <textPath href="#textCircleBottom" startOffset="50%" text-anchor="middle">
+      BUTUAN CITY
+    </textPath>
+  </text>
+
+  <!-- Inner Crest -->
+  <circle cx="100" cy="100" r="54" fill="#22c55e" stroke="#15803d" stroke-width="3" />
+  
+  <!-- Mountain and Sun / Agriculture symbol -->
+  <path d="M 50 115 Q 75 75 100 115 Q 125 75 150 115 L 150 140 Q 100 155 50 140 Z" fill="#166534" />
+  <circle cx="100" cy="80" r="16" fill="#facc15" stroke="#ca8a04" stroke-width="1.5" />
+  <path d="M 60 125 Q 100 100 140 125 Q 100 150 60 125 Z" fill="#4ade80" opacity="0.8" />
+  <path d="M 100 85 L 100 135" stroke="#fef08a" stroke-width="2" />
+</svg>

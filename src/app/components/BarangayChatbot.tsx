@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bot, Send, X, Sparkles, ChevronDown, RefreshCw } from 'lucide-react';
+import { Bot, Send, X, Sparkles, ArrowDown, Trash2 } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -37,21 +37,62 @@ const QUICK_QUESTIONS = [
   '🖨️ How to print my document?',
 ];
 
+const INITIAL_WELCOME: ChatMessage = {
+  sender: 'bot',
+  text: 'Magandang araw! 👋 I am your *Smart Barangay Assistant*.\n\nI can help you with:\n📄 Document requests & requirements\n🏥 Health center services & schedules\n💉 Free immunization information\n🕐 Office hours & contact info\n\nHow can I assist you today?',
+  topic: 'Welcome',
+  timestamp: new Date()
+};
+
 export default function BarangayChatbot() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      sender: 'bot',
-      text: 'Magandang araw! 👋 I am your *Smart Barangay Assistant*.\n\nI can help you with:\n📄 Document requests & requirements\n🏥 Health center services & schedules\n💉 Free immunization information\n🕐 Office hours & contact info\n\nHow can I assist you today?',
-      topic: 'Welcome',
-      timestamp: new Date()
+  const [isOpen, setIsOpen] = useState(() => {
+    try {
+      return localStorage.getItem('barangay_chatbot_open') === 'true';
+    } catch {
+      return false;
     }
-  ]);
+  });
+
+  const toggleOpen = (openState: boolean) => {
+    setIsOpen(openState);
+    try {
+      localStorage.setItem('barangay_chatbot_open', String(openState));
+    } catch {}
+  };
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem('barangay_chat_messages');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((m: any) => ({
+            ...m,
+            timestamp: m.timestamp ? new Date(m.timestamp) : new Date()
+          }));
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [INITIAL_WELCOME];
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Save messages to localStorage on every change
+  useEffect(() => {
+    if (messages && messages.length > 0) {
+      try {
+        localStorage.setItem('barangay_chat_messages', JSON.stringify(messages));
+      } catch {
+        // ignore
+      }
+    }
+  }, [messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -106,19 +147,20 @@ export default function BarangayChatbot() {
   };
 
   const handleClear = () => {
-    setMessages([{
-      sender: 'bot',
+    const freshMessages = [{
+      ...INITIAL_WELCOME,
       text: 'Chat cleared! 👋 How can I help you today? Feel free to ask about barangay documents, health services, or office hours.',
-      topic: 'Welcome',
       timestamp: new Date()
-    }]);
+    }];
+    setMessages(freshMessages);
+    localStorage.setItem('barangay_chat_messages', JSON.stringify(freshMessages));
   };
 
   return (
     <>
       {/* Floating Chatbot Toggle Button */}
       <button
-        onClick={() => { setIsOpen(!isOpen); setHasNewMessage(false); }}
+        onClick={() => { toggleOpen(!isOpen); setHasNewMessage(false); }}
         className="fixed bottom-5 right-5 z-40 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white p-4 rounded-full shadow-2xl flex items-center gap-2.5 cursor-pointer transition-all hover:scale-105 active:scale-95"
         aria-label="Open Barangay Assistant"
       >
@@ -154,15 +196,26 @@ export default function BarangayChatbot() {
             </div>
             <div className="flex items-center gap-1">
               <button
-                onClick={handleClear}
-                className="p-1.5 hover:bg-white/20 rounded-lg text-blue-100 transition-colors"
-                title="Clear chat"
+                onClick={scrollToBottom}
+                className="p-1.5 hover:bg-white/20 rounded-lg text-blue-100 transition-colors cursor-pointer"
+                title="Scroll to latest message"
               >
-                <RefreshCw size={13} />
+                <ArrowDown size={13} />
               </button>
               <button
-                onClick={() => setIsOpen(false)}
-                className="p-1.5 hover:bg-white/20 rounded-lg text-white transition-colors"
+                onClick={() => {
+                  if (window.confirm('Clear the entire chat conversation? This cannot be undone.')) {
+                    handleClear();
+                  }
+                }}
+                className="p-1.5 hover:bg-red-500/30 rounded-lg text-blue-100 transition-colors cursor-pointer"
+                title="Clear chat history"
+              >
+                <Trash2 size={13} />
+              </button>
+              <button
+                onClick={() => toggleOpen(false)}
+                className="p-1.5 hover:bg-white/20 rounded-lg text-white transition-colors cursor-pointer"
               >
                 <X size={16} />
               </button>

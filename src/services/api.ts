@@ -17,10 +17,11 @@ export interface DocumentRequest {
   resident_name: string;
   document_type: string;
   purpose?: string;
-  status: 'Pending' | 'Processing' | 'Completed' | 'Rejected';
+  status: 'Pending' | 'Processing' | 'Ready for Pickup' | 'Completed' | 'Rejected';
   requested_at?: string;
   processed_at?: string | null;
   processed_by?: string;
+  extra_fields?: string | Record<string, string>;
 }
 
 export interface Resident {
@@ -28,33 +29,68 @@ export interface Resident {
   first_name: string;
   middle_name?: string;
   last_name: string;
-  date_of_birth: string;
+  date_of_birth?: string;
+  age?: number | string;
   gender: 'Male' | 'Female' | 'Other';
   civil_status?: string;
+  purok?: string;
+  barangay?: string;
   address: string;
-  household_id: string;
+  household_id?: string;
   phone?: string;
   email?: string;
+  submitted_id?: string;
+  verification_status?: string;
+  rejection_reason?: string | null;
 }
 
 export interface SystemUser {
   id: number;
   name: string;
   email: string;
+  password?: string;
   role: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident';
-  status: 'Active' | 'Inactive';
+  status: 'Active' | 'Inactive' | 'Archived';
+  barangay?: string;
+  phone?: string;
   last_login?: string;
+  created_at?: string;
+  verification_status?: string;
 }
 
 export interface PendingResident {
   id: number;
   name: string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
   email: string;
   phone?: string;
   address?: string;
+  date_of_birth?: string;
   submitted_id?: string | null;
   submitted_at?: string;
   verification_status: 'Pending_Review' | 'Verified' | 'Rejected';
+}
+
+export interface ServiceCategory {
+  id: number;
+  name: string;
+  department: 'Barangay' | 'Health Center' | string;
+  description?: string;
+  status: 'Active' | 'Inactive';
+  updated_at?: string;
+}
+
+export interface ActivityLog {
+  id: number;
+  user_name: string;
+  user_role: string;
+  action: string;
+  action_type?: string;
+  barangay?: string;
+  details?: string;
+  timestamp: string;
 }
 
 export interface ImmunizationRecord {
@@ -92,6 +128,42 @@ export interface SmsNotification {
   message: string;
   status: 'Sent' | 'Failed' | 'Pending';
   sent_at?: string;
+}
+
+export interface HealthAppointment {
+  id: number;
+  appointment_code: string;
+  resident_id?: number;
+  resident_name: string;
+  resident_phone?: string;
+  resident_email?: string;
+  barangay?: string;
+  service_type: string;
+  preferred_date: string;
+  preferred_time?: string;
+  scheduled_date?: string | null;
+  scheduled_time?: string | null;
+  status: 'Pending' | 'Approved' | 'Completed' | 'Cancelled' | 'Rescheduled';
+  bhw_notes?: string;
+  resident_notes?: string;
+  attending_bhw?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ClinicSchedule {
+  id: number;
+  title: string;
+  service_type: string;
+  day_of_week: string;
+  time_slot: string;
+  location: string;
+  slots_available: number;
+  bhw_in_charge: string;
+  status: 'Active' | 'Suspended';
+  barangay?: string;
+  created_by?: string;
+  created_at?: string;
 }
 
 const API_BASE = '/api';
@@ -201,6 +273,24 @@ export const apiService = {
     return await res.json();
   },
 
+  async updateUser(id: number, data: Partial<SystemUser & { password?: string }>): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return await res.json();
+  },
+
+  async resetUserPassword(id: number, newPassword?: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/users/${id}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPassword })
+    });
+    return await res.json();
+  },
+
   async deleteUser(id: number) {
     const res = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE' });
     return await res.json();
@@ -261,7 +351,7 @@ export const apiService = {
   },
 
   // Auth Registration
-  async register(data: { name: string; email: string; password?: string; role?: string; address?: string; phone?: string; submitted_id?: string }) {
+  async register(data: { name?: string; first_name?: string; middle_name?: string; last_name?: string; date_of_birth?: string; gender?: string; civil_status?: string; email: string; password?: string; role?: string; address?: string; phone?: string; submitted_id?: string; years_of_residency?: string }) {
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -270,8 +360,8 @@ export const apiService = {
     return await res.json();
   },
 
-  // Update Profile (password and contact number only)
-  async updateProfile(data: { id?: number; email?: string; password?: string; phone?: string }) {
+  // Update Profile (password, phone, name, address, date_of_birth)
+  async updateProfile(data: { id?: number; email?: string; password?: string; phone?: string; name?: string; address?: string; date_of_birth?: string }) {
     const res = await fetch(`${API_BASE}/users/profile`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -305,11 +395,27 @@ export const apiService = {
     return await res.json();
   },
 
-  async rejectResident(id: number) {
+  async rejectResident(id: number, reason?: string) {
     const res = await fetch(`${API_BASE}/residents/${id}/reject`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify({ reason })
+    });
+    return await res.json();
+  },
+
+  async resubmitVerification(data: { email: string; id?: number; submitted_id: string; first_name?: string; middle_name?: string; last_name?: string; address?: string; phone?: string }) {
+    const res = await fetch(`${API_BASE}/residents/resubmit`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return await res.json();
+  },
+
+  async purgeResident(id: number) {
+    const res = await fetch(`${API_BASE}/residents/${id}/purge`, {
+      method: 'DELETE'
     });
     return await res.json();
   },
@@ -326,7 +432,7 @@ export const apiService = {
     }
   },
 
-  async sendMessage(data: { sender_name: string; sender_role: string; recipient_role?: string; message: string }) {
+  async sendMessage(data: { sender_name: string; sender_role: string; recipient_name?: string; recipient_role?: string; barangay?: string; message: string }) {
     const res = await fetch(`${API_BASE}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -342,6 +448,46 @@ export const apiService = {
     return await res.json();
   },
 
+  // Service / Document Categories Management
+  async getCategories(): Promise<ServiceCategory[]> {
+    const res = await fetch(`${API_BASE}/categories`);
+    if (!res.ok) throw new Error('Failed to fetch categories');
+    return await res.json();
+  },
+
+  async updateCategory(name: string, status: 'Active' | 'Inactive'): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/categories/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    if (!res.ok) throw new Error('Failed to update category');
+    return await res.json();
+  },
+
+  // Audit & Activity History Logs
+  async getActivityLogs(params?: { barangay?: string; action_type?: string; search?: string; role?: string }): Promise<ActivityLog[]> {
+    const query = new URLSearchParams();
+    if (params?.barangay) query.append('barangay', params.barangay);
+    if (params?.action_type) query.append('action_type', params.action_type);
+    if (params?.search) query.append('search', params.search);
+    if (params?.role) query.append('role', params.role);
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`${API_BASE}/activity-logs${queryString}`);
+    if (!res.ok) throw new Error('Failed to fetch activity logs');
+    return await res.json();
+  },
+
+  async createActivityLog(data: Partial<ActivityLog>): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/activity-logs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Failed to create activity log');
+    return await res.json();
+  },
+
   // Smart AI Chatbot
   async askChatbot(question: string) {
     const res = await fetch(`${API_BASE}/chatbot`, {
@@ -350,6 +496,201 @@ export const apiService = {
       body: JSON.stringify({ question })
     });
     return await res.json();
-  }
+  },
+
+  // ───────────────────────────────────────────────────────────────
+  // Email Notification API
+  // ───────────────────────────────────────────────────────────────
+
+  async getEmailStatus(): Promise<{
+    configured: boolean;
+    host: string;
+    port: string;
+    user: string | null;
+    mode: 'live' | 'simulation';
+    message: string;
+  }> {
+    const res = await fetch(`${API_BASE}/email/status`);
+    return await res.json();
+  },
+
+  async sendTestEmail(to: string): Promise<{ success: boolean; simulated?: boolean; messageId?: string; error?: string }> {
+    const res = await fetch(`${API_BASE}/email/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to }),
+    });
+    return await res.json();
+  },
+
+  async sendAnnouncementEmail(data: {
+    recipients: { email: string; name?: string }[];
+    title: string;
+    body: string;
+    sender?: string;
+  }): Promise<{ total: number; sent: number; failed: number }> {
+    const res = await fetch(`${API_BASE}/email/announcement`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await res.json();
+  },
+
+  async sendEmail(data: { to: string; subject: string; html?: string; text?: string }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const res = await fetch(`${API_BASE}/email/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await res.json();
+  },
+
+  // ───────────────────────────────────────────────────────────────
+  // Automated Scheduling API
+  // ───────────────────────────────────────────────────────────────
+
+  async getVaccineSchedules(): Promise<{
+    vaccine: string;
+    totalDoses: number;
+    doses: { dose: number; label: string; offsetDays: number }[];
+  }[]> {
+    const res = await fetch(`${API_BASE}/scheduling/vaccines`);
+    return await res.json();
+  },
+
+  async computeNextDose(data: {
+    vaccine_name: string;
+    completed_dose: number;
+    administered_date?: string;
+  }): Promise<{
+    hasNext: boolean;
+    nextDose?: number;
+    nextDueDate?: string;
+    label?: string;
+    displayDate?: string;
+  }> {
+    const res = await fetch(`${API_BASE}/scheduling/next-dose`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await res.json();
+  },
+
+  async computeNextMaternalVisit(data: {
+    pregnancy_status: string;
+    last_visit?: string;
+    expected_due_date?: string;
+  }): Promise<{
+    nextVisit: string;
+    displayDate: string;
+    interval: string;
+    recommendation: string;
+  }> {
+    const res = await fetch(`${API_BASE}/scheduling/next-maternal-visit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await res.json();
+  },
+
+  async getOverdueRecords(): Promise<{
+    overdueImmunizations: any[];
+    overdueMaternalVisits: any[];
+  }> {
+    const res = await fetch(`${API_BASE}/scheduling/overdue`);
+    return await res.json();
+  },
+
+  // ───────────────────────────────────────────────────────────────
+  // Health Center Appointments API
+  // ───────────────────────────────────────────────────────────────
+
+  async getAppointments(params?: {
+    resident_id?: number;
+    email?: string;
+    status?: string;
+    barangay?: string;
+  }): Promise<HealthAppointment[]> {
+    const query = new URLSearchParams();
+    if (params?.resident_id) query.append('resident_id', String(params.resident_id));
+    if (params?.email) query.append('email', params.email);
+    if (params?.status) query.append('status', params.status);
+    if (params?.barangay) query.append('barangay', params.barangay);
+
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`${API_BASE}/appointments${queryString}`);
+    if (!res.ok) throw new Error('Failed to fetch appointments');
+    return await res.json();
+  },
+
+  async createAppointment(data: Partial<HealthAppointment>): Promise<HealthAppointment> {
+    const res = await fetch(`${API_BASE}/appointments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to create appointment');
+    return await res.json();
+  },
+
+  async updateAppointment(id: number, data: Partial<HealthAppointment> & { user_name?: string; user_role?: string }): Promise<any> {
+    const res = await fetch(`${API_BASE}/appointments/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to update appointment');
+    return await res.json();
+  },
+
+  async deleteAppointment(id: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/appointments/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to delete appointment');
+    return await res.json();
+  },
+
+  // ───────────────────────────────────────────────────────────────
+  // Health Center Clinic Schedules API (Posted by BHW / Admin)
+  // ───────────────────────────────────────────────────────────────
+
+  async getClinicSchedules(barangay?: string): Promise<ClinicSchedule[]> {
+    const query = barangay && barangay.toLowerCase() !== 'all' ? `?barangay=${encodeURIComponent(barangay)}` : '';
+    const res = await fetch(`${API_BASE}/clinic-schedules${query}`);
+    if (!res.ok) throw new Error('Failed to fetch clinic schedules');
+    return await res.json();
+  },
+
+  async createClinicSchedule(data: Partial<ClinicSchedule>): Promise<ClinicSchedule> {
+    const res = await fetch(`${API_BASE}/clinic-schedules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to create clinic schedule');
+    return await res.json();
+  },
+
+  async updateClinicSchedule(id: number, data: Partial<ClinicSchedule>): Promise<any> {
+    const res = await fetch(`${API_BASE}/clinic-schedules/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to update clinic schedule');
+    return await res.json();
+  },
+
+  async deleteClinicSchedule(id: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/clinic-schedules/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to delete clinic schedule');
+    return await res.json();
+  },
 };
 

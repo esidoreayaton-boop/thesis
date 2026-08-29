@@ -52,12 +52,12 @@ export default function LandingPage() {
       <nav className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md">
-              <Shield size={22} />
+            <div className="w-10 h-10 rounded-full overflow-hidden bg-white shadow-md border border-slate-200 flex items-center justify-center">
+              <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
             </div>
             <div>
-              <span className="text-base font-bold text-slate-900 dark:text-white block leading-tight">Smart Barangay System</span>
-              <span className="text-xs text-slate-500 font-medium">Administrative & Health Monitoring</span>
+              <span className="text-base font-bold text-slate-900 dark:text-white block leading-tight">Barangay Pianing</span>
+              <span className="text-xs text-slate-500 font-medium">Smart Barangay Portal — Butuan City</span>
             </div>
           </div>
 

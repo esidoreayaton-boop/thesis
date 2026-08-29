@@ -87,7 +87,6 @@ export default function ResidentProfileModal({ residentId, isOpen, onClose }: Re
                   </Badge>
                 </DialogTitle>
                 <DialogDescription className="text-xs text-slate-500 flex flex-wrap items-center gap-3 mt-1">
-                  <span className="flex items-center gap-1 font-mono"><Building2 size={12} /> {resident?.household_id || 'HH-001'}</span>
                   <span className="flex items-center gap-1"><MapPin size={12} /> {resident?.address || 'Zone 1'}</span>
                   <span className="flex items-center gap-1 font-mono"><Phone size={12} /> {resident?.phone || '09171234567'}</span>
                 </DialogDescription>
@@ -128,8 +127,8 @@ export default function ResidentProfileModal({ residentId, isOpen, onClose }: Re
                   <p className="font-semibold text-slate-900">{resident?.gender} • {resident?.civil_status || 'Single'}</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Household ID:</span>
-                  <p className="font-mono font-semibold text-blue-600">{resident?.household_id}</p>
+                  <span className="text-slate-500">Date of Birth (Birthday):</span>
+                  <p className="font-semibold text-indigo-700">{resident?.date_of_birth || '2000-01-01'}</p>
                 </div>
                 <div>
                   <span className="text-slate-500">Contact Number:</span>

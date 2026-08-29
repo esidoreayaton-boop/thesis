@@ -12,7 +12,8 @@ import {
   Activity,
   CheckCircle2,
   Settings,
-  User
+  User,
+  Clock
 } from 'lucide-react';
 import { apiService, DocumentRequest } from '../../services/api';
 import BarangayChatbot from '../components/BarangayChatbot';
@@ -35,15 +36,25 @@ export default function ResidentPortal() {
     try {
       const data = await apiService.getDocuments();
       const loggedInUser = currentUser || user;
-      if (loggedInUser?.name) {
-        // Match by resident name (first name or full name match)
-        const firstName = loggedInUser.name.split(' ')[0].toLowerCase();
-        const fullName = loggedInUser.name.toLowerCase();
-        setDocuments(data.filter(d =>
-          d.resident_name.toLowerCase().includes(firstName) ||
-          d.resident_name.toLowerCase().includes(fullName) ||
-          d.resident_id === loggedInUser.id
-        ));
+      if (loggedInUser?.name || loggedInUser?.email || loggedInUser?.id) {
+        const uEmail = (loggedInUser.email || '').toLowerCase().trim();
+        const uId = loggedInUser.id;
+        const uName = (loggedInUser.name || '').toLowerCase().trim();
+        const matched = data.filter(d => {
+          const dEmail = ((d as any).email || '').toLowerCase().trim();
+          if (uEmail && dEmail && dEmail === uEmail) return true;
+          if (uId && d.resident_id && d.resident_id === uId) return true;
+          if (uName && d.resident_name && d.resident_name.toLowerCase().trim() === uName) return true;
+          return false;
+        });
+        const uniqueDocs = new Map();
+        for (const doc of matched) {
+          const key = doc.id ? `id-${doc.id}` : (doc.request_code ? `code-${doc.request_code}` : JSON.stringify(doc));
+          if (!uniqueDocs.has(key)) {
+            uniqueDocs.set(key, doc);
+          }
+        }
+        setDocuments(Array.from(uniqueDocs.values()));
       } else {
         // Visitor: show sample docs
         setDocuments(data.slice(0, 3));
@@ -70,21 +81,27 @@ export default function ResidentPortal() {
         setIsVerified(parsed.verification_status === 'Verified');
         loadData(parsed);
 
-        // Live-check if admin has approved the account since last login
+        // Live-check if admin has approved the account since last login, and sync date_of_birth / age
         if (parsed.email) {
           apiService.checkVerificationStatus(parsed.email).then(result => {
-            if (result?.success && result.user) {
-              const liveStatus = result.user.verification_status;
-              if (liveStatus && liveStatus !== parsed.verification_status) {
-                const updated = { ...parsed, verification_status: liveStatus };
-                setUser(updated);
-                setIsVerified(liveStatus === 'Verified');
-                localStorage.setItem('barangay_user', JSON.stringify(updated));
-                if (liveStatus === 'Verified') {
-                  toast.success('Account Verified!', {
-                    description: 'Your Barangay ID was approved. You can now request documents.'
-                  });
-                }
+            const liveUser = (result as any)?.user || result;
+            if (liveUser) {
+              const liveStatus = liveUser.verification_status;
+              const hasChanged = liveStatus && liveStatus !== parsed.verification_status;
+              const cleanDob = liveUser.date_of_birth ? (typeof liveUser.date_of_birth === 'string' ? liveUser.date_of_birth.split('T')[0] : liveUser.date_of_birth) : (parsed.date_of_birth || '');
+              const updated = {
+                ...parsed,
+                ...liveUser,
+                date_of_birth: cleanDob,
+                age: liveUser.age !== undefined && liveUser.age !== null && liveUser.age !== '' ? liveUser.age : parsed.age
+              };
+              setUser(updated);
+              setIsVerified(updated.verification_status === 'Verified');
+              localStorage.setItem('barangay_user', JSON.stringify(updated));
+              if (hasChanged && liveStatus === 'Verified') {
+                toast.success('Account Verified!', {
+                  description: 'Your Barangay ID was approved. You can now request documents.'
+                });
               }
             }
           }).catch(() => {});
@@ -107,11 +124,11 @@ export default function ResidentPortal() {
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 py-3 shadow-xs">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-teal-600 flex items-center justify-center text-white shadow-xs">
-              <UserCheck size={20} />
+            <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-teal-200 flex items-center justify-center">
+              <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Smart Barangay System</h1>
+              <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay Pianing</h1>
               <span className="text-xs text-teal-600 font-semibold">Resident Self-Service Hub</span>
             </div>
           </div>
@@ -299,25 +316,42 @@ export default function ResidentPortal() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  documents.map(doc => (
-                    <TableRow key={doc.id} className="text-xs">
+                  documents.map((doc, idx) => (
+                    <TableRow key={`res-doc-${doc.id || doc.request_code || idx}-${idx}`} className="text-xs">
                       <TableCell className="font-mono font-semibold text-teal-600">{doc.request_code}</TableCell>
                       <TableCell className="font-semibold text-slate-900">{doc.document_type}</TableCell>
                       <TableCell className="text-slate-500">{doc.purpose || '-'}</TableCell>
                       <TableCell>
-                        <Badge className={doc.status === 'Completed' ? 'bg-emerald-600' : 'bg-amber-500'}>
+                        <Badge className={
+                          doc.status === 'Completed' ? 'bg-emerald-600 text-white' :
+                          doc.status === 'Ready for Pickup' ? 'bg-indigo-600 text-white' :
+                          doc.status === 'Processing' ? 'bg-amber-500 text-white' :
+                          doc.status === 'Rejected' ? 'bg-red-500 text-white' :
+                          'bg-orange-500 text-white'
+                        }>
                           {doc.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="font-mono text-slate-400 text-[11px]">{doc.requested_at || 'Today'}</TableCell>
                       <TableCell className="text-right">
-                        {doc.status === 'Completed' ? (
+                        {doc.status === 'Ready for Pickup' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-md shadow-xs animate-pulse">
+                            <CheckCircle2 size={12} className="text-indigo-600" />
+                            Ready for Pickup at Hall
+                          </span>
+                        ) : doc.status === 'Completed' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
                             <CheckCircle2 size={12} className="text-emerald-600" />
-                            Ready for Pickup at Hall
+                            Claimed / Completed
+                          </span>
+                        ) : doc.status === 'Processing' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
+                            <Clock size={12} />
+                            In Preparation
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md">
+                            <Clock size={12} />
                             Pending Processing
                           </span>
                         )}

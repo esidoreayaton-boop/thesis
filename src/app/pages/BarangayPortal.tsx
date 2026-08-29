@@ -13,11 +13,17 @@ import {
   Heart,
   ArrowRight,
   Settings,
-  Clock
+  Clock,
+  Bell,
+  Info,
+  XCircle,
+  MessageSquare,
+  RefreshCw
 } from 'lucide-react';
 import { apiService, DocumentRequest } from '../../services/api';
 import BarangayChatbot from '../components/BarangayChatbot';
 import ProfileSettingsModal from '../components/ProfileSettingsModal';
+import ResubmitIdModal from '../components/ResubmitIdModal';
 import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -32,10 +38,38 @@ import { toast } from 'sonner';
 const BARANGAY_DOCS = [
   'Barangay Clearance',
   'Certificate of Residency',
-  'Business Permit',
   'Certificate of Indigency',
-  'Barangay ID',
+  'Good Moral Clearance',
+  'Business Clearance',
+  'Business Retirement Certificate',
+  'Certificate of Employment',
+  'Certificate of Land Occupancy',
+  'Barangay Activity Permit',
 ];
+
+const DOC_DESCRIPTIONS: Record<string, string> = {
+  'Barangay Clearance':              'For employment, bank requirement, loans & government IDs',
+  'Certificate of Residency':        'Proof of bonafide residency for school, utility or bank',
+  'Certificate of Indigency':        'For medical, educational, burial & DSWD financial assistance',
+  'Good Moral Clearance':            'Official character clearance for PRC board exams & school',
+  'Business Clearance':              'Barangay commercial permit for sari-sari stores & businesses',
+  'Business Retirement Certificate': 'Official certification for closure or retirement of business',
+  'Certificate of Employment':       'Barangay employment certificate & first time jobseeker aid',
+  'Certificate of Land Occupancy':   'Proof of actual physical occupancy & lot possession',
+  'Barangay Activity Permit':        'Permit for events, product sampling, promotions & gatherings',
+};
+
+const DUPLICATE_SUGGESTIONS: Record<string, string> = {
+  'Barangay Clearance':              'Your Barangay Clearance request is being processed. Please wait for an SMS notification or visit the Barangay Hall.',
+  'Certificate of Residency':        'A Certificate of Residency request is already on file. Visit the Barangay Hall with your valid ID if urgent.',
+  'Certificate of Indigency':        'An Indigency Certificate request already exists. Please coordinate with the Barangay Social Welfare office.',
+  'Good Moral Clearance':            'Your Good Moral Clearance application is under review by the Barangay Secretary.',
+  'Business Clearance':              'Your Business Clearance application is currently under review by Barangay Staff.',
+  'Business Retirement Certificate': 'A Business Retirement request is already pending verification.',
+  'Certificate of Employment':       'Your Employment Certification is currently being prepared.',
+  'Certificate of Land Occupancy':   'A Land Occupancy certification is being reviewed by the Barangay Council.',
+  'Barangay Activity Permit':        'Your Activity Permit request is under evaluation by the Punong Barangay.',
+};
 
 export default function BarangayPortal() {
   const navigate = useNavigate();
@@ -43,48 +77,126 @@ export default function BarangayPortal() {
   const [isVerified, setIsVerified] = useState(false);
   const [isAddDocOpen, setIsAddDocOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const [docType, setDocType] = useState(BARANGAY_DOCS[0]);
+  const [docType, setDocType] = useState('');
   const [purpose, setPurpose] = useState('');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isResubmitModalOpen, setIsResubmitModalOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
 
   // Dynamic extra fields per document type
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
-
   const setField = (key: string, val: string) => setExtraFields(prev => ({ ...prev, [key]: val }));
 
-  // Clear extra fields when doc type changes
+  const userBarangay = user?.barangay || (user?.address?.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing');
+
+  const isCategoryActive = (docName: string) => {
+    if (!categories || categories.length === 0) return true;
+    const cat = categories.find(c => c.name.toLowerCase() === docName.toLowerCase());
+    return cat ? cat.status === 'Active' : true;
+  };
+
+  // Extract purok from user address (e.g. "Purok 1, Barangay Pianing, Butuan City" → "Purok 1")
+  const extractPurok = (address?: string): string => {
+    if (!address) return '';
+    const match = address.match(/^([^,]+)/); // take everything before the first comma
+    return match ? match[1].trim() : address.trim();
+  };
+
+  // Calculate age from date_of_birth or birthdate
+  const calculateAge = (dobStr?: string, ageNum?: number | string): string => {
+    if (ageNum !== undefined && ageNum !== null && ageNum !== '' && !isNaN(Number(ageNum))) {
+      return `${ageNum} yrs old`;
+    }
+    if (!dobStr) return '—';
+    try {
+      const dob = new Date(dobStr);
+      if (isNaN(dob.getTime())) return '—';
+      const diff = Date.now() - dob.getTime();
+      const age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+      return isNaN(age) || age < 0 ? '—' : `${age} yrs old`;
+    } catch {
+      return '—';
+    }
+  };
+
   const handleDocTypeChange = (val: string) => {
     setDocType(val);
-    setExtraFields({});
     setPurpose('');
+    setExtraFields({});
+  };
+
+  const handleOpenDocModal = (type?: string) => {
+    if (!isVerified) {
+      toast.error('Document requests locked!', {
+        description: 'Your account must be verified by Barangay Admin first.',
+      });
+      return;
+    }
+    if (type && !isCategoryActive(type)) {
+      toast.error('Service Temporarily Suspended', {
+        description: `Requests for ${type} have been deactivated by the Super Administrator.`
+      });
+      return;
+    }
+    setIsAddDocOpen(true);
+    if (type) {
+      handleDocTypeChange(type);
+    }
+  };
+
+  // Reset dialog fully when closed
+  const handleDialogOpenChange = (open: boolean) => {
+    setIsAddDocOpen(open);
+    if (!open) {
+      setDocType('');
+      setExtraFields({});
+      setPurpose('');
+    }
   };
 
   const loadData = async (currentUser?: any) => {
     try {
-      const data = await apiService.getDocuments();
+      const [data, cats] = await Promise.all([
+        apiService.getDocuments(),
+        apiService.getCategories().catch(() => [])
+      ]);
+      if (cats && cats.length > 0) setCategories(cats);
+      const brgyData = data.filter(d => BARANGAY_DOCS.includes(d.document_type));
       const loggedInUser = currentUser || user;
-      const barangayDocs = data.filter((d) => BARANGAY_DOCS.includes(d.document_type));
-      if (loggedInUser?.name) {
-        const firstName = loggedInUser.name.split(' ')[0].toLowerCase();
-        const fullName = loggedInUser.name.toLowerCase();
-        setDocuments(barangayDocs.filter(d =>
-          d.resident_name.toLowerCase().includes(firstName) ||
-          d.resident_name.toLowerCase().includes(fullName) ||
-          d.resident_id === loggedInUser.id
-        ));
+      if (loggedInUser?.email || loggedInUser?.id) {
+        const uEmail = (loggedInUser.email || '').toLowerCase().trim();
+        const uId = loggedInUser.id;
+        const myDocs = brgyData.filter(d => {
+          const dEmail = ((d as any).email || '').toLowerCase().trim();
+          if (uEmail && dEmail && dEmail === uEmail) return true;
+          if (uId && d.resident_id && d.resident_id === uId) return true;
+          return false;
+        });
+        // Deduplicate to ensure no duplicate documents exist in state
+        const uniqueDocsMap = new Map();
+        for (const doc of myDocs) {
+          const key = doc.id ? `id-${doc.id}` : (doc.request_code ? `code-${doc.request_code}` : JSON.stringify(doc));
+          if (!uniqueDocsMap.has(key)) {
+            uniqueDocsMap.set(key, doc);
+          }
+        }
+        setDocuments(Array.from(uniqueDocsMap.values()));
       } else {
-        setDocuments(barangayDocs.slice(0, 3));
+        setDocuments([]);
       }
     } catch {
       toast.error('Failed to load document requests');
     }
   };
 
+
   useEffect(() => {
     const storedUser = localStorage.getItem('barangay_user');
+    let parsed: any = null;
     if (storedUser) {
       try {
-        const parsed = JSON.parse(storedUser);
+        parsed = JSON.parse(storedUser);
         if (parsed.role === 'superadmin' || parsed.role === 'admin' || parsed.role === 'staff') {
           navigate('/admin');
           return;
@@ -96,32 +208,76 @@ export default function BarangayPortal() {
         setUser(parsed);
         setIsVerified(parsed.verification_status === 'Verified');
         loadData(parsed);
-
-        // Live-check if admin has approved since last login
-        if (parsed.email) {
-          apiService.checkVerificationStatus(parsed.email).then(result => {
-            if (result?.success && result.user) {
-              const liveStatus = result.user.verification_status;
-              if (liveStatus && liveStatus !== parsed.verification_status) {
-                const updated = { ...parsed, verification_status: liveStatus };
-                setUser(updated);
-                setIsVerified(liveStatus === 'Verified');
-                localStorage.setItem('barangay_user', JSON.stringify(updated));
-                if (liveStatus === 'Verified') {
-                  toast.success('Account Verified!', {
-                    description: 'Your Barangay ID was approved. You can now request documents.'
-                  });
-                }
-              }
-            }
-          }).catch(() => {});
-        }
       } catch {
         loadData();
       }
     } else {
       loadData();
     }
+
+    // Helper to live-check and sync verification status, date_of_birth, and age from DB
+    const syncVerificationStatus = async (currentParsed: any) => {
+      if (!currentParsed?.email) return;
+      try {
+        const result = await apiService.checkVerificationStatus(currentParsed.email);
+        const liveUser = (result as any)?.user || result;
+        if (liveUser) {
+          const stored = JSON.parse(localStorage.getItem('barangay_user') || '{}');
+          const hasChanged = liveUser.verification_status && liveUser.verification_status !== stored.verification_status;
+          const cleanDob = liveUser.date_of_birth ? (typeof liveUser.date_of_birth === 'string' ? liveUser.date_of_birth.split('T')[0] : liveUser.date_of_birth) : (stored.date_of_birth || '');
+          const updated = {
+            ...stored,
+            ...liveUser,
+            date_of_birth: cleanDob,
+            age: liveUser.age !== undefined && liveUser.age !== null && liveUser.age !== '' ? liveUser.age : stored.age
+          };
+          setUser(updated);
+          setIsVerified(updated.verification_status === 'Verified');
+          localStorage.setItem('barangay_user', JSON.stringify(updated));
+          if (hasChanged && liveUser.verification_status === 'Verified') {
+            toast.success('Account Verified!', {
+              description: 'Your account was approved by Barangay Admin. You can now request documents.'
+            });
+          } else if (hasChanged && liveUser.verification_status === 'Rejected') {
+            toast.error('Application Rejected', {
+              description: 'Your registration was rejected. Please contact the Barangay Office.'
+            });
+          }
+        }
+      } catch { /* silent */ }
+    };
+
+    // Immediately sync on mount
+    if (parsed) syncVerificationStatus(parsed);
+
+    // Poll every 4 seconds for live DB changes (e.g. admin approves in phpMyAdmin or database)
+    const pollInterval = setInterval(() => {
+      const latest = JSON.parse(localStorage.getItem('barangay_user') || '{}');
+      if (latest?.email) syncVerificationStatus(latest);
+    }, 4000);
+
+    // Also re-sync whenever the browser tab regains focus or window is activated
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        const latest = JSON.parse(localStorage.getItem('barangay_user') || '{}');
+        if (latest?.email) syncVerificationStatus(latest);
+        loadData(latest);
+      }
+    };
+    const handleFocus = () => {
+      const latest = JSON.parse(localStorage.getItem('barangay_user') || '{}');
+      if (latest?.email) syncVerificationStatus(latest);
+      loadData(latest);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   const handleRequestDocument = async (e: React.FormEvent) => {
@@ -132,19 +288,54 @@ export default function BarangayPortal() {
       });
       return;
     }
-    // Build purpose string from specific fields
-    const fullPurpose = purpose || Object.entries(extraFields).map(([k, v]) => `${k}: ${v}`).join(' | ') || 'Personal Requirement';
-    try {
-      const created = await apiService.createDocument({
-        resident_name: user?.name || 'Resident',
-        document_type: docType,
-        purpose: fullPurpose,
+
+    // --- Duplicate detection: check if resident already has a pending/processing request ---
+    const duplicate = documents.find(
+      d => d.document_type === docType && (d.status === 'Pending' || d.status === 'Processing')
+    );
+    if (duplicate) {
+      const suggestion = DUPLICATE_SUGGESTIONS[docType] || 'Please visit the Barangay Hall for assistance.';
+      toast.warning(`You already have a ${duplicate.status} request for this document.`, {
+        description: `Request Code: ${duplicate.request_code} — ${suggestion}`,
+        duration: 9000,
       });
+      return;
+    }
+
+    const isNoPurposeDoc = docType === 'Certificate of Employment' || docType === 'Certificate of Land Occupancy';
+    if (!isNoPurposeDoc && !purpose.trim()) {
+      toast.error('Please state the purpose of your request');
+      return;
+    }
+
+    // Auto-build extra_fields from user profile
+    const purok = extractPurok(user?.address);
+    const ageDisplay = calculateAge(user?.date_of_birth || user?.birth_date || user?.birthdate, user?.age);
+    const autoExtraFields: Record<string, string> = {
+      'Age': ageDisplay !== '—' ? ageDisplay.replace(' yrs old', '').trim() : '',
+      'Gender': user?.gender || 'Male',
+      'Civil Status': user?.civil_status || user?.civilStatus || 'Single',
+      'Date of Birth': user?.date_of_birth || user?.birth_date || user?.birthdate || '',
+      'Purok / Location': purok || `Barangay ${userBarangay}`,
+      'Home Address': user?.address || `Barangay ${userBarangay}, Butuan City`,
+      ...extraFields,
+    };
+    try {
+      const defaultDocPurpose = docType === 'Certificate of Land Occupancy'
+        ? 'Official Land Actual Occupancy Certification'
+        : (docType === 'Certificate of Employment' ? 'Official Employment Certification' : (purpose.trim() || 'Personal Requirement'));
+      const created = await apiService.createDocument({
+        resident_id: user?.id,
+        resident_name: user?.name || 'Resident',
+        email: user?.email,
+        barangay: user?.barangay || (user?.address?.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing'),
+        document_type: docType,
+        purpose: defaultDocPurpose,
+        extra_fields: JSON.stringify(autoExtraFields),
+      } as any);
       setDocuments([created, ...documents]);
       toast.success('Request submitted!', { description: `Request Code: ${created.request_code}` });
-      setIsAddDocOpen(false);
-      setPurpose('');
-      setExtraFields({});
+      handleDialogOpenChange(false);
     } catch {
       toast.error('Submission failed. Please try again.');
     }
@@ -162,16 +353,35 @@ export default function BarangayPortal() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-3 shadow-sm">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm">
-              <Building2 size={20} />
+            <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-indigo-200 flex items-center justify-center">
+              <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-900 leading-tight">Smart Barangay System</h1>
-              <span className="text-xs text-indigo-600 font-semibold">Barangay Portal</span>
+              <h1 className="text-sm font-bold text-slate-900 leading-tight">Barangay Pianing</h1>
+              <span className="text-xs text-indigo-600 font-semibold">Resident Portal</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Notification Center Trigger */}
+            {user && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsNotificationsOpen(true)}
+                className="relative flex items-center gap-1.5 text-xs border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer"
+                title="View Document Status & Verification Notifications"
+              >
+                <Bell size={14} className={documents.some(d => d.status === 'Completed' || d.status === 'Rejected') || user?.verification_status === 'Rejected' ? "text-indigo-600" : ""} />
+                <span className="hidden sm:inline">Notifications</span>
+                {(documents.filter(d => d.status === 'Completed' || d.status === 'Rejected').length + (user?.verification_status === 'Rejected' ? 1 : 0)) > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-xs animate-pulse">
+                    {documents.filter(d => d.status === 'Completed' || d.status === 'Rejected').length + (user?.verification_status === 'Rejected' ? 1 : 0)}
+                  </span>
+                )}
+              </Button>
+            )}
+
             {user && (
               <Button
                 variant="outline"
@@ -227,6 +437,30 @@ export default function BarangayPortal() {
               Sign In / Register
             </Button>
           </div>
+        ) : user?.verification_status === 'Rejected' ? (
+          /* Prominent Rejection Banner with Cause */
+          <div className="bg-red-50 dark:bg-red-950/40 border-2 border-red-300 dark:border-red-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+            <div className="flex items-start gap-3 flex-1">
+              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
+                <XCircle size={22} />
+              </div>
+              <div className="space-y-1.5 flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm text-red-950 dark:text-red-200">ID Verification Notice — Correction Required</h3>
+                  <Badge className="bg-red-600 text-white text-[10px]">Action Required</Badge>
+                </div>
+                <div className="bg-white/90 dark:bg-slate-900/90 p-3 rounded-xl border border-red-200 dark:border-red-800 text-xs">
+                  <span className="font-bold text-red-900 dark:text-red-300 block mb-0.5">Barangay Admin Notice:</span>
+                  <p className="text-red-800 dark:text-red-200 font-medium">
+                    {user?.rejection_reason || 'Submitted Government ID photo is unclear or information requires correction. Please re-upload a clear photo of your valid ID.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <Button size="sm" onClick={() => setIsResubmitModalOpen(true)} className="bg-red-600 hover:bg-red-700 text-white font-semibold text-xs h-9 px-4 shrink-0 cursor-pointer gap-1.5 shadow-sm">
+              <RefreshCw size={13} /> Resubmit Valid ID
+            </Button>
+          </div>
         ) : !isVerified ? (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
@@ -266,7 +500,7 @@ export default function BarangayPortal() {
             <p className="text-xs text-slate-500">Request official barangay documents and track their processing status.</p>
           </div>
 
-          <Dialog open={isAddDocOpen} onOpenChange={setIsAddDocOpen}>
+          <Dialog open={isAddDocOpen} onOpenChange={handleDialogOpenChange}>
             <DialogTrigger asChild>
               <Button
                 disabled={!isVerified}
@@ -276,181 +510,317 @@ export default function BarangayPortal() {
                 Request Barangay Document
               </Button>
             </DialogTrigger>
-            <DialogContent className="bg-white max-w-lg">
+            <DialogContent className="bg-white max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <Building2 size={18} className="text-indigo-600" /> Request Barangay Document
+                  <Building2 size={18} className="text-indigo-600" />
+                  {docType ? `Request: ${docType}` : 'Choose Document Type'}
                 </DialogTitle>
-                <DialogDescription className="text-xs">Submit a document request to the Barangay Office. Fill in all required fields.</DialogDescription>
+                <DialogDescription className="text-xs">
+                  {docType
+                    ? 'Fill in the required details below, then submit your request.'
+                    : 'Select the document you need from the options below.'}
+                </DialogDescription>
               </DialogHeader>
-              <form onSubmit={handleRequestDocument} className="space-y-3 py-2">
-                {/* Step 1: Document Type */}
-                <div>
-                  <Label className="text-xs font-semibold">Document Type</Label>
-                  <Select value={docType} onValueChange={handleDocTypeChange}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {BARANGAY_DOCS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+
+              {/* STEP 1: Document type picker — visible only when no type is selected yet */}
+              {!docType && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 py-2">
+                  {BARANGAY_DOCS.map((doc) => {
+                    const existing = documents.find(
+                      d => d.document_type === doc && (d.status === 'Pending' || d.status === 'Processing')
+                    );
+                    const isActive = isCategoryActive(doc);
+                    return (
+                      <button
+                        key={doc}
+                        type="button"
+                        disabled={!isActive}
+                        onClick={() => isActive && handleDocTypeChange(doc)}
+                        className={`relative flex items-start gap-3 text-left p-3.5 rounded-xl border-2 transition-all group ${
+                          isActive
+                            ? 'border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 cursor-pointer'
+                            : 'border-slate-200 bg-slate-100/80 opacity-60 cursor-not-allowed'
+                        }`}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                          isActive ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-400'
+                        }`}>
+                          <FileText size={16} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className={`font-semibold text-xs ${isActive ? 'text-slate-900 group-hover:text-indigo-700' : 'text-slate-500 line-through'}`}>{doc}</p>
+                            {!isActive && (
+                              <span className="bg-rose-100 text-rose-800 text-[9px] font-bold px-1.5 py-0.2 rounded border border-rose-200">
+                                Suspended
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">{DOC_DESCRIPTIONS[doc]}</p>
+                          {existing && (
+                            <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                              ⏳ {existing.status} · {existing.request_code}
+                            </span>
+                          )}
+                        </div>
+                        {isActive && (
+                          <span className="text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs mt-0.5">→</span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
+              )}
 
-                {/* Dynamic fields per document type */}
-                {docType === 'Barangay Clearance' && (
-                  <>
-                    <div>
-                      <Label className="text-xs font-semibold">Purpose of Clearance</Label>
-                      <Select value={extraFields['Purpose'] || ''} onValueChange={v => setField('Purpose', v)}>
-                        <SelectTrigger><SelectValue placeholder="Select purpose..." /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Employment">Employment</SelectItem>
-                          <SelectItem value="Bank Loan / Account">Bank Loan / Account</SelectItem>
-                          <SelectItem value="Travel / Visa Application">Travel / Visa Application</SelectItem>
-                          <SelectItem value="School Enrollment">School Enrollment</SelectItem>
-                          <SelectItem value="Government ID Application">Government ID Application</SelectItem>
-                          <SelectItem value="Others">Others</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Full Name of Applicant</Label>
-                      <Input value={extraFields['Applicant Name'] || user?.name || ''} onChange={e => setField('Applicant Name', e.target.value)} placeholder="As it appears on valid ID" required />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Length of Residency in Barangay</Label>
-                      <Input value={extraFields['Residency Duration'] || ''} onChange={e => setField('Residency Duration', e.target.value)} placeholder="e.g. 5 years" required />
-                    </div>
-                  </>
-                )}
+              {/* STEP 2: Form — visible only after type is selected */}
+              {docType && (
+                <form onSubmit={handleRequestDocument} className="space-y-4 py-1">
+                  {/* Back button */}
+                  <button
+                    type="button"
+                    onClick={() => { setDocType(''); setExtraFields({}); setPurpose(''); }}
+                    className="text-[11px] text-indigo-600 hover:underline flex items-center gap-1 mb-1"
+                  >
+                    ← Change document type
+                  </button>
 
-                {docType === 'Certificate of Residency' && (
-                  <>
-                    <div>
-                      <Label className="text-xs font-semibold">Purpose</Label>
-                      <Input value={extraFields['Purpose'] || ''} onChange={e => setField('Purpose', e.target.value)} placeholder="e.g. School Enrollment / Bank Requirement" required />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Purok / Home Address in Barangay Pianing</Label>
-                      <Input value={extraFields['Home Address'] || ''} onChange={e => setField('Home Address', e.target.value)} placeholder="e.g. Purok 3, Barangay Pianing, Butuan City" required />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Duration of Residence</Label>
-                      <Input value={extraFields['Duration of Residence'] || ''} onChange={e => setField('Duration of Residence', e.target.value)} placeholder="e.g. 3 years, 6 months" required />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Date of Birth</Label>
-                      <Input type="date" value={extraFields['Date of Birth'] || ''} onChange={e => setField('Date of Birth', e.target.value)} required />
-                    </div>
-                  </>
-                )}
-
-                {docType === 'Business Permit' && (
-                  <>
-                    <div>
-                      <Label className="text-xs font-semibold">Business Name</Label>
-                      <Input value={extraFields['Business Name'] || ''} onChange={e => setField('Business Name', e.target.value)} placeholder="Registered trade name" required />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Type / Nature of Business</Label>
-                      <Select value={extraFields['Business Type'] || ''} onValueChange={v => setField('Business Type', v)}>
-                        <SelectTrigger><SelectValue placeholder="Select type..." /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Retail / Sari-Sari Store">Retail / Sari-Sari Store</SelectItem>
-                          <SelectItem value="Food & Beverage">Food & Beverage</SelectItem>
-                          <SelectItem value="Salon / Beauty Services">Salon / Beauty Services</SelectItem>
-                          <SelectItem value="Repair Shop">Repair Shop</SelectItem>
-                          <SelectItem value="Home-Based Business">Home-Based Business</SelectItem>
-                          <SelectItem value="Other Trade">Other Trade</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Business Location / Address</Label>
-                      <Input value={extraFields['Business Address'] || ''} onChange={e => setField('Business Address', e.target.value)} placeholder="e.g. Purok 2, Brgy. Pianing" required />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Name of Business Owner</Label>
-                      <Input value={extraFields['Owner Name'] || user?.name || ''} onChange={e => setField('Owner Name', e.target.value)} placeholder="Full legal name of owner" required />
-                    </div>
-                  </>
-                )}
-
-                {docType === 'Certificate of Indigency' && (
-                  <>
-                    <div>
-                      <Label className="text-xs font-semibold">Reason for Indigency Certificate</Label>
-                      <Select value={extraFields['Reason'] || ''} onValueChange={v => setField('Reason', v)}>
-                        <SelectTrigger><SelectValue placeholder="Select reason..." /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Hospital / Medical Assistance">Hospital / Medical Assistance</SelectItem>
-                          <SelectItem value="Educational Financial Aid">Educational Financial Aid</SelectItem>
-                          <SelectItem value="DSWD / Government Assistance">DSWD / Government Assistance</SelectItem>
-                          <SelectItem value="Legal Aid / PAO">Legal Aid / PAO</SelectItem>
-                          <SelectItem value="Burial Assistance">Burial Assistance</SelectItem>
-                          <SelectItem value="Others">Others</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Monthly Household Income (Approximate)</Label>
-                      <Input value={extraFields['Monthly Income'] || ''} onChange={e => setField('Monthly Income', e.target.value)} placeholder="e.g. Below ₱5,000" required />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Number of Dependents</Label>
-                      <Input type="number" min="0" value={extraFields['Dependents'] || ''} onChange={e => setField('Dependents', e.target.value)} placeholder="e.g. 4" required />
-                    </div>
-                  </>
-                )}
-
-                {docType === 'Barangay ID' && (
-                  <>
-                    <div>
-                      <Label className="text-xs font-semibold">Complete Address in Barangay Pianing</Label>
-                      <Input value={extraFields['Complete Address'] || ''} onChange={e => setField('Complete Address', e.target.value)} placeholder="Purok #, Barangay Pianing, Butuan City" required />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
+                  {/* Auto-filled info — read only */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2.5">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Your Information (Auto-filled from your account)</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                       <div>
-                        <Label className="text-xs font-semibold">Date of Birth</Label>
-                        <Input type="date" value={extraFields['Date of Birth'] || ''} onChange={e => setField('Date of Birth', e.target.value)} required />
+                        <p className="text-[10px] text-slate-400">Full Name</p>
+                        <p className="text-xs font-semibold text-slate-800">{user?.name || '—'}</p>
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold">Civil Status</Label>
-                        <Select value={extraFields['Civil Status'] || ''} onValueChange={v => setField('Civil Status', v)}>
-                          <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Single">Single</SelectItem>
-                            <SelectItem value="Married">Married</SelectItem>
-                            <SelectItem value="Widowed">Widowed</SelectItem>
-                            <SelectItem value="Separated">Separated</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <p className="text-[10px] text-slate-400">Gender</p>
+                        <p className="text-xs font-semibold text-slate-800">{user?.gender || 'Male'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400">Age</p>
+                        <p className="text-xs font-semibold text-slate-800">{calculateAge(user?.date_of_birth || user?.birth_date || user?.birthdate, user?.age)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400">Purok</p>
+                        <p className="text-xs font-semibold text-slate-800">{extractPurok(user?.address) || '—'}</p>
+                      </div>
+                      <div className="col-span-2 sm:col-span-4">
+                        <p className="text-[10px] text-slate-400">Address</p>
+                        <p className="text-xs font-semibold text-slate-800">{user?.address || `Barangay ${userBarangay}, Butuan City`}</p>
                       </div>
                     </div>
-                    <div>
-                      <Label className="text-xs font-semibold">Emergency Contact Person & Number</Label>
-                      <Input value={extraFields['Emergency Contact'] || ''} onChange={e => setField('Emergency Contact', e.target.value)} placeholder="e.g. Maria Santos — 09171234567" required />
-                    </div>
-                  </>
-                )}
+                  </div>
 
-                <DialogFooter>
-                  <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white">Submit Request</Button>
-                </DialogFooter>
-              </form>
+                  {/* Residency Duration Field for Certificate of Residency */}
+                  {docType === 'Certificate of Residency' && (
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        Years of Residency / Living in Barangay
+                      </Label>
+                      <Input
+                        value={extraFields['Duration of Residence'] ?? (user as any)?.years_of_residency ?? ''}
+                        onChange={(e) => setField('Duration of Residence', e.target.value)}
+                        placeholder="e.g. 5 years (or since 2019)"
+                        className="h-9 text-xs"
+                      />
+                      <p className="text-[10px] text-slate-400">Specify how many years or since what year you have been residing in the barangay.</p>
+                    </div>
+                  )}
+
+                  {/* Custom Fields for Business Clearance / Business Permit */}
+                  {(docType === 'Business Clearance' || docType === 'Business Permit' || docType === 'Business Certificate') && (
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        Store / Business Name & Type <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        value={extraFields['Business Name'] || ''}
+                        onChange={(e) => setField('Business Name', e.target.value)}
+                        placeholder="e.g. Maria's Sari-Sari Store"
+                        required
+                        className="h-9 text-xs"
+                      />
+                      <p className="text-[10px] text-slate-400">Specify the name of the store or home-based business.</p>
+                    </div>
+                  )}
+
+                  {/* Custom Fields for Certificate of Employment */}
+                  {docType === 'Certificate of Employment' && (
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs font-semibold text-slate-700">
+                            Job Position / Role <span className="text-red-500">*</span>
+                          </Label>
+                          <Input
+                            value={extraFields['Job Position'] || ''}
+                            onChange={(e) => setField('Job Position', e.target.value)}
+                            placeholder="e.g. Store Clerk / Barangay Worker"
+                            required
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-semibold text-slate-700">
+                            Employer / Establishment Name <span className="text-red-500">*</span>
+                          </Label>
+                          <Input
+                            value={extraFields['Employer'] || ''}
+                            onChange={(e) => setField('Employer', e.target.value)}
+                            placeholder="e.g. Pianing Community Enterprise"
+                            required
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs font-semibold text-slate-700">
+                            Start Date (From) <span className="text-red-500">*</span>
+                          </Label>
+                          <Input
+                            value={extraFields['Start Date'] || ''}
+                            onChange={(e) => setField('Start Date', e.target.value)}
+                            placeholder="e.g. January 2022 or 2021"
+                            required
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-semibold text-slate-700">
+                            End Date (To) <span className="text-red-500">*</span>
+                          </Label>
+                          <Input
+                            value={extraFields['End Date'] || ''}
+                            onChange={(e) => setField('End Date', e.target.value)}
+                            placeholder="e.g. Present or December 2024"
+                            required
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Custom Fields for Certificate of Land Occupancy / Actual Occupancy */}
+                  {(docType === 'Certificate of Land Occupancy' || docType === 'Land Occupancy' || docType === 'Actual Occupancy') && (
+                    <div className="space-y-2.5">
+                      <div className="space-y-1">
+                        <Label className="text-xs font-semibold text-slate-700">
+                          Parcel Land Area (in Words and Figures) <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          value={extraFields['Land Area'] || ''}
+                          onChange={(e) => setField('Land Area', e.target.value)}
+                          placeholder="e.g. Nine Hundred Thirty-One (931)"
+                          required
+                          className="h-9 text-xs"
+                        />
+                        <p className="text-[10px] text-slate-400">Enter words & figures in parentheses. e.g. <em>Nine Hundred Thirty-One (931)</em></p>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs font-semibold text-slate-700">
+                            Lot Number (Lot #) <span className="text-red-500">*</span>
+                          </Label>
+                          <Input
+                            value={extraFields['Lot Number'] || ''}
+                            onChange={(e) => setField('Lot Number', e.target.value)}
+                            placeholder="e.g. 1005"
+                            required
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-semibold text-slate-700">
+                            Survey / Cadastral Info
+                          </Label>
+                          <Input
+                            value={extraFields['Survey Info'] || ''}
+                            onChange={(e) => setField('Survey Info', e.target.value)}
+                            placeholder="e.g. PLS-74"
+                            className="h-9 text-xs"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-semibold text-slate-700">
+                          Year Started (Occupancy Period) <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          value={extraFields['Occupancy Since'] || ''}
+                          onChange={(e) => setField('Occupancy Since', e.target.value)}
+                          placeholder="e.g. 1970's (or 1995)"
+                          required
+                          className="h-9 text-xs"
+                        />
+                        <p className="text-[10px] text-slate-400">Starting year of actual occupancy (e.g. 1970's or 1995).</p>
+                      </div>
+                    </div>
+                  )}
+
+
+                  {/* Purpose — only for documents requiring a specific purpose */}
+                  {docType !== 'Certificate of Employment' && docType !== 'Certificate of Land Occupancy' && docType !== 'Land Occupancy' && docType !== 'Actual Occupancy' && (
+                    <div>
+                      <Label className="text-xs font-semibold">
+                        {docType === 'Good Moral Clearance' ? 'Purpose / Application To Support' : 'State Purpose'} <span className="text-red-500">*</span>
+                      </Label>
+                      <textarea
+                        value={purpose}
+                        onChange={(e) => setPurpose(e.target.value)}
+                        placeholder={docType === 'Good Moral Clearance' 
+                          ? 'e.g. Board Examination for CELE (Certified Electrical Licensure Examination) / PRC Licensure / Employment Application' 
+                          : 'e.g. For employment, loan application, school enrollment, bank requirement...'}
+                        required
+                        rows={3}
+                        className="w-full mt-1 px-3 py-2 text-xs rounded-md border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none placeholder:text-slate-400"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-0.5">This will appear on your official document. Be specific.</p>
+                    </div>
+                  )}
+
+                  <DialogFooter>
+                    <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white w-full">Submit Request</Button>
+                  </DialogFooter>
+                </form>
+              )}
             </DialogContent>
           </Dialog>
         </div>
 
         {/* Available Documents Info Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {BARANGAY_DOCS.map((doc) => (
-            <div key={doc} className="bg-white border border-slate-200 rounded-xl p-3 text-center hover:border-indigo-300 hover:shadow-sm transition-all cursor-default">
-              <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto mb-2">
-                <FileText size={16} />
+          {BARANGAY_DOCS.map((doc) => {
+            const isActive = isCategoryActive(doc);
+            return (
+              <div
+                key={doc}
+                onClick={() => isActive && handleOpenDocModal(doc)}
+                className={`bg-white border rounded-xl p-3 text-center transition-all group shadow-xs ${
+                  isActive
+                    ? 'border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 cursor-pointer hover:shadow-sm'
+                    : 'border-slate-200 bg-slate-100/80 opacity-60 cursor-not-allowed'
+                }`}
+                title={isActive ? `Click to request ${doc}` : `${doc} is temporarily suspended by Super Admin`}
+              >
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center mx-auto mb-2 transition-colors ${
+                  isActive
+                    ? 'bg-indigo-100 group-hover:bg-indigo-600 text-indigo-600 group-hover:text-white'
+                    : 'bg-slate-200 text-slate-400'
+                }`}>
+                  <FileText size={16} />
+                </div>
+                <p className={`text-[10px] font-semibold leading-tight ${isActive ? 'text-slate-700 group-hover:text-indigo-700' : 'text-slate-500'}`}>{doc}</p>
+                {!isActive && (
+                  <span className="inline-block mt-1 bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.2 rounded border border-amber-200">
+                    Suspended
+                  </span>
+                )}
               </div>
-              <p className="text-[10px] font-semibold text-slate-700 leading-tight">{doc}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Requests Table */}
@@ -483,23 +853,39 @@ export default function BarangayPortal() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  documents.map((doc) => (
-                    <TableRow key={doc.id} className="text-xs">
+                  documents.map((doc, idx) => (
+                    <TableRow key={`doc-${doc.id}-${doc.document_type}-${idx}`} className="text-xs">
                       <TableCell className="font-mono font-semibold text-indigo-600">{doc.request_code}</TableCell>
                       <TableCell className="font-semibold text-slate-900">{doc.document_type}</TableCell>
                       <TableCell className="text-slate-500">{doc.purpose || '—'}</TableCell>
                       <TableCell>
-                        <Badge className={statusColor(doc.status)}>{doc.status}</Badge>
+                        <Badge className={
+                          doc.status === 'Completed' ? 'bg-emerald-600 text-white' :
+                          doc.status === 'Ready for Pickup' ? 'bg-indigo-600 text-white' :
+                          doc.status === 'Processing' ? 'bg-amber-500 text-white' :
+                          doc.status === 'Rejected' ? 'bg-red-500 text-white' :
+                          'bg-orange-500 text-white'
+                        }>
+                          {doc.status}
+                        </Badge>
                       </TableCell>
                       <TableCell className="font-mono text-slate-400 text-[11px]">{doc.requested_at || 'Today'}</TableCell>
                       <TableCell className="text-right">
-                        {doc.status === 'Completed' ? (
+                        {doc.status === 'Ready for Pickup' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-md shadow-xs animate-pulse">
+                            <CheckCircle2 size={12} className="text-indigo-600" /> Ready for Pickup at Hall
+                          </span>
+                        ) : doc.status === 'Completed' ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
-                            <CheckCircle2 size={12} /> Ready for Pickup
+                            <CheckCircle2 size={12} /> Claimed / Completed
+                          </span>
+                        ) : doc.status === 'Processing' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
+                            <Clock size={12} /> In Preparation
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md">
-                            Processing
+                            <Clock size={12} /> Queued
                           </span>
                         )}
                       </TableCell>
@@ -533,12 +919,163 @@ export default function BarangayPortal() {
 
       <BarangayChatbot />
 
+      {/* Resident Notifications Center Modal */}
+      <Dialog open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
+        <DialogContent className="bg-white dark:bg-slate-900 max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+              <Bell className="text-indigo-600" size={18} />
+              Resident Notifications &amp; Status Alerts
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Live updates regarding your document requests, clearance approvals, and account verification status.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs">
+            {/* 1. Account Rejection Notice (if rejected) */}
+            {user?.verification_status === 'Rejected' && (
+              <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-red-900 dark:text-red-300 flex items-center gap-1.5">
+                    <XCircle size={14} /> Account Registration Rejected
+                  </span>
+                  <Badge className="bg-red-600 text-white text-[10px]">Action Needed</Badge>
+                </div>
+                <p className="text-red-800 dark:text-red-200 text-xs">
+                  <strong>Cause of Rejection:</strong> {user?.rejection_reason || 'Submitted Government ID photo is unclear or information does not match.'}
+                </p>
+                <div className="pt-1">
+                  <Button
+                    size="sm"
+                    onClick={() => { setIsNotificationsOpen(false); setIsProfileModalOpen(true); }}
+                    className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white gap-1 cursor-pointer"
+                  >
+                    <Settings size={12} /> Re-submit ID / Update Details
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* 2. Ready for Pickup Documents */}
+            {documents.filter(d => d.status === 'Ready for Pickup').map((doc, idx) => (
+              <div key={`notif-ready-${doc.id || doc.request_code || idx}-${idx}`} className="p-3.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
+                    <CheckCircle2 size={14} className="text-indigo-600" /> 🎉 Ready for Pick-Up: {doc.document_type}
+                  </span>
+                  <Badge className="bg-indigo-600 text-white text-[10px]">Ready for Pickup</Badge>
+                </div>
+                <p className="text-indigo-800 dark:text-indigo-200 text-xs">
+                  Your document request (<strong>{doc.request_code}</strong>) has been approved and signed by the Punong Barangay. You can now claim your physical copy at the Barangay Hall during office hours.
+                </p>
+                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">
+                  Ref Code: {doc.request_code} • Prepared by: {doc.processed_by || 'Barangay Staff'}
+                </p>
+              </div>
+            ))}
+
+            {/* 3. Claimed / Completed Documents */}
+            {documents.filter(d => d.status === 'Completed').map((doc, idx) => (
+              <div key={`notif-done-${doc.id || doc.request_code || idx}-${idx}`} className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
+                    <CheckCircle2 size={14} className="text-emerald-600" /> Issued &amp; Claimed: {doc.document_type}
+                  </span>
+                  <Badge className="bg-emerald-600 text-white text-[10px]">Completed</Badge>
+                </div>
+                <p className="text-emerald-800 dark:text-emerald-200 text-xs">
+                  Your document request (<strong>{doc.request_code}</strong>) was successfully issued and received.
+                </p>
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
+                  Ref Code: {doc.request_code} • Released by: {doc.processed_by || 'Barangay Staff'}
+                </p>
+              </div>
+            ))}
+
+            {/* 4. Processing Documents */}
+            {documents.filter(d => d.status === 'Processing').map((doc, idx) => (
+              <div key={`notif-proc-${doc.id || doc.request_code || idx}-${idx}`} className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+                    <Clock size={13} className="text-amber-600" /> In Preparation: {doc.document_type}
+                  </span>
+                  <Badge className="bg-amber-500 text-white text-[10px]">Processing</Badge>
+                </div>
+                <p className="text-amber-800 dark:text-amber-200 text-xs">
+                  Request Code: <strong>{doc.request_code}</strong> is currently being prepared and verified by the Barangay Office.
+                </p>
+              </div>
+            ))}
+
+            {/* 5. Pending Documents */}
+            {documents.filter(d => d.status === 'Pending').map((doc, idx) => (
+              <div key={`notif-pend-${doc.id || doc.request_code || idx}-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Clock size={13} className="text-slate-500" /> Queued: {doc.document_type}
+                  </span>
+                  <Badge className="bg-slate-500 text-white text-[10px]">Pending</Badge>
+                </div>
+                <p className="text-slate-600 dark:text-slate-400 text-xs">
+                  Request Code: <strong>{doc.request_code}</strong> has been submitted and is in the verification queue.
+                </p>
+              </div>
+            ))}
+
+            {/* 6. Rejected Document Requests */}
+            {documents.filter(d => d.status === 'Rejected').map((doc, idx) => (
+              <div key={`notif-rej-${doc.id || doc.request_code || idx}-${idx}`} className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-red-900 dark:text-red-300 flex items-center gap-1.5">
+                    <XCircle size={14} className="text-red-600" /> Document Request Rejected
+                  </span>
+                  <Badge className="bg-red-600 text-white text-[10px]">Rejected</Badge>
+                </div>
+                <p className="text-red-800 dark:text-red-200 text-xs">
+                  Your request for <strong>{doc.document_type}</strong> ({doc.request_code}) was rejected.
+                </p>
+                <p className="text-xs text-red-700 bg-red-100/70 p-2 rounded-md">
+                  <strong>Cause / Remarks:</strong> {doc.purpose || 'Document requirements incomplete or unverified.'}
+                </p>
+              </div>
+            ))}
+
+            {/* Empty State */}
+            {documents.length === 0 && user?.verification_status !== 'Rejected' && (
+              <div className="text-center py-8 text-slate-400">
+                <Bell size={28} className="mx-auto mb-2 opacity-40" />
+                <p className="text-xs">No notifications right now.</p>
+                <p className="text-[11px] text-slate-400">When your document requests are ready or need revision, they will appear here.</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button size="sm" variant="outline" onClick={() => setIsNotificationsOpen(false)} className="text-xs">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Resident Profile Settings Modal */}
       <ProfileSettingsModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         user={user}
         onProfileUpdated={(updated) => setUser(updated)}
+      />
+
+      {/* Resident ID Resubmission / Correction Modal */}
+      <ResubmitIdModal
+        isOpen={isResubmitModalOpen}
+        onClose={() => setIsResubmitModalOpen(false)}
+        user={user}
+        onResubmitted={(updated) => {
+          setUser(updated);
+          setIsVerified(false);
+        }}
       />
     </div>
   );

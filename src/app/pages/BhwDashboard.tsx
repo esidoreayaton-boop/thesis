@@ -24,16 +24,22 @@ import {
   Download,
   FileText,
   Eye,
-  Check
+  Check,
+  CalendarCheck,
+  MapPin,
+  Users,
+  CheckCircle,
+  Clock,
+  Sparkles
 } from 'lucide-react';
-import { apiService, ImmunizationRecord, MaternalRecord, SmsNotification, DocumentRequest } from '../../services/api';
+import { apiService, ImmunizationRecord, MaternalRecord, SmsNotification, DocumentRequest, HealthAppointment, ClinicSchedule } from '../../services/api';
 import SystemMessenger from '../components/SystemMessenger';
 import ResidentProfileModal from '../components/ResidentProfileModal';
 import DocumentPrintModal from '../components/DocumentPrintModal';
 import DocumentInfoModal from '../components/DocumentInfoModal';
 import SmsDetailsModal from '../components/SmsDetailsModal';
 import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
-import { exportToCsv } from '../../utils/exportCsv';
+import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -59,6 +65,29 @@ export default function BhwDashboard() {
   const [maternalRecords, setMaternalRecords] = useState<MaternalRecord[]>([]);
   const [notifications, setNotifications] = useState<SmsNotification[]>([]);
   const [documents, setDocuments] = useState<DocumentRequest[]>([]);
+  const [appointments, setAppointments] = useState<HealthAppointment[]>([]);
+  const [clinicSchedules, setClinicSchedules] = useState<ClinicSchedule[]>([]);
+
+  // Appointments & Schedules Sub-View & Filters
+  const [apptSearch, setApptSearch] = useState('');
+  const [apptStatusFilter, setApptStatusFilter] = useState('all');
+  const [apptServiceFilter, setApptServiceFilter] = useState('all');
+  const [selectedApptToSchedule, setSelectedApptToSchedule] = useState<HealthAppointment | null>(null);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('09:00 AM');
+  const [scheduleBhwNotes, setScheduleBhwNotes] = useState('');
+
+  // Post Clinic Schedule Modal State
+  const [isPostScheduleOpen, setIsPostScheduleOpen] = useState(false);
+  const [newScheduleTitle, setNewScheduleTitle] = useState('');
+  const [newScheduleServiceType, setNewScheduleServiceType] = useState('Pre-Marriage Counseling (PMC)');
+  const [newScheduleDay, setNewScheduleDay] = useState('Every Wednesday');
+  const [newScheduleTime, setNewScheduleTime] = useState('8:30 AM - 11:30 AM');
+  const [newScheduleLocation, setNewScheduleLocation] = useState('Barangay Pianing Health Center');
+  const [newScheduleSlots, setNewScheduleSlots] = useState('20');
+  const [newScheduleBhw, setNewScheduleBhw] = useState('Nurse Maria Santos');
+
   const [stats, setStats] = useState({
     childrenMonitored: 245,
     maternalRecords: 89,
@@ -137,22 +166,120 @@ export default function BhwDashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [immData, matData, smsData, statsData, docsData] = await Promise.all([
+      const [immData, matData, smsData, statsData, docsData, aptsData, schedulesData] = await Promise.all([
         apiService.getImmunizations(),
         apiService.getMaternalRecords(),
         apiService.getNotifications(),
         apiService.getBhwStats(),
-        apiService.getDocuments()
+        apiService.getDocuments(),
+        apiService.getAppointments(),
+        apiService.getClinicSchedules()
       ]);
       setImmunizations(immData);
       setMaternalRecords(matData);
       setNotifications(smsData);
       setStats(statsData);
       setDocuments(docsData || []);
+      setAppointments(aptsData || []);
+      setClinicSchedules(schedulesData || []);
     } catch (err) {
       toast.error('Failed to load health monitoring data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenScheduleModal = (apt: HealthAppointment) => {
+    setSelectedApptToSchedule(apt);
+    setScheduleDate(apt.scheduled_date || apt.preferred_date);
+    setScheduleTime(apt.scheduled_time || '09:00 AM');
+    setScheduleBhwNotes(apt.bhw_notes || `Confirmed slot for ${apt.service_type}. Please bring a valid ID.`);
+    setIsScheduleModalOpen(true);
+  };
+
+  const handleApproveAndScheduleAppointment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedApptToSchedule) return;
+
+    try {
+      await apiService.updateAppointment(selectedApptToSchedule.id, {
+        status: 'Approved',
+        scheduled_date: scheduleDate,
+        scheduled_time: scheduleTime,
+        bhw_notes: scheduleBhwNotes,
+        attending_bhw: user?.name || 'Nurse Maria Santos (BHW)',
+        user_name: user?.name || 'Nurse Maria',
+        user_role: user?.role || 'bhw'
+      });
+
+      toast.success('Appointment Approved & Confirmed!', {
+        description: `📲 Auto-SMS & Email sent to ${selectedApptToSchedule.resident_name} for ${scheduleDate} at ${scheduleTime}.`
+      });
+
+      setIsScheduleModalOpen(false);
+      setSelectedApptToSchedule(null);
+      loadData();
+    } catch (err) {
+      toast.error('Failed to update appointment schedule');
+    }
+  };
+
+  const handleUpdateApptStatus = async (id: number, newStatus: 'Completed' | 'Cancelled') => {
+    const apt = appointments.find(a => a.id === id);
+    try {
+      await apiService.updateAppointment(id, {
+        status: newStatus,
+        attending_bhw: user?.name || 'Nurse Maria Santos (BHW)',
+        user_name: user?.name,
+        user_role: user?.role
+      });
+      toast.success(`Appointment marked as ${newStatus}`);
+      loadData();
+    } catch {
+      toast.error(`Failed to mark appointment as ${newStatus}`);
+    }
+  };
+
+  const handleCreateClinicSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newScheduleTitle || !newScheduleDay || !newScheduleTime) {
+      toast.error('Please fill in title, day of week, and time slot.');
+      return;
+    }
+
+    try {
+      await apiService.createClinicSchedule({
+        title: newScheduleTitle,
+        service_type: newScheduleServiceType,
+        day_of_week: newScheduleDay,
+        time_slot: newScheduleTime,
+        location: newScheduleLocation || 'Barangay Pianing Health Center',
+        slots_available: Number(newScheduleSlots) || 20,
+        bhw_in_charge: newScheduleBhw || user?.name || 'Nurse Maria Santos',
+        barangay: user?.barangay || 'Pianing',
+        created_by: user?.name || 'BHW Staff'
+      });
+
+      toast.success('Clinic Schedule Published!', {
+        description: 'Residents can now view this official schedule and book appointments.'
+      });
+
+      setIsPostScheduleOpen(false);
+      setNewScheduleTitle('');
+      loadData();
+    } catch {
+      toast.error('Failed to post clinic schedule');
+    }
+  };
+
+  const handleDeleteClinicSchedule = async (id: number) => {
+    if (!confirm('Are you sure you want to remove this published clinic schedule?')) return;
+    try {
+      await apiService.deleteClinicSchedule(id);
+      toast.success('Clinic schedule removed.');
+      loadData();
+    } catch {
+      toast.error('Failed to remove schedule');
     }
   };
 
@@ -310,9 +437,21 @@ export default function BhwDashboard() {
 
   const overdueVaccines = immunizations.filter(i => i.status === 'Overdue');
 
+  const filteredAppointments = appointments.filter(a => {
+    const matchesSearch =
+      (a.appointment_code || '').toLowerCase().includes(apptSearch.toLowerCase()) ||
+      (a.resident_name || '').toLowerCase().includes(apptSearch.toLowerCase()) ||
+      (a.service_type || '').toLowerCase().includes(apptSearch.toLowerCase()) ||
+      (a.resident_phone || '').toLowerCase().includes(apptSearch.toLowerCase());
+    const matchesStatus = apptStatusFilter === 'all' || a.status === apptStatusFilter;
+    const matchesService = apptServiceFilter === 'all' || a.service_type === apptServiceFilter;
+    return matchesSearch && matchesStatus && matchesService;
+  });
+
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: Home },
     { id: 'requests', label: 'Health Document Requests', icon: FileText },
+    { id: 'appointments', label: 'Appointments & Schedules', icon: CalendarCheck },
     { id: 'immunization', label: 'Immunization Tracking', icon: Syringe },
     { id: 'maternal', label: 'Maternal Health', icon: Heart },
     { id: 'notifications', label: 'SMS Notifications', icon: Bell },
@@ -335,11 +474,11 @@ export default function BhwDashboard() {
               {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-xs">
-                <Activity size={20} />
+              <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-blue-200 flex items-center justify-center">
+                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
               </div>
               <div>
-                <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Smart Barangay System</h1>
+                <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay Pianing</h1>
                 <span className="text-xs text-blue-600 font-semibold">BHW Health Portal</span>
               </div>
             </div>
@@ -616,12 +755,27 @@ export default function BhwDashboard() {
                   />
                 </div>
                 <Button
-                  onClick={() => exportToCsv('BHW_Health_Document_Requests', documents)}
+                  onClick={() => {
+                    printOfficialReport({
+                      title: 'Health Center Document Requests',
+                      subtitle: `Medical certificates & health clearances — ${new Date().toLocaleDateString()}`,
+                      preparedBy: user?.name || 'BHW Health Worker',
+                      preparedByTitle: 'Barangay Health Worker',
+                      department: 'Barangay Health Center',
+                      stats: [{ label: 'Total Requests', value: documents.length, color: '#059669' }],
+                      tables: [{
+                        title: 'Health Document Requests',
+                        headers: ['Code', 'Resident', 'Type', 'Purpose', 'Status', 'Date'],
+                        rows: documents.map(d => [d.request_code ?? '', d.resident_name ?? '', d.document_type ?? '', d.purpose ?? '', d.status ?? '', d.requested_at ?? 'Recent'])
+                      }]
+                    });
+                    toast.success('Health document requests opened as PDF');
+                  }}
                   variant="outline"
                   size="sm"
                   className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
                 >
-                  <Download size={14} /> Export CSV
+                  <Download size={14} /> Export PDF
                 </Button>
               </div>
 
@@ -734,6 +888,519 @@ export default function BhwDashboard() {
             </div>
           )}
 
+          {/* TAB: HEALTH CENTER APPOINTMENTS & CLINIC SCHEDULES */}
+          {activeTab === 'appointments' && (
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Health Center Appointments &amp; Schedules</h2>
+                    <Badge className="bg-emerald-600 text-white text-[10px]">
+                      {appointments.length} Total
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Review and confirm resident appointment requests for <strong>Pre-Marriage Counseling (PMC)</strong>, Prenatal Care, Immunizations, and Family Planning.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setIsPostScheduleOpen(true)}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <PlusCircle size={15} />
+                    Post Clinic Schedule
+                  </Button>
+                </div>
+              </div>
+
+              {/* Quick Stat Highlights */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Pending Review</span>
+                  <span className="text-2xl font-black text-amber-600">
+                    {appointments.filter(a => a.status === 'Pending').length}
+                  </span>
+                </div>
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Confirmed / Approved</span>
+                  <span className="text-2xl font-black text-emerald-600">
+                    {appointments.filter(a => a.status === 'Approved').length}
+                  </span>
+                </div>
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Completed Visits</span>
+                  <span className="text-2xl font-black text-blue-600">
+                    {appointments.filter(a => a.status === 'Completed').length}
+                  </span>
+                </div>
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Active Clinic Programs</span>
+                  <span className="text-2xl font-black text-purple-600">
+                    {clinicSchedules.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Filters & Search */}
+              <div className="flex flex-col sm:flex-row gap-2 justify-between">
+                <div className="flex flex-wrap items-center gap-2 flex-1">
+                  <div className="relative flex-1 min-w-[200px] max-w-sm">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <Input
+                      placeholder="Search resident name, ref code, or service..."
+                      value={apptSearch}
+                      onChange={e => setApptSearch(e.target.value)}
+                      className="pl-9 h-9 text-xs"
+                    />
+                  </div>
+
+                  <Select value={apptServiceFilter} onValueChange={setApptServiceFilter}>
+                    <SelectTrigger className="w-[180px] h-9 text-xs">
+                      <SelectValue placeholder="All Services" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Services</SelectItem>
+                      <SelectItem value="Pre-Marriage Counseling (PMC)">Pre-Marriage Counseling</SelectItem>
+                      <SelectItem value="Prenatal Check-up">Prenatal Check-up</SelectItem>
+                      <SelectItem value="Child Immunization">Child Immunization</SelectItem>
+                      <SelectItem value="Family Planning &amp; Counseling">Family Planning</SelectItem>
+                      <SelectItem value="General Medical Consultation">General Consultation</SelectItem>
+                      <SelectItem value="Dental Check-up &amp; Hygiene">Dental Check-up</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={apptStatusFilter} onValueChange={setApptStatusFilter}>
+                    <SelectTrigger className="w-[130px] h-9 text-xs">
+                      <SelectValue placeholder="All Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="Pending">Pending</SelectItem>
+                      <SelectItem value="Approved">Approved</SelectItem>
+                      <SelectItem value="Completed">Completed</SelectItem>
+                      <SelectItem value="Cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Button
+                  onClick={() => {
+                    printOfficialReport({
+                      title: 'Health Center Appointments Schedule Report',
+                      subtitle: `Barangay Pianing Health Center — ${new Date().toLocaleDateString()}`,
+                      preparedBy: user?.name || 'BHW Health Worker',
+                      preparedByTitle: 'Barangay Health Worker',
+                      department: 'Barangay Health Center',
+                      stats: [
+                        { label: 'Total Appointments', value: appointments.length, color: '#059669' },
+                        { label: 'Confirmed', value: appointments.filter(a => a.status === 'Approved').length, color: '#2563EB' },
+                        { label: 'Completed', value: appointments.filter(a => a.status === 'Completed').length, color: '#16A34A' }
+                      ],
+                      tables: [{
+                        title: 'Health Appointments Registry',
+                        headers: ['Ref Code', 'Resident Name', 'Phone', 'Service', 'Confirmed Date', 'Time', 'Status'],
+                        rows: appointments.map(a => [
+                          a.appointment_code ?? '',
+                          a.resident_name ?? '',
+                          a.resident_phone ?? 'N/A',
+                          a.service_type ?? '',
+                          a.scheduled_date ?? a.preferred_date ?? 'TBD',
+                          a.scheduled_time ?? a.preferred_time ?? '',
+                          a.status ?? ''
+                        ])
+                      }]
+                    });
+                    toast.success('Health appointments report exported as PDF');
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
+                >
+                  <Download size={14} /> Export PDF
+                </Button>
+              </div>
+
+              {/* Appointments Table */}
+              <Card className="border-slate-200 bg-white shadow-xs">
+                <CardHeader className="pb-3 border-b border-slate-100">
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <CalendarCheck className="text-emerald-600" size={16} />
+                    Incoming &amp; Confirmed Resident Appointments
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50">
+                        <TableHead className="text-xs">Ref Code</TableHead>
+                        <TableHead className="text-xs">Resident Details</TableHead>
+                        <TableHead className="text-xs">Program / Service</TableHead>
+                        <TableHead className="text-xs">Requested Window</TableHead>
+                        <TableHead className="text-xs">Confirmed Slot</TableHead>
+                        <TableHead className="text-xs">Status</TableHead>
+                        <TableHead className="text-xs text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredAppointments.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-xs py-10 text-slate-400">
+                            <CalendarCheck className="mx-auto mb-2 text-slate-300" size={24} />
+                            No appointment requests found matching your filter criteria.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredAppointments.map(apt => (
+                          <TableRow key={apt.id} className="text-xs">
+                            <TableCell className="font-mono font-bold text-emerald-700">
+                              {apt.appointment_code}
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-semibold text-slate-900">{apt.resident_name}</div>
+                              <div className="text-[11px] text-slate-500 font-mono">{apt.resident_phone || 'No phone'}</div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-semibold text-slate-800">{apt.service_type}</div>
+                              {apt.resident_notes && (
+                                <div className="text-[10px] text-slate-500 italic max-w-xs truncate" title={apt.resident_notes}>
+                                  Note: {apt.resident_notes}
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-slate-600">
+                              <div>📅 {apt.preferred_date}</div>
+                              <div className="text-[10px] text-slate-400">{apt.preferred_time}</div>
+                            </TableCell>
+                            <TableCell>
+                              {apt.scheduled_date ? (
+                                <div className="font-medium text-emerald-800">
+                                  <div>📅 {apt.scheduled_date}</div>
+                                  <div className="text-[10px] text-emerald-600 font-mono">⏰ {apt.scheduled_time || 'Morning'}</div>
+                                </div>
+                              ) : (
+                                <span className="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[10px] font-semibold">
+                                  Needs Scheduling
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={
+                                apt.status === 'Approved' ? 'bg-emerald-600 text-white' :
+                                apt.status === 'Completed' ? 'bg-blue-600 text-white' :
+                                apt.status === 'Cancelled' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'
+                              }>
+                                {apt.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {apt.status === 'Pending' && (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleOpenScheduleModal(apt)}
+                                    className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                                  >
+                                    <Check size={12} /> Confirm Schedule
+                                  </Button>
+                                )}
+
+                                {apt.status === 'Approved' && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleOpenScheduleModal(apt)}
+                                      className="h-7 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50 gap-1"
+                                      title="Reschedule / Edit instructions"
+                                    >
+                                      Edit Slot
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleUpdateApptStatus(apt.id, 'Completed')}
+                                      className="h-7 text-[11px] bg-blue-600 hover:bg-blue-700 text-white gap-1"
+                                    >
+                                      <CheckCircle2 size={12} /> Mark Completed
+                                    </Button>
+                                  </>
+                                )}
+
+                                {apt.status !== 'Cancelled' && apt.status !== 'Completed' && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleUpdateApptStatus(apt.id, 'Cancelled')}
+                                    className="h-7 text-[11px] text-red-600 hover:bg-red-50"
+                                  >
+                                    Cancel
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              {/* Published Clinic Schedules Section */}
+              <Card className="border-slate-200 bg-white shadow-xs">
+                <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Clock className="text-emerald-600" size={16} />
+                      Published Health Center Clinic Schedules (Seen by Residents)
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Official schedules published to the resident portal.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => setIsPostScheduleOpen(true)}
+                    className="h-8 text-xs bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100"
+                  >
+                    + Add New Schedule
+                  </Button>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                    {clinicSchedules.map(sch => (
+                      <div key={sch.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-2">
+                        <div>
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              {sch.service_type}
+                            </span>
+                            <span className="text-[10px] font-mono text-emerald-700 font-bold">
+                              {sch.slots_available} Slots
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-xs text-slate-900 mt-1">{sch.title}</h4>
+                          <div className="space-y-1 mt-2 text-[11px] text-slate-600">
+                            <div className="flex items-center gap-1.5 font-medium text-emerald-900">
+                              <Clock size={12} className="text-emerald-600 shrink-0" />
+                              <span>{sch.day_of_week} ({sch.time_slot})</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <MapPin size={12} className="text-slate-400 shrink-0" />
+                              <span>{sch.location}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <Users size={12} className="text-slate-400 shrink-0" />
+                              <span>In-charge: <strong>{sch.bhw_in_charge}</strong></span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteClinicSchedule(sch.id)}
+                          className="w-full h-7 text-[10px] text-red-600 hover:bg-red-50"
+                        >
+                          Remove Published Schedule
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Confirm / Approve Appointment Schedule Modal */}
+              <Dialog open={isScheduleModalOpen} onOpenChange={setIsScheduleModalOpen}>
+                <DialogContent className="bg-white max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-slate-900">
+                      <CalendarCheck size={18} className="text-emerald-600" />
+                      Confirm &amp; Schedule Appointment
+                    </DialogTitle>
+                    <DialogDescription className="text-xs">
+                      Set the confirmed date, time slot, and instructions for <strong>{selectedApptToSchedule?.resident_name}</strong>. An automated SMS and Email confirmation will be dispatched immediately.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <form onSubmit={handleApproveAndScheduleAppointment} className="space-y-3.5 py-2 text-xs">
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-emerald-950">{selectedApptToSchedule?.service_type}</span>
+                        <span className="font-mono text-emerald-800 font-bold">{selectedApptToSchedule?.appointment_code}</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800">
+                        Resident requested: 📅 {selectedApptToSchedule?.preferred_date} ({selectedApptToSchedule?.preferred_time})
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs font-semibold">Confirmed Date <span className="text-red-500">*</span></Label>
+                        <Input
+                          type="date"
+                          value={scheduleDate}
+                          onChange={e => setScheduleDate(e.target.value)}
+                          required
+                          className="mt-1 h-9 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">Confirmed Time Slot <span className="text-red-500">*</span></Label>
+                        <Select value={scheduleTime} onValueChange={setScheduleTime}>
+                          <SelectTrigger className="mt-1 h-9 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="08:30 AM">08:30 AM (Morning Session)</SelectItem>
+                            <SelectItem value="09:30 AM">09:30 AM</SelectItem>
+                            <SelectItem value="10:30 AM">10:30 AM</SelectItem>
+                            <SelectItem value="01:30 PM">01:30 PM (Afternoon Session)</SelectItem>
+                            <SelectItem value="02:30 PM">02:30 PM</SelectItem>
+                            <SelectItem value="03:30 PM">03:30 PM</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">BHW Instructions &amp; Requirements Note</Label>
+                      <textarea
+                        value={scheduleBhwNotes}
+                        onChange={e => setScheduleBhwNotes(e.target.value)}
+                        rows={3}
+                        placeholder="e.g. Please bring: (1) Valid IDs of couple, (2) Barangay Residency Certificate, and (3) CENOMAR from PSA. Session starts promptly at 9:00 AM."
+                        className="w-full mt-1 px-3 py-2 text-xs rounded-md border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+                      />
+                    </div>
+
+                    <DialogFooter className="gap-2 pt-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setIsScheduleModalOpen(false)} className="text-xs">
+                        Cancel
+                      </Button>
+                      <Button type="submit" size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 shadow-sm">
+                        <Check size={14} />
+                        Approve &amp; Send Confirmation
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+
+              {/* Post New Clinic Schedule Modal */}
+              <Dialog open={isPostScheduleOpen} onOpenChange={setIsPostScheduleOpen}>
+                <DialogContent className="bg-white max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-slate-900">
+                      <PlusCircle size={18} className="text-emerald-600" />
+                      Post New Clinic Schedule
+                    </DialogTitle>
+                    <DialogDescription className="text-xs">
+                      Publish a regular weekly health clinic schedule for residents to view and book.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <form onSubmit={handleCreateClinicSchedule} className="space-y-3 py-2 text-xs">
+                    <div>
+                      <Label className="text-xs font-semibold">Schedule Title <span className="text-red-500">*</span></Label>
+                      <Input
+                        value={newScheduleTitle}
+                        onChange={e => setNewScheduleTitle(e.target.value)}
+                        placeholder="e.g. Pre-Marriage Counseling (PMC) Weekly Seminar"
+                        required
+                        className="mt-1 h-9 text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">Health Service / Program</Label>
+                      <Select value={newScheduleServiceType} onValueChange={setNewScheduleServiceType}>
+                        <SelectTrigger className="mt-1 h-9 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Pre-Marriage Counseling (PMC)">Pre-Marriage Counseling (PMC)</SelectItem>
+                          <SelectItem value="Prenatal Check-up">Prenatal Check-up</SelectItem>
+                          <SelectItem value="Child Immunization">Child Immunization</SelectItem>
+                          <SelectItem value="Family Planning &amp; Counseling">Family Planning &amp; Counseling</SelectItem>
+                          <SelectItem value="General Medical Consultation">General Medical Consultation</SelectItem>
+                          <SelectItem value="Dental Check-up &amp; Hygiene">Dental Check-up &amp; Hygiene</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs font-semibold">Day of Week <span className="text-red-500">*</span></Label>
+                        <Input
+                          value={newScheduleDay}
+                          onChange={e => setNewScheduleDay(e.target.value)}
+                          placeholder="e.g. Every Wednesday"
+                          required
+                          className="mt-1 h-9 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">Time Window <span className="text-red-500">*</span></Label>
+                        <Input
+                          value={newScheduleTime}
+                          onChange={e => setNewScheduleTime(e.target.value)}
+                          placeholder="e.g. 8:30 AM - 11:30 AM"
+                          required
+                          className="mt-1 h-9 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs font-semibold">Available Slots</Label>
+                        <Input
+                          type="number"
+                          value={newScheduleSlots}
+                          onChange={e => setNewScheduleSlots(e.target.value)}
+                          placeholder="20"
+                          className="mt-1 h-9 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold">BHW In-Charge</Label>
+                        <Input
+                          value={newScheduleBhw}
+                          onChange={e => setNewScheduleBhw(e.target.value)}
+                          placeholder="Nurse Maria Santos"
+                          className="mt-1 h-9 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">Location / Room</Label>
+                      <Input
+                        value={newScheduleLocation}
+                        onChange={e => setNewScheduleLocation(e.target.value)}
+                        placeholder="Barangay Pianing Health Center - Room 1"
+                        className="mt-1 h-9 text-xs"
+                      />
+                    </div>
+
+                    <DialogFooter className="gap-2 pt-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setIsPostScheduleOpen(false)} className="text-xs">
+                        Cancel
+                      </Button>
+                      <Button type="submit" size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 shadow-sm">
+                        <PlusCircle size={14} />
+                        Publish Schedule
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+          )}
+
           {/* TAB 2: IMMUNIZATION TRACKING */}
           {activeTab === 'immunization' && (
             <div className="space-y-6">
@@ -807,12 +1474,30 @@ export default function BhwDashboard() {
                   />
                 </div>
                 <Button
-                  onClick={() => exportToCsv('BHW_Immunization_Records', filteredImmunizations)}
+                  onClick={() => {
+                    printOfficialReport({
+                      title: 'Immunization Records',
+                      subtitle: `Child vaccine records — ${new Date().toLocaleDateString()}`,
+                      preparedBy: user?.name || 'BHW Health Worker',
+                      preparedByTitle: 'Barangay Health Worker',
+                      department: 'Barangay Health Center',
+                      stats: [
+                        { label: 'Total Records', value: filteredImmunizations.length, color: '#0284c7' },
+                        { label: 'Overdue', value: filteredImmunizations.filter(i => i.status === 'Overdue').length, color: '#dc2626' }
+                      ],
+                      tables: [{
+                        title: 'Immunization Records',
+                        headers: ['Child Name', 'Parent Phone', 'Vaccine', 'Dose', 'Status', 'Date Administered'],
+                        rows: filteredImmunizations.map(i => [i.child_name, i.parent_phone || 'N/A', i.vaccine_name, `Dose ${i.dose_number}`, i.status, i.date_administered || i.due_date || 'N/A'])
+                      }]
+                    });
+                    toast.success('Immunization records opened as PDF');
+                  }}
                   variant="outline"
                   size="sm"
                   className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
                 >
-                  <Download size={14} /> Export CSV
+                  <Download size={14} /> Export PDF
                 </Button>
               </div>
 
@@ -881,12 +1566,30 @@ export default function BhwDashboard() {
                 <Dialog open={isAddMaternalOpen} onOpenChange={setIsAddMaternalOpen}>
                   <div className="flex items-center gap-2">
                     <Button
-                      onClick={() => exportToCsv('BHW_Maternal_Health_Records', maternalRecords)}
+                      onClick={() => {
+                        printOfficialReport({
+                          title: 'Maternal Health Records',
+                          subtitle: `Prenatal & postnatal monitoring — ${new Date().toLocaleDateString()}`,
+                          preparedBy: user?.name || 'BHW Health Worker',
+                          preparedByTitle: 'Barangay Health Worker',
+                          department: 'Barangay Health Center',
+                          stats: [
+                            { label: 'Total Patients', value: maternalRecords.length, color: '#db2777' },
+                            { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length, color: '#dc2626' }
+                          ],
+                          tables: [{
+                            title: 'Maternal Care Records',
+                            headers: ['Mother', 'Age', 'Status', 'Due Date', 'Risk Level', 'Next Visit'],
+                            rows: maternalRecords.map(m => [m.mother_name ?? '', String(m.age ?? ''), m.pregnancy_status ?? '', m.expected_due_date ?? 'N/A', m.risk_level ?? '', m.next_visit ?? 'TBD'])
+                          }]
+                        });
+                        toast.success('Maternal health records opened as PDF');
+                      }}
                       variant="outline"
                       size="sm"
                       className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
                     >
-                      <Download size={14} /> Export CSV
+                      <Download size={14} /> Export PDF
                     </Button>
                     <DialogTrigger asChild>
                       <Button className="bg-pink-600 hover:bg-pink-700 text-white text-xs gap-1.5 shadow-sm">
@@ -1010,16 +1713,20 @@ export default function BhwDashboard() {
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <Button
                     onClick={() => {
-                      exportToCsv('Barangay_Pianing_SMS_Dispatch_Log', notifications.map(n => ({
-                        'ID': n.id,
-                        'Recipient': n.recipient_name,
-                        'Phone': n.recipient_phone,
-                        'Alert Type': n.type || 'General',
-                        'Message': n.message,
-                        'Status': n.status || 'Sent',
-                        'Dispatched At': n.sent_at || 'Recent'
-                      })));
-                      toast.success('SMS dispatch log exported (CSV)');
+                      printOfficialReport({
+                        title: 'SMS Health Notification Dispatch Log',
+                        subtitle: `All SMS alerts dispatched — ${new Date().toLocaleDateString()}`,
+                        preparedBy: user?.name || 'BHW Health Worker',
+                        preparedByTitle: 'Barangay Health Worker',
+                        department: 'Barangay Health Center',
+                        stats: [{ label: 'Total Dispatched', value: notifications.length, color: '#2563eb' }],
+                        tables: [{
+                          title: 'SMS Dispatch Log',
+                          headers: ['Recipient', 'Phone', 'Alert Type', 'Status', 'Dispatched At'],
+                          rows: notifications.map(n => [n.recipient_name, n.recipient_phone, n.type || 'General', n.status || 'Sent', n.sent_at || 'Recent'])
+                        }]
+                      });
+                      toast.success('SMS dispatch log opened as PDF');
                     }}
                     variant="outline"
                     size="sm"
@@ -1222,45 +1929,56 @@ export default function BhwDashboard() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     onClick={() => {
-                      exportToCsv('Barangay_Pianing_Immunizations_Report', immunizations.map(i => ({
-                        'Child Name': i.child_name,
-                        'Parent Contact': i.parent_phone,
-                        'Vaccine Name': i.vaccine_name,
-                        'Dose Number': i.dose_number,
-                        'Status': i.status,
-                        'Administered Date': i.date_administered || 'N/A',
-                        'Due Date': i.due_date || 'N/A',
-                        'Days Overdue': i.days_overdue || 0,
-                        'Administered By': i.administered_by || 'BHW Clinic'
-                      })));
-                      toast.success('Immunization records downloaded (CSV)');
+                      printOfficialReport({
+                        title: 'Child Immunization Report',
+                        subtitle: `Full vaccination records — ${new Date().toLocaleDateString()}`,
+                        preparedBy: user?.name || 'BHW Health Worker',
+                        preparedByTitle: 'Barangay Health Worker',
+                        department: 'Barangay Health Center',
+                        stats: [
+                          { label: 'Total Records', value: immunizations.length, color: '#0284c7' },
+                          { label: 'Overdue', value: immunizations.filter(i => i.status === 'Overdue').length, color: '#dc2626' }
+                        ],
+                        tables: [{
+                          title: 'Immunization Records',
+                          headers: ['Child', 'Parent Contact', 'Vaccine', 'Dose', 'Status', 'Date', 'By'],
+                          rows: immunizations.map(i => [i.child_name, i.parent_phone || 'N/A', i.vaccine_name, `Dose ${i.dose_number}`, i.status, i.date_administered || 'N/A', i.administered_by || 'BHW Clinic'])
+                        }]
+                      });
+                      toast.success('Immunization report opened as PDF');
                     }}
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs gap-1.5 border-slate-300"
                   >
-                    <Download size={13} /> Export Vaccines (CSV)
+                    <Download size={13} /> Export Vaccines (PDF)
                   </Button>
 
                   <Button
                     onClick={() => {
-                      exportToCsv('Barangay_Pianing_Maternal_Health_Report', maternalRecords.map(m => ({
-                        'Mother Name': m.mother_name,
-                        'Age': m.age,
-                        'Pregnancy Status': m.pregnancy_status,
-                        'Expected Due Date': m.expected_due_date || 'N/A',
-                        'Last Clinic Visit': m.last_visit || 'N/A',
-                        'Next Scheduled Visit': m.next_visit || 'N/A',
-                        'Risk Level': m.risk_level,
-                        'Medical Notes': m.notes || ''
-                      })));
-                      toast.success('Maternal health records downloaded (CSV)');
+                      printOfficialReport({
+                        title: 'Maternal Health Report',
+                        subtitle: `Prenatal & postnatal patient records — ${new Date().toLocaleDateString()}`,
+                        preparedBy: user?.name || 'BHW Health Worker',
+                        preparedByTitle: 'Barangay Health Worker',
+                        department: 'Barangay Health Center',
+                        stats: [
+                          { label: 'Total Patients', value: maternalRecords.length, color: '#db2777' },
+                          { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length, color: '#dc2626' }
+                        ],
+                        tables: [{
+                          title: 'Maternal Care Records',
+                          headers: ['Mother', 'Age', 'Pregnancy Status', 'Due Date', 'Risk Level', 'Notes'],
+                          rows: maternalRecords.map(m => [m.mother_name ?? '', String(m.age ?? ''), m.pregnancy_status ?? '', m.expected_due_date ?? 'N/A', m.risk_level ?? '', m.notes ?? ''])
+                        }]
+                      });
+                      toast.success('Maternal health report opened as PDF');
                     }}
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs gap-1.5 border-slate-300"
                   >
-                    <Download size={13} /> Export Maternal (CSV)
+                    <Download size={13} /> Export Maternal (PDF)
                   </Button>
 
                   <Button
@@ -1294,12 +2012,12 @@ export default function BhwDashboard() {
                             title: 'Maternal Care & High-Risk Pregnancy Monitoring',
                             headers: ['Mother Patient', 'Age', 'Pregnancy Stage', 'Expected Due Date', 'Risk Level', 'Next Visit'],
                             rows: maternalRecords.map(m => [
-                              m.mother_name,
-                              m.age,
-                              m.pregnancy_status,
-                              m.expected_due_date || 'Postnatal',
-                              m.risk_level,
-                              m.next_visit || 'TBD'
+                              m.mother_name ?? '',
+                              String(m.age ?? ''),
+                              m.pregnancy_status ?? '',
+                              m.expected_due_date ?? 'Postnatal',
+                              m.risk_level ?? '',
+                              m.next_visit ?? 'TBD'
                             ])
                           }
                         ]
@@ -1327,13 +2045,20 @@ export default function BhwDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Total registered child vaccines: <strong>{immunizations.length}</strong> records.</p>
                     <Button
                       onClick={() => {
-                        exportToCsv('Barangay_Pianing_Overdue_Vaccines', immunizations.filter(i => i.status === 'Overdue').map(i => ({
-                          'Child Name': i.child_name,
-                          'Parent Phone': i.parent_phone,
-                          'Vaccine': i.vaccine_name,
-                          'Days Overdue': i.days_overdue || 'N/A'
-                        })));
-                        toast.success('Overdue vaccine alert list exported');
+                        printOfficialReport({
+                          title: 'Overdue Vaccine Alert Report',
+                          subtitle: `Children with overdue vaccination doses — ${new Date().toLocaleDateString()}`,
+                          preparedBy: user?.name || 'BHW Health Worker',
+                          preparedByTitle: 'Barangay Health Worker',
+                          department: 'Barangay Health Center',
+                          stats: [{ label: 'Overdue Cases', value: immunizations.filter(i => i.status === 'Overdue').length, color: '#dc2626' }],
+                          tables: [{
+                            title: 'Overdue Vaccine Records',
+                            headers: ['Child Name', 'Parent Phone', 'Vaccine', 'Days Overdue'],
+                            rows: immunizations.filter(i => i.status === 'Overdue').map(i => [i.child_name, i.parent_phone || 'N/A', i.vaccine_name, i.days_overdue || 'N/A'])
+                          }]
+                        });
+                        toast.success('Overdue vaccine report opened as PDF');
                       }}
                       size="sm"
                       variant="outline"
@@ -1356,14 +2081,23 @@ export default function BhwDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Active maternal cases: <strong>{maternalRecords.length}</strong> patients.</p>
                     <Button
                       onClick={() => {
-                        exportToCsv('Barangay_Pianing_HighRisk_Maternal', maternalRecords.filter(m => m.risk_level === 'High' || m.risk_level === 'Moderate').map(m => ({
-                          'Mother': m.mother_name,
-                          'Age': m.age,
-                          'Status': m.pregnancy_status,
-                          'Risk': m.risk_level,
-                          'Notes': m.notes
-                        })));
-                        toast.success('High-risk pregnancy list exported');
+                        printOfficialReport({
+                          title: 'High-Risk Maternal Patients Report',
+                          subtitle: `High & moderate risk pregnancy cases — ${new Date().toLocaleDateString()}`,
+                          preparedBy: user?.name || 'BHW Health Worker',
+                          preparedByTitle: 'Barangay Health Worker',
+                          department: 'Barangay Health Center',
+                          stats: [
+                            { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length, color: '#dc2626' },
+                            { label: 'Moderate Risk', value: maternalRecords.filter(m => m.risk_level === 'Moderate').length, color: '#d97706' }
+                          ],
+                          tables: [{
+                            title: 'High-Risk Maternal Patients',
+                            headers: ['Mother', 'Age', 'Status', 'Risk Level', 'Notes'],
+                            rows: maternalRecords.filter(m => m.risk_level === 'High' || m.risk_level === 'Moderate').map(m => [m.mother_name ?? '', String(m.age ?? ''), m.pregnancy_status ?? '', m.risk_level ?? '', m.notes ?? ''])
+                          }]
+                        });
+                        toast.success('High-risk maternal report opened as PDF');
                       }}
                       size="sm"
                       variant="outline"
@@ -1386,21 +2120,26 @@ export default function BhwDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Total health alerts dispatched: <strong>{notifications.length}</strong> sent.</p>
                     <Button
                       onClick={() => {
-                        exportToCsv('Barangay_Pianing_SMS_Health_Dispatch_Log', notifications.map(n => ({
-                          'Recipient': n.recipient_name,
-                          'Phone': n.recipient_phone,
-                          'Type': n.type,
-                          'Message': n.message,
-                          'Status': n.status,
-                          'Sent At': n.sent_at
-                        })));
-                        toast.success('SMS health dispatch log exported');
+                        printOfficialReport({
+                          title: 'SMS Health Dispatch Log Report',
+                          subtitle: `Health alert notifications dispatched — ${new Date().toLocaleDateString()}`,
+                          preparedBy: user?.name || 'BHW Health Worker',
+                          preparedByTitle: 'Barangay Health Worker',
+                          department: 'Barangay Health Center',
+                          stats: [{ label: 'Total SMS Sent', value: notifications.length, color: '#7c3aed' }],
+                          tables: [{
+                            title: 'SMS Health Dispatch Log',
+                            headers: ['Recipient', 'Phone', 'Type', 'Message', 'Status', 'Sent At'],
+                            rows: notifications.map(n => [n.recipient_name, n.recipient_phone, n.type || 'General', (n.message || '').substring(0, 40) + '...', n.status || 'Sent', n.sent_at || 'Recent'])
+                          }]
+                        });
+                        toast.success('SMS dispatch log opened as PDF');
                       }}
                       size="sm"
                       variant="outline"
                       className="w-full text-xs h-7 text-purple-700 border-purple-300 hover:bg-purple-100"
                     >
-                      <Download size={12} className="mr-1" /> Export SMS Log (CSV)
+                      <Download size={12} className="mr-1" /> Export SMS Log (PDF)
                     </Button>
                   </CardContent>
                 </Card>
@@ -1462,8 +2201,14 @@ export default function BhwDashboard() {
         </main>
       </div>
 
-      {/* Intra-System Messenger (floating, BHW role) */}
-      <SystemMessenger currentUserRole={user?.role === 'superadmin' ? 'superadmin' : 'bhw'} currentUserName={user?.name || "BHW Maria Santos"} />
+      {/* Intra-System Messenger (floating, Staff Chat) */}
+      <SystemMessenger
+        currentUserRole={user?.role === 'superadmin' ? 'superadmin' : 'bhw'}
+        currentUserName={user?.name || "BHW Maria Santos"}
+        currentUserEmail={user?.email}
+        currentUserId={user?.id}
+        currentUserBarangay={user?.barangay || (user?.role === 'superadmin' ? 'All (City-Wide)' : 'Pianing')}
+      />
 
       {/* Resident 360° Profile Modal */}
       <ResidentProfileModal

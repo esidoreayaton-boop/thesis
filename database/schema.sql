@@ -45,13 +45,14 @@ CREATE TABLE IF NOT EXISTS `residents` (
   `gender` ENUM('Male', 'Female', 'Other') DEFAULT 'Male',
   `civil_status` ENUM('Single', 'Married', 'Widowed', 'Separated') DEFAULT 'Single',
   `address` VARCHAR(255) NOT NULL,
-  `household_id` VARCHAR(50) NOT NULL DEFAULT 'HH-NEW',
   `phone` VARCHAR(20) DEFAULT '',
   `email` VARCHAR(100) DEFAULT '',
   `submitted_id` LONGTEXT NULL,
   `submitted_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `voter_status` BOOLEAN DEFAULT TRUE,
+  `years_of_residency` VARCHAR(50) DEFAULT NULL COMMENT 'How many years resident has lived in barangay',
   `verification_status` ENUM('Verified', 'Unverified', 'Pending_Review', 'Rejected') DEFAULT 'Pending_Review',
+  `rejection_reason` TEXT DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -61,14 +62,14 @@ CREATE TABLE IF NOT EXISTS `document_requests` (
   `request_code` VARCHAR(20) NOT NULL UNIQUE,
   `resident_id` INT NOT NULL,
   `resident_name` VARCHAR(100) NOT NULL,
-  `document_type` ENUM('Barangay Clearance', 'Certificate of Residency', 'Business Permit', 'Certificate of Indigency', 'Barangay ID') NOT NULL,
+  `email` VARCHAR(100) DEFAULT '',
+  `document_type` VARCHAR(100) NOT NULL,
   `purpose` VARCHAR(255) DEFAULT '',
   `status` ENUM('Pending', 'Processing', 'Completed', 'Rejected') NOT NULL DEFAULT 'Pending',
   `requested_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `processed_at` DATETIME NULL,
   `processed_by` VARCHAR(100) DEFAULT '',
-  `remarks` TEXT DEFAULT NULL,
-  FOREIGN KEY (`resident_id`) REFERENCES `residents`(`id`) ON DELETE CASCADE
+  `remarks` TEXT DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 4. Maternal Healthcare Records
