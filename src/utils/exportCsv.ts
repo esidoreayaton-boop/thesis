@@ -40,13 +40,15 @@ export function exportToCsv(filename: string, rows: object[]) {
   URL.revokeObjectURL(url);
 }
 
+import { PIANING_LOGO_BASE64, BUTUAN_LOGO_BASE64 } from '../app/components/officialLogos';
+
 /**
  * Opens a clean, official printable report window formatted for Barangay Pianing, Butuan City
  */
 export function printOfficialReport({
   title,
   subtitle,
-  department = 'Office of the Barangay Captain',
+  department = 'Office of the Punong Barangay',
   preparedBy = 'Admin Juan Dela Cruz',
   preparedByTitle = 'Barangay Administrator',
   stats = [],
@@ -108,28 +110,35 @@ export function printOfficialReport({
         <title>${title} - Barangay Pianing, Butuan City</title>
         <style>
           @page { size: A4 portrait; margin: 15mm; }
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; padding: 15px; line-height: 1.5; }
-          .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
-          .header h4 { margin: 0; font-size: 10pt; text-transform: uppercase; font-weight: normal; color: #475569; letter-spacing: 1px; }
-          .header h3 { margin: 2px 0; font-size: 11pt; font-weight: 600; color: #334155; }
-          .header h2 { margin: 4px 0; font-size: 13pt; font-weight: bold; color: #0f172a; text-transform: uppercase; }
-          .header h1 { margin: 6px 0 0 0; font-size: 20pt; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #1e3a8a; }
-          .header p { margin: 3px 0 0 0; font-size: 9pt; color: #64748b; }
+          body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; padding: 15px; line-height: 1.5; }
+          .hdr-container { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
+          .hdr-logo-box { width: 75px; height: 75px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+          .hdr-logo { width: 100%; height: 100%; object-fit: contain; }
+          .header-text { text-align: center; flex: 1; padding: 0 10px; }
+          .header-text h4 { margin: 0; font-size: 10pt; text-transform: uppercase; font-weight: normal; color: #475569; letter-spacing: 0.5px; }
+          .header-text h3 { margin: 2px 0; font-size: 10.5pt; font-weight: 600; color: #334155; }
+          .header-text h2 { margin: 4px 0 2px 0; font-size: 13pt; font-weight: bold; color: #0f172a; text-transform: uppercase; }
+          .header-text h1 { margin: 2px 0 0 0; font-size: 15pt; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #1e3a8a; }
+          .header-text p { margin: 2px 0 0 0; font-size: 8.5pt; color: #64748b; }
           .report-meta { display: flex; justify-content: space-between; font-size: 9pt; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 6px; margin-bottom: 20px; }
           .signatures { margin-top: 50px; display: flex; justify-content: space-between; align-items: flex-end; }
           .sig-block { text-align: center; width: 220px; }
-          .sig-line { border-top: 1px solid #0f172a; margin-top: 40px; padding-top: 4px; font-weight: bold; font-size: 10pt; text-transform: uppercase; }
-          .sig-title { font-size: 9pt; color: #64748b; font-style: italic; }
+          .sig-line { border-top: 1px solid #0f172a; margin-top: 40px; padding-top: 4px; font-weight: bold; font-size: 10.5pt; text-transform: uppercase; }
+          .sig-title { font-size: 9pt; color: #475569; }
           .seal { width: 80px; height: 80px; border-radius: 50%; border: 2px double #1e3a8a; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 7pt; font-weight: bold; color: #1e3a8a; margin: 0 auto; text-transform: uppercase; }
         </style>
       </head>
       <body>
-        <div class="header">
-          <h4>Republic of the Philippines</h4>
-          <h3>Province of Agusan del Norte • City of Butuan</h3>
-          <h2>${department}</h2>
-          <h1>BARANGAY PIANING</h1>
-          <p>Barangay Pianing, Butuan City, Agusan del Norte, Philippines 8600</p>
+        <div class="hdr-container">
+          <div class="hdr-logo-box"><img src="${BUTUAN_LOGO_BASE64}" class="hdr-logo" alt="City of Butuan Seal" /></div>
+          <div class="header-text">
+            <h4>Republic of the Philippines</h4>
+            <h3>Province of Agusan del Norte • City of Butuan</h3>
+            <h2>BARANGAY PIANING</h2>
+            <h1>${department}</h1>
+            <p>Pianing, Butuan City, Agusan del Norte 8600, Philippines</p>
+          </div>
+          <div class="hdr-logo-box"><img src="${PIANING_LOGO_BASE64}" class="hdr-logo" alt="Barangay Pianing Seal" /></div>
         </div>
 
         <div style="text-align: center; margin-bottom: 20px;">
@@ -138,25 +147,27 @@ export function printOfficialReport({
         </div>
 
         <div class="report-meta">
-          <div><strong>Generated On:</strong> ${new Date().toLocaleString()}</div>
+          <div><strong>Generated On:</strong> ${new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
           <div><strong>Prepared By:</strong> ${preparedBy} (${preparedByTitle})</div>
-          <div><strong>Status:</strong> Official Confidential Report</div>
+          <div><strong>Status:</strong> Official Certified Record</div>
         </div>
 
         ${statsHtml}
         ${tablesHtml}
 
         <div class="signatures">
+          <div class="sig-block">
+            <div class="sig-title" style="margin-bottom: 40px; font-weight: bold; text-align: left;">PREPARED BY:</div>
+            <div class="sig-line">${preparedBy}</div>
+            <div class="sig-title">${preparedByTitle}</div>
+          </div>
           <div class="seal">
             OFFICIAL SEAL<br/>BARANGAY PIANING<br/>BUTUAN CITY
           </div>
           <div class="sig-block">
-            <div class="sig-line">${preparedBy}</div>
-            <div class="sig-title">${preparedByTitle}</div>
-          </div>
-          <div class="sig-block">
-            <div class="sig-line">HON. CAPTAIN JUAN DELA CRUZ</div>
-            <div class="sig-title">Punong Barangay / Captain</div>
+            <div class="sig-title" style="margin-bottom: 40px; font-weight: bold; text-align: left;">ATTESTED &amp; APPROVED:</div>
+            <div class="sig-line">HON. VIRGENIA S. GOLANDRINA</div>
+            <div class="sig-title">Punong Barangay</div>
           </div>
         </div>
       </body>

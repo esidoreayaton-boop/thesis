@@ -62,6 +62,7 @@ import PendingApplicantReviewModal from '../components/PendingApplicantReviewMod
 import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
 import { BUTUAN_BARANGAYS } from '../../utils/barangays';
+import { PIANING_LOGO_BASE64, BUTUAN_LOGO_BASE64 } from '../components/officialLogos';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -511,35 +512,48 @@ export default function AdminDashboard() {
         <head>
           <title>System Audit & Activity Logs Report - ${today}</title>
           <style>
-            @page { size: A4 landscape; margin: 15mm; }
-            body { font-family: 'Times New Roman', serif; color: #0f172a; padding: 20px; line-height: 1.5; }
-            .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
-            .header h3 { margin: 0; font-size: 11pt; text-transform: uppercase; font-weight: normal; color: #475569; }
-            .header h2 { margin: 3px 0; font-size: 13pt; font-weight: bold; }
-            .header h1 { margin: 5px 0 0 0; font-size: 17pt; font-weight: bold; letter-spacing: 1px; color: #1e3a8a; text-transform: uppercase; }
-            .header p { margin: 4px 0 0 0; font-size: 9pt; color: #64748b; font-style: italic; }
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; font-family: sans-serif; font-size: 9pt; }
-            th { background: #0f172a; color: white; padding: 8px; border: 1px solid #0f172a; text-align: left; font-size: 8.5pt; text-transform: uppercase; }
-            .footer { margin-top: 40px; display: flex; justify-content: space-between; font-family: sans-serif; font-size: 8.5pt; }
-            .seal-box { border: 2px dashed #94a3b8; border-radius: 50%; width: 75px; height: 75px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 6.5pt; font-weight: bold; color: #475569; text-transform: uppercase; }
+            @page { size: A4 landscape; margin: 12mm; }
+            body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; padding: 15px; line-height: 1.5; }
+            .hdr-container { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 16px; }
+            .hdr-logo-box { width: 75px; height: 75px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+            .hdr-logo { width: 100%; height: 100%; object-fit: contain; }
+            .header-text { text-align: center; flex: 1; padding: 0 10px; }
+            .header-text h4 { margin: 0; font-size: 10pt; text-transform: uppercase; font-weight: normal; color: #475569; letter-spacing: 0.5px; }
+            .header-text h3 { margin: 2px 0; font-size: 10.5pt; font-weight: 600; color: #334155; }
+            .header-text h2 { margin: 3px 0 1px 0; font-size: 12.5pt; font-weight: bold; color: #0f172a; text-transform: uppercase; }
+            .header-text h1 { margin: 3px 0 0 0; font-size: 15pt; font-weight: 900; letter-spacing: 1px; color: #1e3a8a; text-transform: uppercase; }
+            .header-text p { margin: 3px 0 0 0; font-size: 8.5pt; color: #64748b; font-style: italic; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; font-family: sans-serif; font-size: 8.5pt; }
+            th { background: #0f172a; color: white; padding: 8px; border: 1px solid #0f172a; text-align: left; font-size: 8pt; text-transform: uppercase; }
+            td { padding: 6px 8px; border: 1px solid #cbd5e1; font-size: 8pt; color: #334155; }
+            .footer { margin-top: 35px; display: flex; justify-content: space-between; align-items: flex-end; font-family: sans-serif; font-size: 8.5pt; }
+            .seal-box { border: 2px double #1e3a8a; border-radius: 50%; width: 75px; height: 75px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 6.5pt; font-weight: bold; color: #1e3a8a; text-transform: uppercase; margin: 0 auto; }
+            .sig-block { text-align: center; width: 220px; }
+            .sig-line { border-top: 1px solid #0f172a; margin-top: 35px; padding-top: 4px; font-weight: bold; text-transform: uppercase; font-size: 9.5pt; }
+            .sig-title { font-size: 8.5pt; color: #64748b; }
           </style>
         </head>
         <body>
-          <div class="header">
-            <h3>Republic of the Philippines &bull; Province of Agusan del Norte &bull; City of Butuan</h3>
-            <h2>OFFICE OF THE BARANGAY COUNCIL &bull; ADMINISTRATIVE ARCHIVES</h2>
-            <h1>OFFICIAL AUDIT TRAIL &amp; ACTIVITY HISTORY LOGS</h1>
-            <p>Jurisdiction: Barangay ${isSuperAdmin ? 'Pianing & Anticala (City-Wide Ecosystem)' : userBarangay} &bull; Generated: ${today} &bull; Total Records: ${displayedLogs.length}</p>
+          <div class="hdr-container">
+            <div class="hdr-logo-box"><img src="${BUTUAN_LOGO_BASE64}" class="hdr-logo" alt="City of Butuan Seal" /></div>
+            <div class="header-text">
+              <h4>Republic of the Philippines</h4>
+              <h3>Province of Agusan del Norte • City of Butuan</h3>
+              <h2>BARANGAY PIANING</h2>
+              <h1>OFFICIAL AUDIT TRAIL &amp; SYSTEM ACTIVITY LOGS</h1>
+              <p>Barangay Pianing, Butuan City &bull; Generated: ${today} &bull; Total Filtered Records: ${displayedLogs.length}</p>
+            </div>
+            <div class="hdr-logo-box"><img src="${PIANING_LOGO_BASE64}" class="hdr-logo" alt="Barangay Pianing Seal" /></div>
           </div>
 
           <table>
             <thead>
               <tr>
                 <th style="width: 35px; text-align: center;">#</th>
-                <th style="width: 180px;">Actor / User</th>
+                <th style="width: 180px;">Actor / System User</th>
                 <th>Action &amp; Context Details</th>
-                <th style="width: 100px; text-align: center;">Category</th>
-                <th style="width: 150px;">Timestamp</th>
+                <th style="width: 110px; text-align: center;">Category</th>
+                <th style="width: 140px;">Timestamp</th>
               </tr>
             </thead>
             <tbody>
@@ -548,18 +562,18 @@ export default function AdminDashboard() {
           </table>
 
           <div class="footer">
-            <div>
-              <p>Generated by: <strong>${user?.name || 'Administrator'}</strong></p>
-              <p style="color: #64748b;">Role: ${user?.role?.toUpperCase() || 'ADMIN'} &bull; Barangay ${userBarangay || 'Pianing'}</p>
+            <div class="sig-block">
+              <div class="sig-title" style="margin-bottom: 35px; font-weight: bold; text-align: left;">GENERATED BY:</div>
+              <div class="sig-line">${user?.name || 'Administrator'}</div>
+              <div class="sig-title">${user?.role === 'superadmin' ? 'Super Administrator' : user?.role === 'admin' ? 'Barangay Administrator' : 'Barangay Staff'} &bull; Pianing</div>
             </div>
             <div class="seal-box">
-              OFFICIAL SEAL<br/>BARANGAY<br/>PIANING
+              OFFICIAL SEAL<br/>BARANGAY PIANING<br/>BUTUAN CITY
             </div>
-            <div style="text-align: center;">
-              <div style="border-top: 1px solid #0f172a; width: 220px; padding-top: 5px; margin-top: 25px; font-weight: bold; text-transform: uppercase;">
-                HON. PUNONG BARANGAY
-              </div>
-              <p style="color: #64748b; font-size: 8pt;">Certified Official System Record</p>
+            <div class="sig-block">
+              <div class="sig-title" style="margin-bottom: 35px; font-weight: bold; text-align: left;">CERTIFIED &amp; APPROVED:</div>
+              <div class="sig-line">HON. VIRGENIA S. GOLANDRINA</div>
+              <div class="sig-title">Punong Barangay</div>
             </div>
           </div>
         </body>
