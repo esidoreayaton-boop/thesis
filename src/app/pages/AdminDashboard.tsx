@@ -3261,20 +3261,29 @@ export default function AdminDashboard() {
                             </div>
                             <div>
                               <Label className="text-xs font-semibold">Assigned Barangay <span className="text-red-500">*</span></Label>
-                              {user?.role === 'superadmin' ? (
-                                <Select value={newUserBarangay} onValueChange={setNewUserBarangay}>
-                                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue placeholder="Select Barangay" /></SelectTrigger>
-                                  <SelectContent className="max-h-60">
+                              {isSuperAdmin || user?.role === 'superadmin' ? (
+                                <>
+                                  <Input
+                                    list="add-user-barangay-datalist"
+                                    value={newUserBarangay}
+                                    onChange={e => setNewUserBarangay(e.target.value)}
+                                    placeholder="Type Barangay (e.g. Pianing)"
+                                    required
+                                    className="h-9 text-xs mt-1 bg-white"
+                                  />
+                                  <datalist id="add-user-barangay-datalist">
                                     {BUTUAN_BARANGAYS.map(b => (
-                                      <SelectItem key={b} value={b}>Barangay {b}</SelectItem>
+                                      <option key={b} value={b}>Barangay {b}</option>
                                     ))}
-                                  </SelectContent>
-                                </Select>
+                                  </datalist>
+                                </>
                               ) : (
                                 <Input
-                                  value={`Barangay ${user?.barangay || 'Pianing'}`}
-                                  disabled
-                                  className="h-9 text-xs bg-slate-100 font-semibold text-slate-700 mt-1"
+                                  value={newUserBarangay || user?.barangay || 'Pianing'}
+                                  onChange={e => setNewUserBarangay(e.target.value)}
+                                  placeholder="e.g. Pianing"
+                                  required
+                                  className="h-9 text-xs mt-1 bg-white"
                                 />
                               )}
                             </div>
@@ -3596,20 +3605,27 @@ export default function AdminDashboard() {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label className="text-xs font-semibold">Assigned Barangay</Label>
-                        {isSuperAdmin ? (
-                          <Select value={editUserBarangay} onValueChange={setEditUserBarangay}>
-                            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select Barangay" /></SelectTrigger>
-                            <SelectContent className="max-h-60">
+                        {isSuperAdmin || user?.role === 'superadmin' ? (
+                          <>
+                            <Input
+                              list="edit-user-barangay-datalist"
+                              value={editUserBarangay}
+                              onChange={e => setEditUserBarangay(e.target.value)}
+                              placeholder="Type Barangay (e.g. Pianing)"
+                              className="h-9 text-xs bg-white"
+                            />
+                            <datalist id="edit-user-barangay-datalist">
                               {BUTUAN_BARANGAYS.map(b => (
-                                <SelectItem key={b} value={b}>Barangay {b}</SelectItem>
+                                <option key={b} value={b}>Barangay {b}</option>
                               ))}
-                            </SelectContent>
-                          </Select>
+                            </datalist>
+                          </>
                         ) : (
                           <Input
-                            value={`Barangay ${editUserBarangay || 'Pianing'}`}
-                            disabled
-                            className="h-9 text-xs bg-slate-100"
+                            value={editUserBarangay || user?.barangay || 'Pianing'}
+                            onChange={e => setEditUserBarangay(e.target.value)}
+                            placeholder="e.g. Pianing"
+                            className="h-9 text-xs bg-white"
                           />
                         )}
                       </div>
