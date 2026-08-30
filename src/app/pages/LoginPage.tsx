@@ -28,6 +28,7 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { BUTUAN_BARANGAYS } from '../../utils/barangays';
 import { toast } from 'sonner';
 
 const ID_TYPES = [
@@ -454,9 +455,10 @@ export default function LoginPage() {
                       </Label>
                       <Input
                         value={regPhone}
-                        onChange={e => setRegPhone(e.target.value)}
+                        onChange={e => setRegPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
                         placeholder="09171234567"
-                        maxLength={13}
+                        maxLength={12}
+                        inputMode="numeric"
                         required
                         className="h-9 text-xs font-mono"
                       />
@@ -535,13 +537,16 @@ export default function LoginPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>
                         <Label className="text-[10px] text-slate-500 font-medium">Barangay <RequiredBadge /></Label>
-                        <Input
-                          value={regBarangay}
-                          onChange={e => setRegBarangay(e.target.value)}
-                          placeholder="e.g. Pianing"
-                          required
-                          className="h-8 text-xs mt-0.5"
-                        />
+                        <Select value={regBarangay} onValueChange={setRegBarangay}>
+                          <SelectTrigger className="h-8 text-xs mt-0.5">
+                            <SelectValue placeholder="Select Barangay" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-60">
+                            {BUTUAN_BARANGAYS.map(b => (
+                              <SelectItem key={b} value={b} className="text-xs">Barangay {b}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div>
                         <Label className="text-[10px] text-slate-500 font-medium">City / Municipality <RequiredBadge /></Label>

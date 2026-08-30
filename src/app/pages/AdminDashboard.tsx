@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import {
   FileText,
@@ -58,8 +58,10 @@ import SystemMessenger from '../components/SystemMessenger';
 import ResidentProfileModal from '../components/ResidentProfileModal';
 import DocumentPrintModal from '../components/DocumentPrintModal';
 import DocumentInfoModal from '../components/DocumentInfoModal';
+import PendingApplicantReviewModal from '../components/PendingApplicantReviewModal';
 import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
+import { BUTUAN_BARANGAYS } from '../../utils/barangays';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -76,8 +78,15 @@ export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  // User session state
-  const [user, setUser] = useState<any>(null);
+  // User session state — initialized synchronously from localStorage to prevent session flash/reset on refresh
+  const [user, setUser] = useState<any>(() => {
+    try {
+      const stored = localStorage.getItem('barangay_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
   const [isVisitorMode, setIsVisitorMode] = useState(false);
 
   // Barangay isolation & role helpers
@@ -130,6 +139,11 @@ export default function AdminDashboard() {
   const [selectedInfoDoc, setSelectedInfoDoc] = useState<DocumentRequest | null>(null);
   const [isDocInfoOpen, setIsDocInfoOpen] = useState(false);
 
+  // Pending Resident Applicant Review Modal State
+  const [selectedApplicantForReview, setSelectedApplicantForReview] = useState<PendingResident | null>(null);
+  const [isApplicantReviewOpen, setIsApplicantReviewOpen] = useState(false);
+  const [isApprovingApplicant, setIsApprovingApplicant] = useState(false);
+
   const openDocInfo = (doc: DocumentRequest) => {
     setSelectedInfoDoc(doc);
     setIsDocInfoOpen(true);
@@ -138,6 +152,11 @@ export default function AdminDashboard() {
   const openPrintModal = (doc: DocumentRequest) => {
     setSelectedPrintDoc(doc);
     setPrintModalOpen(true);
+  };
+
+  const openApplicantReview = (applicant: PendingResident) => {
+    setSelectedApplicantForReview(applicant);
+    setIsApplicantReviewOpen(true);
   };
 
   // Search & Filter
@@ -334,16 +353,17 @@ export default function AdminDashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
+      const activeBarangayParam = isSuperAdmin ? undefined : userBarangay;
       const [docsData, resData, usersData, statsData, pendingData, catData, logsData, schedData, aptsData] = await Promise.all([
-        apiService.getDocuments(),
-        apiService.getResidents(),
+        apiService.getDocuments(activeBarangayParam),
+        apiService.getResidents(activeBarangayParam),
         apiService.getUsers(),
-        apiService.getAdminStats(),
-        apiService.getPendingResidents(),
+        apiService.getAdminStats(activeBarangayParam),
+        apiService.getPendingResidents(activeBarangayParam),
         apiService.getCategories().catch(() => []),
         apiService.getActivityLogs().catch(() => []),
-        apiService.getClinicSchedules().catch(() => []),
-        apiService.getAppointments().catch(() => [])
+        apiService.getClinicSchedules(activeBarangayParam).catch(() => []),
+        apiService.getAppointments({ barangay: activeBarangayParam }).catch(() => [])
       ]);
       setDocuments(docsData);
       setResidents(resData);
@@ -853,6 +873,18 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleRejectWithDirectReason = async (id: number, reason: string) => {
+    try {
+      await apiService.rejectResident(id, reason);
+      toast.warning('Correction / Resubmission notice dispatched to resident.', {
+        description: `Reason: ${reason}`
+      });
+      loadData();
+    } catch {
+      toast.error('Failed to dispatch resubmission notice');
+    }
+  };
+
   const handlePurgeResident = async (id: number) => {
     if (!confirm('Are you sure you want to permanently delete this account registration? This action cannot be undone.')) return;
     try {
@@ -909,6 +941,20 @@ export default function AdminDashboard() {
       return;
     }
     const assignedBarangay = user?.role === 'superadmin' ? (newUserBarangay || 'Pianing') : (user?.barangay || 'Pianing');
+
+    // 1 Admin per Barangay rule check
+    if (newUserRole === 'admin') {
+      const existingAdmin = users.find(u =>
+        u.role === 'admin' &&
+        u.status === 'Active' &&
+        (u.barangay || 'Pianing').toLowerCase().trim() === assignedBarangay.toLowerCase().trim()
+      );
+      if (existingAdmin) {
+        toast.error(`Barangay ${assignedBarangay} already has an active Administrator (${existingAdmin.name}). Only 1 Admin per Barangay is allowed.`);
+        return;
+      }
+    }
+
     try {
       const created = await apiService.createUser({
         name: newUserName.trim(),
@@ -926,8 +972,8 @@ export default function AdminDashboard() {
       setNewUserEmail('');
       setNewUserPassword('123');
       setNewUserPhone('');
-    } catch (err) {
-      toast.error('Failed to add user account');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to add user account');
     }
   };
 
@@ -1039,6 +1085,21 @@ export default function AdminDashboard() {
   const handleSaveEditUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
+
+    // 1 Admin per Barangay rule check
+    if (editUserRole === 'admin') {
+      const existingAdmin = users.find(u =>
+        u.id !== editingUser.id &&
+        u.role === 'admin' &&
+        u.status === 'Active' &&
+        (u.barangay || 'Pianing').toLowerCase().trim() === editUserBarangay.toLowerCase().trim()
+      );
+      if (existingAdmin) {
+        toast.error(`Barangay ${editUserBarangay} already has an active Administrator (${existingAdmin.name}). Only 1 Admin per Barangay is allowed.`);
+        return;
+      }
+    }
+
     try {
       await apiService.updateUser(editingUser.id, {
         name: editUserName.trim(),
@@ -1142,18 +1203,34 @@ export default function AdminDashboard() {
   // Check if an address or record belongs to current admin's barangay
   const belongsToMyBarangay = (itemAddressOrBarangay?: string, itemEmail?: string, itemBarangay?: string) => {
     if (isSuperAdmin) return true;
-    if (itemBarangay && itemBarangay.toLowerCase().includes(currentAdminBarangay)) return true;
-    if (itemEmail && itemEmail.toLowerCase().includes(currentAdminBarangay)) return true;
-    if (!itemAddressOrBarangay) return true; // Default to showing so new registrations are never hidden
-    const target = itemAddressOrBarangay.toLowerCase();
-    if (target.includes('anticala') && currentAdminBarangay !== 'anticala') return false;
-    if (target.includes('pianing') && currentAdminBarangay !== 'pianing') return false;
-    return true;
+    if (!currentAdminBarangay) return false;
+
+    // Direct barangay field match
+    if (itemBarangay) {
+      return itemBarangay.toLowerCase().trim() === currentAdminBarangay;
+    }
+
+    // Direct address field check
+    if (itemAddressOrBarangay) {
+      const target = itemAddressOrBarangay.toLowerCase().trim();
+      if (target.includes(currentAdminBarangay)) return true;
+      return false;
+    }
+
+    // Email check
+    if (itemEmail) {
+      const targetEm = itemEmail.toLowerCase().trim();
+      if (targetEm.includes(currentAdminBarangay)) return true;
+    }
+
+    return false;
   };
 
   // Filtered lists — Documents tab shows ONLY active requests for this barangay
   const isDocForMyBarangay = (doc: DocumentRequest) => {
     if (isSuperAdmin) return true;
+    if (!currentAdminBarangay) return false;
+
     if ((doc as any).barangay) {
       return (doc as any).barangay.toLowerCase().trim() === currentAdminBarangay;
     }
@@ -1162,12 +1239,11 @@ export default function AdminDashboard() {
       ((doc as any).email && r.email && r.email.toLowerCase() === (doc as any).email.toLowerCase()) ||
       (`${r.first_name} ${r.last_name}`.toLowerCase() === (doc.resident_name || '').toLowerCase())
     );
-    if (res && (res.address || (res as any).barangay)) {
-      return belongsToMyBarangay(res.address || (res as any).barangay);
+    if (res) {
+      return belongsToMyBarangay(res.address || (res as any).barangay, res.email, (res as any).barangay);
     }
-    // Also check if document resident_name has barangay keyword
-    if (doc.resident_name && doc.resident_name.toLowerCase().includes(currentAdminBarangay)) {
-      return true;
+    if ((doc as any).resident_address) {
+      return ((doc as any).resident_address || '').toLowerCase().includes(currentAdminBarangay);
     }
     return false;
   };
@@ -1688,6 +1764,16 @@ export default function AdminDashboard() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1.5">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openApplicantReview(r)}
+                                  className="h-7 text-[11px] gap-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950 font-semibold cursor-pointer"
+                                  title="View full applicant details, inspect ID, and accept/resubmit"
+                                >
+                                  <Eye size={12} />
+                                  Details
+                                </Button>
                                 <Button
                                   size="sm"
                                   onClick={() => handleApproveResident(r.id)}
@@ -2523,8 +2609,15 @@ export default function AdminDashboard() {
                           <Input value={newResPurok} onChange={e => setNewResPurok(e.target.value)} placeholder="e.g. Purok 1" className="text-xs" />
                         </div>
                         <div>
-                          <Label className="text-xs font-semibold">Mobile Number</Label>
-                          <Input value={newResPhone} onChange={e => setNewResPhone(e.target.value)} placeholder="09171234567" className="text-xs" maxLength={11} />
+                          <Label className="text-xs font-semibold">Mobile Number (Max 12 digits)</Label>
+                          <Input
+                            value={newResPhone}
+                            onChange={e => setNewResPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                            placeholder="09171234567"
+                            className="text-xs font-mono"
+                            maxLength={12}
+                            inputMode="numeric"
+                          />
                         </div>
                       </div>
                       {/* Email & Password for Portal Access */}
@@ -2768,13 +2861,14 @@ export default function AdminDashboard() {
                   {/* Barangay Filter (Super Admin) */}
                   {isSuperAdmin && (
                     <Select value={userBarangayFilter} onValueChange={setUserBarangayFilter}>
-                      <SelectTrigger className="h-8 text-xs w-36 bg-slate-50">
+                      <SelectTrigger className="h-8 text-xs w-44 bg-slate-50">
                         <SelectValue placeholder="All Barangays" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Barangays</SelectItem>
-                        <SelectItem value="Pianing">Barangay Pianing</SelectItem>
-                        <SelectItem value="Anticala">Barangay Anticala</SelectItem>
+                      <SelectContent className="max-h-72">
+                        <SelectItem value="all">All Barangays (86 City-Wide)</SelectItem>
+                        {BUTUAN_BARANGAYS.map(b => (
+                          <SelectItem key={b} value={b}>Barangay {b}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   )}
@@ -2796,7 +2890,7 @@ export default function AdminDashboard() {
                           </DialogTitle>
                           <DialogDescription className="text-xs">
                             {isSuperAdmin
-                              ? 'Register a new account for any role — Barangay Admin, Staff, BHW, or Resident.'
+                              ? 'Register a new account for any role — Barangay Admin (strictly 1 Admin per Barangay), Staff, BHW, or Resident.'
                               : `Grant portal access to a staff member or health worker in Barangay ${user?.barangay || 'Pianing'}.`}
                           </DialogDescription>
                         </DialogHeader>
@@ -2806,40 +2900,38 @@ export default function AdminDashboard() {
                             <Input
                               value={newUserName}
                               onChange={e => setNewUserName(e.target.value)}
+                              placeholder="e.g. Maria Santos"
                               required
-                              placeholder="e.g. Juan Dela Cruz"
                               className="h-9 text-xs"
                             />
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div>
-                              <Label className="text-xs font-semibold">Email Address <span className="text-red-500">*</span></Label>
-                              <Input
-                                type="email"
-                                value={newUserEmail}
-                                onChange={e => setNewUserEmail(e.target.value)}
-                                required
-                                placeholder="official@barangay.gov"
-                                className="h-9 text-xs"
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs font-semibold">Password <span className="text-red-500">*</span></Label>
-                              <Input
-                                type="password"
-                                value={newUserPassword}
-                                onChange={e => setNewUserPassword(e.target.value)}
-                                placeholder="Account password"
-                                required
-                                className="h-9 text-xs"
-                              />
-                            </div>
+                          <div>
+                            <Label className="text-xs font-semibold">Email Address <span className="text-red-500">*</span></Label>
+                            <Input
+                              type="email"
+                              value={newUserEmail}
+                              onChange={e => setNewUserEmail(e.target.value)}
+                              placeholder="e.g. maria.santos@barangay.gov.ph"
+                              required
+                              className="h-9 text-xs"
+                            />
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs font-semibold">Default Password</Label>
+                            <Input
+                              type="text"
+                              value={newUserPassword}
+                              onChange={e => setNewUserPassword(e.target.value)}
+                              placeholder="Default: 123"
+                              className="h-9 text-xs font-mono"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <Label className="text-xs font-semibold">System Role <span className="text-red-500">*</span></Label>
+                              <Label className="text-xs font-semibold">System Role</Label>
                               <Select
                                 value={newUserRole}
                                 onValueChange={(val: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident') => setNewUserRole(val)}
@@ -2849,7 +2941,7 @@ export default function AdminDashboard() {
                                   {isSuperAdmin && (
                                     <>
                                       <SelectItem value="superadmin">Super Admin (City-Wide)</SelectItem>
-                                      <SelectItem value="admin">Barangay Admin (Captain)</SelectItem>
+                                      <SelectItem value="admin">Barangay Admin (Max 1 per Brgy)</SelectItem>
                                       <SelectItem value="resident">Resident</SelectItem>
                                     </>
                                   )}
@@ -2861,13 +2953,14 @@ export default function AdminDashboard() {
                             <div>
                               <Label className="text-xs font-semibold">Assigned Barangay <span className="text-red-500">*</span></Label>
                               {user?.role === 'superadmin' ? (
-                                <Input
-                                  value={newUserBarangay}
-                                  onChange={e => setNewUserBarangay(e.target.value)}
-                                  placeholder="e.g. Pianing or Anticala"
-                                  required
-                                  className="h-9 text-xs"
-                                />
+                                <Select value={newUserBarangay} onValueChange={setNewUserBarangay}>
+                                  <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select Barangay" /></SelectTrigger>
+                                  <SelectContent className="max-h-60">
+                                    {BUTUAN_BARANGAYS.map(b => (
+                                      <SelectItem key={b} value={b}>Barangay {b}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               ) : (
                                 <Input
                                   value={`Barangay ${user?.barangay || 'Pianing'}`}
@@ -2879,12 +2972,13 @@ export default function AdminDashboard() {
                           </div>
 
                           <div>
-                            <Label className="text-xs font-semibold">Mobile Phone Number</Label>
+                            <Label className="text-xs font-semibold">Mobile Phone Number (Digits only, max 12)</Label>
                             <Input
                               value={newUserPhone}
-                              onChange={e => setNewUserPhone(e.target.value)}
+                              onChange={e => setNewUserPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
                               placeholder="09171234567"
-                              maxLength={13}
+                              maxLength={12}
+                              inputMode="numeric"
                               className="h-9 text-xs font-mono"
                             />
                           </div>
@@ -3206,26 +3300,30 @@ export default function AdminDashboard() {
                       <div>
                         <Label className="text-xs font-semibold">Assigned Barangay</Label>
                         {isSuperAdmin ? (
-                          <Input
-                            value={editUserBarangay}
-                            onChange={e => setEditUserBarangay(e.target.value)}
-                            placeholder="e.g. Pianing"
-                            className="h-9 text-xs"
-                          />
+                          <Select value={editUserBarangay} onValueChange={setEditUserBarangay}>
+                            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select Barangay" /></SelectTrigger>
+                            <SelectContent className="max-h-60">
+                              {BUTUAN_BARANGAYS.map(b => (
+                                <SelectItem key={b} value={b}>Barangay {b}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         ) : (
                           <Input
-                            value={editUserBarangay}
+                            value={`Barangay ${editUserBarangay || 'Pianing'}`}
                             disabled
                             className="h-9 text-xs bg-slate-100"
                           />
                         )}
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold">Mobile Phone</Label>
+                        <Label className="text-xs font-semibold">Mobile Phone (Max 12 digits)</Label>
                         <Input
                           value={editUserPhone}
-                          onChange={e => setEditUserPhone(e.target.value)}
+                          onChange={e => setEditUserPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
                           placeholder="09171234567"
+                          maxLength={12}
+                          inputMode="numeric"
                           className="h-9 text-xs font-mono"
                         />
                       </div>
@@ -4425,9 +4523,10 @@ export default function AdminDashboard() {
                 </Label>
                 <Input
                   value={profilePhone}
-                  onChange={e => setProfilePhone(e.target.value)}
+                  onChange={e => setProfilePhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
                   placeholder="09XXXXXXXXX"
-                  maxLength={13}
+                  maxLength={12}
+                  inputMode="numeric"
                   className="h-9 text-sm font-mono mt-1"
                 />
               </div>
@@ -4784,6 +4883,38 @@ export default function AdminDashboard() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Pending Applicant Review Modal */}
+      {selectedApplicantForReview && (
+        <PendingApplicantReviewModal
+          applicant={selectedApplicantForReview}
+          isOpen={isApplicantReviewOpen}
+          onClose={() => {
+            setIsApplicantReviewOpen(false);
+            setSelectedApplicantForReview(null);
+          }}
+          onApprove={async (id: number) => {
+            setIsApprovingApplicant(true);
+            try {
+              await apiService.approveResident(id, user?.name || 'Admin');
+              toast.success('Resident account approved and verified!');
+              setIsApplicantReviewOpen(false);
+              setSelectedApplicantForReview(null);
+              loadData();
+            } catch {
+              toast.error('Failed to approve resident');
+            } finally {
+              setIsApprovingApplicant(false);
+            }
+          }}
+          onRejectWithReason={async (id: number, reason: string) => {
+            await handleRejectWithDirectReason(id, reason);
+            setIsApplicantReviewOpen(false);
+            setSelectedApplicantForReview(null);
+          }}
+          approving={isApprovingApplicant}
+        />
+      )}
     </div>
   );
 }

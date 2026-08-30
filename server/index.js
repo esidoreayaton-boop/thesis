@@ -872,11 +872,11 @@ app.get('/api/auth/check-status', async (req, res) => {
 
 // GET pending resident registrations (for Admin approval)
 app.get('/api/residents/pending', async (req, res) => {
+  const { barangay } = req.query;
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
-      // Find all resident accounts whose verification status is NOT 'Verified' (e.g. Unverified, Pending_Review, Rejected, etc.)
-      const [rows] = await pool.query(`
+      let query = `
         SELECT 
           COALESCE(r.id, u.id) AS id,
           COALESCE(CONCAT(r.first_name, ' ', r.last_name), u.name) AS name,
@@ -900,14 +900,23 @@ app.get('/api/residents/pending', async (req, res) => {
             LOWER(COALESCE(r.verification_status, u.verification_status, '')) NOT IN ('verified')
             OR COALESCE(r.verification_status, u.verification_status) IS NULL
           )
-        ORDER BY u.id DESC
-      `);
+      `;
+      const params = [];
+      if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+        query += ` AND (LOWER(COALESCE(r.barangay, u.barangay, '')) = LOWER(?) OR LOWER(COALESCE(r.address, '')) LIKE LOWER(?))`;
+        params.push(barangay.trim(), `%${barangay.trim()}%`);
+      }
+      query += ` ORDER BY u.id DESC`;
+      const [rows] = await pool.query(query, params);
       return res.json(rows);
     } catch (err) {
       console.warn('MySQL pending residents error:', err.message);
     }
   }
-  const pending = mockData.pendingRegistrations.filter(r => r.verification_status !== 'Verified');
+  let pending = mockData.pendingRegistrations.filter(r => r.verification_status !== 'Verified');
+  if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+    pending = pending.filter(r => (r.barangay || r.address || '').toLowerCase().includes(barangay.toLowerCase()));
+  }
   res.json(pending);
 });
 
@@ -1676,13 +1685,23 @@ app.get('/api/auth/check-status', async (req, res) => {
 // Statistics Endpoints
 // -------------------------------------------------------------
 app.get('/api/stats/admin', async (req, res) => {
+  const { barangay } = req.query;
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
-      const [[pendingDocs]] = await pool.query("SELECT COUNT(*) as count FROM document_requests WHERE status = 'Pending'");
-      const [[processedDocs]] = await pool.query("SELECT COUNT(*) as count FROM document_requests WHERE status = 'Completed' AND DATE(processed_at) = CURDATE()");
-      const [[totalResidents]] = await pool.query("SELECT COUNT(*) as count FROM residents");
-      const [[activeRecords]] = await pool.query("SELECT COUNT(*) as count FROM document_requests");
+      let docWhere = "";
+      let resWhere = "";
+      const params = [];
+      if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+        docWhere = " AND (LOWER(barangay) = LOWER(?) OR resident_name LIKE ?)";
+        resWhere = " WHERE (LOWER(barangay) = LOWER(?) OR LOWER(address) LIKE ?)";
+        params.push(barangay.trim(), `%${barangay.trim()}%`);
+      }
+
+      const [[pendingDocs]] = await pool.query(`SELECT COUNT(*) as count FROM document_requests WHERE status = 'Pending'${docWhere}`, params);
+      const [[processedDocs]] = await pool.query(`SELECT COUNT(*) as count FROM document_requests WHERE status = 'Completed' AND DATE(processed_at) = CURDATE()${docWhere}`, params);
+      const [[totalResidents]] = await pool.query(`SELECT COUNT(*) as count FROM residents${resWhere}`, resWhere ? [barangay.trim(), `%${barangay.trim()}%`] : []);
+      const [[activeRecords]] = await pool.query(`SELECT COUNT(*) as count FROM document_requests WHERE 1=1${docWhere}`, params);
       return res.json({
         pendingDocs: pendingDocs.count,
         processedToday: processedDocs.count,
@@ -1694,11 +1713,18 @@ app.get('/api/stats/admin', async (req, res) => {
     }
   }
 
+  let docs = mockData.documents;
+  let resList = mockData.residents;
+  if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+    docs = docs.filter(d => (d.barangay || '').toLowerCase() === barangay.toLowerCase());
+    resList = resList.filter(r => (r.barangay || r.address || '').toLowerCase().includes(barangay.toLowerCase()));
+  }
+
   res.json({
-    pendingDocs: mockData.documents.filter(d => d.status === 'Pending').length,
-    processedToday: mockData.documents.filter(d => d.status === 'Completed').length,
-    totalResidents: mockData.residents.length,
-    activeRecords: mockData.documents.length
+    pendingDocs: docs.filter(d => d.status === 'Pending').length,
+    processedToday: docs.filter(d => d.status === 'Completed').length,
+    totalResidents: resList.length,
+    activeRecords: docs.length
   });
 });
 
@@ -1733,13 +1759,14 @@ app.get('/api/stats/bhw', async (req, res) => {
 // Documents CRUD
 // -------------------------------------------------------------
 app.get('/api/documents', async (req, res) => {
+  const { barangay } = req.query;
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
       try {
         await pool.query("ALTER TABLE document_requests ADD COLUMN IF NOT EXISTS extra_fields TEXT NULL");
       } catch {}
-      const [rows] = await pool.query(`
+      let query = `
         SELECT d.*, 
                COALESCE(r.address, '') AS resident_address,
                COALESCE(r.civil_status, 'Single') AS resident_civil_status,
@@ -1748,14 +1775,24 @@ app.get('/api/documents', async (req, res) => {
                TIMESTAMPDIFF(YEAR, r.date_of_birth, CURDATE()) AS resident_age
         FROM document_requests d
         LEFT JOIN residents r ON (d.resident_id = r.id OR (d.email != '' AND LOWER(d.email) = LOWER(r.email)))
-        ORDER BY d.id DESC
-      `);
+      `;
+      const params = [];
+      if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+        query += ` WHERE (LOWER(d.barangay) = LOWER(?) OR LOWER(COALESCE(r.barangay, '')) = LOWER(?) OR LOWER(COALESCE(r.address, '')) LIKE LOWER(?))`;
+        params.push(barangay.trim(), barangay.trim(), `%${barangay.trim()}%`);
+      }
+      query += ` ORDER BY d.id DESC`;
+      const [rows] = await pool.query(query, params);
       return res.json(rows);
     } catch (err) {
       console.warn('MySQL documents fetch error:', err.message);
     }
   }
-  res.json(mockData.documents);
+  let docs = mockData.documents;
+  if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+    docs = docs.filter(d => (d.barangay || '').toLowerCase() === barangay.toLowerCase());
+  }
+  res.json(docs);
 });
 
 app.post('/api/documents', async (req, res) => {
@@ -1987,6 +2024,7 @@ app.delete('/api/documents/:id', async (req, res) => {
 // Residents CRUD
 // -------------------------------------------------------------
 app.get('/api/residents', async (req, res) => {
+  const { barangay } = req.query;
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
@@ -1995,12 +2033,18 @@ app.get('/api/residents', async (req, res) => {
       await safeAddColumn(pool, 'residents', 'purok', "VARCHAR(50) DEFAULT '1'");
       await safeAddColumn(pool, 'residents', 'date_of_birth', "DATE NULL");
 
-      const [rows] = await pool.query(`
+      let query = `
         SELECT r.*,
                TIMESTAMPDIFF(YEAR, r.date_of_birth, CURDATE()) AS age
         FROM residents r 
-        ORDER BY r.id DESC
-      `);
+      `;
+      const params = [];
+      if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+        query += ` WHERE (LOWER(r.barangay) = LOWER(?) OR LOWER(r.address) LIKE LOWER(?))`;
+        params.push(barangay.trim(), `%${barangay.trim()}%`);
+      }
+      query += ` ORDER BY r.id DESC`;
+      const [rows] = await pool.query(query, params);
       
       const parsedRows = (rows || []).map(r => {
         let p = r.purok;
@@ -2021,7 +2065,7 @@ app.get('/api/residents', async (req, res) => {
       console.warn('MySQL residents fetch error:', err.message);
     }
   }
-  const fallback = (mockData.residents || []).map(r => {
+  let fallback = (mockData.residents || []).map(r => {
     let p = r.purok;
     if (!p && r.address) {
       const match = r.address.match(/purok\s*([0-9A-Za-z_-]+)/i);
@@ -2035,6 +2079,9 @@ app.get('/api/residents', async (req, res) => {
       age: r.age || 25
     };
   });
+  if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+    fallback = fallback.filter(r => (r.barangay || r.address || '').toLowerCase().includes(barangay.toLowerCase()));
+  }
   res.json(fallback);
 });
 
@@ -2152,6 +2199,33 @@ app.post('/api/users', async (req, res) => {
   const userPhone = phone || '';
 
   const pool = getPool();
+
+  // 1 Admin per Barangay rule check
+  if (role === 'admin') {
+    if (pool && getStatus().connected) {
+      try {
+        const [existingAdmins] = await pool.query(
+          "SELECT id, name FROM users WHERE role = 'admin' AND status = 'Active' AND LOWER(barangay) = LOWER(?)",
+          [userBarangay.trim()]
+        );
+        if (existingAdmins.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Barangay ${userBarangay} already has an active Administrator (${existingAdmins[0].name}). Only 1 Admin per Barangay is allowed.`
+          });
+        }
+      } catch {}
+    } else {
+      const existing = (mockData.users || []).find(u => u.role === 'admin' && u.status === 'Active' && (u.barangay || 'Pianing').toLowerCase() === userBarangay.toLowerCase());
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          message: `Barangay ${userBarangay} already has an active Administrator (${existing.name}). Only 1 Admin per Barangay is allowed.`
+        });
+      }
+    }
+  }
+
   if (pool && getStatus().connected) {
     try {
       try {
@@ -2196,7 +2270,35 @@ app.post('/api/users', async (req, res) => {
 app.put('/api/users/:id', async (req, res) => {
   const id = Number(req.params.id);
   const { name, email, role, status, barangay, phone, password } = req.body;
+  const userBarangay = barangay || 'Pianing';
+
   const pool = getPool();
+
+  // 1 Admin per Barangay rule check on edit
+  if (role === 'admin') {
+    if (pool && getStatus().connected) {
+      try {
+        const [existingAdmins] = await pool.query(
+          "SELECT id, name FROM users WHERE role = 'admin' AND status = 'Active' AND LOWER(barangay) = LOWER(?) AND id != ?",
+          [userBarangay.trim(), id]
+        );
+        if (existingAdmins.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Barangay ${userBarangay} already has an active Administrator (${existingAdmins[0].name}). Only 1 Admin per Barangay is allowed.`
+          });
+        }
+      } catch {}
+    } else {
+      const existing = (mockData.users || []).find(u => u.role === 'admin' && u.status === 'Active' && (u.barangay || 'Pianing').toLowerCase() === userBarangay.toLowerCase() && u.id !== id);
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          message: `Barangay ${userBarangay} already has an active Administrator (${existing.name}). Only 1 Admin per Barangay is allowed.`
+        });
+      }
+    }
+  }
   if (pool && getStatus().connected) {
     try {
       const updates = [];

@@ -204,19 +204,22 @@ export const apiService = {
   },
 
   // Stats
-  async getAdminStats() {
-    const res = await fetch(`${API_BASE}/stats/admin`);
+  async getAdminStats(barangay?: string) {
+    const url = barangay ? `${API_BASE}/stats/admin?barangay=${encodeURIComponent(barangay)}` : `${API_BASE}/stats/admin`;
+    const res = await fetch(url);
     return await res.json();
   },
 
-  async getBhwStats() {
-    const res = await fetch(`${API_BASE}/stats/bhw`);
+  async getBhwStats(barangay?: string) {
+    const url = barangay ? `${API_BASE}/stats/bhw?barangay=${encodeURIComponent(barangay)}` : `${API_BASE}/stats/bhw`;
+    const res = await fetch(url);
     return await res.json();
   },
 
   // Documents
-  async getDocuments(): Promise<DocumentRequest[]> {
-    const res = await fetch(`${API_BASE}/documents`);
+  async getDocuments(barangay?: string): Promise<DocumentRequest[]> {
+    const url = barangay ? `${API_BASE}/documents?barangay=${encodeURIComponent(barangay)}` : `${API_BASE}/documents`;
+    const res = await fetch(url);
     return await res.json();
   },
 
@@ -244,8 +247,9 @@ export const apiService = {
   },
 
   // Residents
-  async getResidents(): Promise<Resident[]> {
-    const res = await fetch(`${API_BASE}/residents`);
+  async getResidents(barangay?: string): Promise<Resident[]> {
+    const url = barangay ? `${API_BASE}/residents?barangay=${encodeURIComponent(barangay)}` : `${API_BASE}/residents`;
+    const res = await fetch(url);
     return await res.json();
   },
 
@@ -371,8 +375,9 @@ export const apiService = {
   },
 
   // Pending Resident Registrations (Admin)
-  async getPendingResidents(): Promise<PendingResident[]> {
-    const res = await fetch(`${API_BASE}/residents/pending`);
+  async getPendingResidents(barangay?: string): Promise<PendingResident[]> {
+    const url = barangay ? `${API_BASE}/residents/pending?barangay=${encodeURIComponent(barangay)}` : `${API_BASE}/residents/pending`;
+    const res = await fetch(url);
     return await res.json();
   },
 
