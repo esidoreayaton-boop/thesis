@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router';
-import { FileText, Users, Baby, Bell, BarChart, Shield, ArrowRight, Activity, Database, CheckCircle2 } from 'lucide-react';
+import { FileText, Users, Baby, Bell, BarChart, Shield, ArrowRight, CheckCircle2, MapPin, Clock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -12,38 +12,45 @@ export default function LandingPage() {
       icon: FileText,
       color: 'bg-blue-100 text-blue-600',
       title: 'Document Clearance Processing',
-      description: 'Automated request and issuance of Barangay Clearances, Residency Certificates, and Business Permits.'
+      description: 'Request and receive Barangay Clearances, Residency Certificates, and Business Permits — quickly and conveniently.'
     },
     {
       icon: Users,
       color: 'bg-indigo-100 text-indigo-600',
-      title: 'Demographics & Household Registry',
-      description: 'Comprehensive resident database management for accurate record retrieval and census reporting.'
+      title: 'Resident Household Registry',
+      description: 'Comprehensive resident records management for accurate information retrieval and official reporting.'
     },
     {
       icon: Baby,
       color: 'bg-teal-100 text-teal-600',
       title: 'Child Healthcare & Immunization',
-      description: 'Systematic tracking of infant vaccinations (BCG, HepB, DPT, Polio, MMR) with overdue automated alerts.'
+      description: 'Track infant vaccinations (BCG, HepB, DPT, Polio, MMR) and receive automated reminders for scheduled immunizations.'
     },
     {
       icon: Bell,
       color: 'bg-purple-100 text-purple-600',
-      title: 'SMS Alerts & Notifications',
-      description: 'Timely SMS broadcast reminders sent to mothers and residents for scheduled health checkups.'
+      title: 'SMS & Email Notifications',
+      description: 'Receive timely SMS and email reminders for health appointments, document readiness, and important barangay announcements.'
     },
     {
       icon: BarChart,
       color: 'bg-amber-100 text-amber-600',
-      title: 'Real-time MySQL Analytics',
-      description: 'Instant data summaries and health coverage rate reports generated directly from database tables.'
+      title: 'Health & Community Reports',
+      description: 'Real-time summaries of health coverage rates, registered residents, and document issuance for informed decision-making.'
     },
     {
       icon: Shield,
       color: 'bg-emerald-100 text-emerald-600',
-      title: 'Secure Role-Based Portals',
-      description: 'Segregated access for Administrators and Health Nurses with complete activity audit logs.'
+      title: 'Secure Role-Based Access',
+      description: 'Dedicated portals for Barangay Administrators, Health Workers, and Residents with complete activity audit trails.'
     }
+  ];
+
+  const highlights = [
+    { icon: CheckCircle2, text: 'Online document requests — no need to fall in line' },
+    { icon: CheckCircle2, text: 'Instant SMS & email notifications when documents are ready' },
+    { icon: CheckCircle2, text: 'Health appointment tracking for mothers and infants' },
+    { icon: CheckCircle2, text: 'Secure and private — only authorized personnel can access your records' },
   ];
 
   return (
@@ -62,7 +69,6 @@ export default function LandingPage() {
           </div>
 
           <div className="flex items-center gap-3">
-
             <Button
               onClick={() => navigate('/login')}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 px-4 shadow-sm"
@@ -80,29 +86,45 @@ export default function LandingPage() {
           ✨ Barangay Pianing, Butuan City, Agusan del Norte
         </Badge>
         <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4 max-w-4xl mx-auto leading-tight">
-          Modern Digital Transformation for <span className="text-blue-600">Barangay Pianing</span>, Butuan City
+          Smart Digital Services for <span className="text-blue-600">Barangay Pianing</span> Residents
         </h1>
         <p className="text-lg text-slate-600 dark:text-slate-400 max-w-3xl mx-auto mb-8 leading-relaxed">
-          An integrated web system streamlining document clearance processing, resident household management, maternal care schedules, infant immunization tracking, and SMS alert dispatch for Barangay Pianing.
+          A modern online portal connecting residents with fast, convenient access to barangay clearances, health services, and community announcements — anytime, anywhere.
         </p>
 
-        <div className="flex justify-center">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Button
             size="lg"
             onClick={() => navigate('/login')}
             className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-8 h-12 shadow-lg shadow-blue-500/20"
           >
-            Portal Login
+            Access the Portal
             <ArrowRight size={18} className="ml-2" />
           </Button>
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <MapPin size={13} />
+            <span>Barangay Pianing, Butuan City</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Highlights Strip */}
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
+        <div className="grid sm:grid-cols-2 gap-3">
+          {highlights.map((item, i) => (
+            <div key={i} className="flex items-start gap-2.5 bg-white border border-slate-100 rounded-xl px-4 py-3 shadow-xs">
+              <item.icon size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+              <span className="text-xs text-slate-700 leading-relaxed">{item.text}</span>
+            </div>
+          ))}
         </div>
       </section>
 
       {/* Features Grid */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center mb-10">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Core System Features</h2>
-          <p className="text-xs text-slate-500">Built to empower barangay staff, nurses, and local community residents.</p>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">What You Can Do Here</h2>
+          <p className="text-xs text-slate-500 mt-1">Services available to Barangay Pianing residents, health workers, and administrators.</p>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -124,21 +146,26 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Database Highlights Banner */}
+      {/* CTA Banner */}
       <section className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 my-8">
         <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-8 sm:p-12 shadow-xl flex flex-col md:flex-row items-center justify-between gap-8">
           <div className="space-y-3 text-center md:text-left">
-            <Badge className="bg-indigo-500 text-white font-mono text-[11px]">MySQL Relational Engine</Badge>
-            <h3 className="text-2xl font-bold">Relational Database Schemas Included</h3>
+            <Badge className="bg-blue-500 text-white text-[11px]">Serving Barangay Pianing</Badge>
+            <h3 className="text-2xl font-bold">Ready to Use? Log In to Get Started</h3>
             <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-              Equipped with ready-to-run DDL scripts (<code className="text-indigo-300 font-mono">database/schema.sql</code>) and realistic seed datasets (<code className="text-indigo-300 font-mono">database/seed.sql</code>) for MySQL 8.0+.
+              Residents may register for an account to request documents online. Barangay staff and health workers may log in using their assigned credentials.
             </p>
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <Clock size={13} />
+              <span>Office Hours: Mon – Fri, 8:00 AM – 5:00 PM</span>
+            </div>
           </div>
           <Button
             onClick={() => navigate('/login')}
             className="bg-white text-slate-900 hover:bg-slate-100 font-bold text-xs h-11 px-6 shrink-0 shadow-md"
           >
-            Launch System Demo
+            Log In to the Portal
+            <ArrowRight size={14} className="ml-1.5" />
           </Button>
         </div>
       </section>
@@ -147,12 +174,12 @@ export default function LandingPage() {
       <footer className="mt-auto bg-slate-900 text-slate-400 py-8 border-t border-slate-800 text-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
           <div>
-            <p className="font-semibold text-slate-300">Smart Barangay Administrative Management & Public Health System</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">&copy; 2026 Smart Barangay System. All rights reserved.</p>
+            <p className="font-semibold text-slate-300">Barangay Pianing — Smart Governance Portal</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Office of the Punong Barangay · Hon. Virgenia S. Golandrina · Butuan City, Agusan del Norte</p>
           </div>
           <div className="flex items-center gap-2">
-            <Database size={14} className="text-indigo-400" />
-            <span className="font-mono text-[11px]">MySQL Integrated</span>
+            <MapPin size={13} className="text-blue-400" />
+            <span className="text-[11px]">Barangay Pianing, Butuan City</span>
           </div>
         </div>
       </footer>

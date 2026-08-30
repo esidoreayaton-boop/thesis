@@ -21,6 +21,8 @@ export interface DocumentRequest {
   requested_at?: string;
   processed_at?: string | null;
   processed_by?: string;
+  barangay?: string;
+  resident_email?: string;
   extra_fields?: string | Record<string, string>;
 }
 
