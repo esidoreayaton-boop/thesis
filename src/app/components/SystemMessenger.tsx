@@ -329,9 +329,9 @@ export default function SystemMessenger({ currentUserRole, currentUserName, curr
                 </div>
                 <div>
                   <h3 className="text-sm font-bold leading-tight">
-                    {currentUserRole === 'superadmin' ? 'City Staff Messenger' : `Brgy. ${myBarangay} Chat`}
+                    {currentUserRole === 'superadmin' ? 'Staff Communications' : `Barangay ${myBarangay}`}
                   </h3>
-                  <p className="text-[10px] text-indigo-100 opacity-90">1-on-1 Direct Staff Messenger</p>
+                  <p className="text-[10px] text-indigo-100 opacity-90 font-medium">Internal Staff Directory</p>
                 </div>
               </div>
             )}

@@ -68,78 +68,24 @@ if (fs.existsSync(distPath)) {
 // In-Memory Fallback Store (active if MySQL is unavailable)
 let mockData = {
   users: [
-    { id: 1, name: 'Super Admin Rodrigo Lim', email: 'superadmin@barangay.gov', role: 'superadmin', status: 'Active', barangay: 'All (City-Wide)', phone: '09171112233', last_login: '2026-08-20 08:00 AM' },
-    { id: 2, name: 'Barangay Captain Juan Dela Cruz', email: 'admin@barangay.gov', role: 'admin', status: 'Active', barangay: 'Pianing', phone: '09171234567', last_login: '2026-08-20 09:00 AM' },
-    { id: 3, name: 'Barangay Clerk Ana Reyes', email: 'staff@barangay.gov', role: 'staff', status: 'Active', barangay: 'Pianing', phone: '09204567890', last_login: '2026-08-20 08:45 AM' },
-    { id: 4, name: 'Nurse Maria Santos', email: 'bhw@barangay.gov', role: 'bhw', status: 'Active', barangay: 'Pianing', phone: '09182345678', last_login: '2026-08-20 08:30 AM' },
-    { id: 5, name: 'Juan Resident Dela Cruz', email: 'resident@gmail.com', role: 'resident', status: 'Active', barangay: 'Pianing', phone: '09171234567', verification_status: 'Verified', last_login: '2026-08-19 02:30 PM' },
-    { id: 6, name: 'Josefina Villanueva', email: 'josefina@gmail.com', role: 'resident', status: 'Active', barangay: 'Pianing', phone: '09193456789', verification_status: 'Pending_Review', last_login: '2026-08-18 10:00 AM' }
+    { id: 1, name: 'Super Admin', email: 'superadmin@barangay.gov', role: 'superadmin', status: 'Active', barangay: 'Pianing', phone: '09171112233', last_login: 'Never' },
+    { id: 2, name: 'Barangay Admin Juan Dela Cruz', email: 'admin@barangay.gov', role: 'admin', status: 'Active', barangay: 'Pianing', phone: '09171234567', last_login: 'Never' }
   ],
-  residents: [
-    { id: 1, first_name: 'Juan', middle_name: 'Perez', last_name: 'Dela Cruz', date_of_birth: '1988-04-12', gender: 'Male', civil_status: 'Married', address: '123 Sampaguita St, Zone 1', household_id: 'HH-001', phone: '09171234567', email: 'juan.delacruz@gmail.com' },
-    { id: 2, first_name: 'Maria', middle_name: 'Clara', last_name: 'Santos', date_of_birth: '1992-08-25', gender: 'Female', civil_status: 'Single', address: '456 Narra Ave, Zone 2', household_id: 'HH-002', phone: '09182345678', email: 'maria.santos@gmail.com' },
-    { id: 3, first_name: 'Pedro', middle_name: 'Alcantara', last_name: 'Garcia', date_of_birth: '1985-11-03', gender: 'Male', civil_status: 'Married', address: '789 Mabini St, Zone 1', household_id: 'HH-003', phone: '09193456789', email: 'pedro.garcia@gmail.com' },
-    { id: 4, first_name: 'Ana', middle_name: 'Bautista', last_name: 'Reyes', date_of_birth: '1995-02-14', gender: 'Female', civil_status: 'Single', address: '101 Rizal St, Zone 3', household_id: 'HH-004', phone: '09204567890', email: 'ana.reyes@gmail.com' },
-    { id: 5, first_name: 'Teresa', middle_name: 'Luna', last_name: 'Ramos', date_of_birth: '1994-06-18', gender: 'Female', civil_status: 'Married', address: '202 Acacia St, Zone 2', household_id: 'HH-005', phone: '09215678901', email: 'teresa.ramos@gmail.com' }
-  ],
-  documents: [
-    { id: 1, request_code: 'DOC-001', resident_id: 1, resident_name: 'Juan Dela Cruz', document_type: 'Barangay Clearance', purpose: 'Employment Requirements', status: 'Pending', requested_at: '2026-05-06 09:30 AM', processed_at: null, processed_by: '' },
-    { id: 2, request_code: 'DOC-002', resident_id: 2, resident_name: 'Maria Santos', document_type: 'Certificate of Residency', purpose: 'Bank Account Opening', status: 'Processing', requested_at: '2026-05-06 10:15 AM', processed_at: null, processed_by: '' },
-    { id: 3, request_code: 'DOC-003', resident_id: 3, resident_name: 'Pedro Garcia', document_type: 'Business Permit', purpose: 'Sari-Sari Store Operation', status: 'Pending', requested_at: '2026-05-05 04:20 PM', processed_at: null, processed_by: '' },
-    { id: 4, request_code: 'DOC-004', resident_id: 4, resident_name: 'Ana Reyes', document_type: 'Barangay ID', purpose: 'Personal Identification', status: 'Completed', requested_at: '2026-05-05 02:30 PM', processed_at: '2026-05-05 04:30 PM', processed_by: 'Admin Juan' }
-  ],
-  maternal: [
-    { id: 1, resident_id: 5, mother_name: 'Teresa Ramos', age: 29, pregnancy_status: 'Prenatal - 2nd Trimester', expected_due_date: '2026-09-15', last_visit: '2026-05-01', next_visit: '2026-05-15', risk_level: 'Low', notes: 'Normal blood pressure. Prescribed prenatal vitamins.' },
-    { id: 2, resident_id: 2, mother_name: 'Rosa Mendez', age: 31, pregnancy_status: 'Prenatal - 3rd Trimester', expected_due_date: '2026-06-10', last_visit: '2026-04-28', next_visit: '2026-05-12', risk_level: 'Moderate', notes: 'Monitor blood sugar levels twice a week.' },
-    { id: 3, resident_id: 4, mother_name: 'Lucia Torres', age: 26, pregnancy_status: 'Postnatal - 2 weeks', expected_due_date: null, last_visit: '2026-05-03', next_visit: '2026-05-17', risk_level: 'Low', notes: 'Healthy newborn recovery. Exclusive breastfeeding.' }
-  ],
-  immunizations: [
-    { id: 1, child_name: 'Baby Maria Santos', parent_phone: '09182345678', vaccine_name: 'BCG', dose_number: 1, status: 'Completed', date_administered: '2026-05-05', due_date: '2026-05-05', days_overdue: 0, administered_by: 'BHW Maria' },
-    { id: 2, child_name: 'Baby Juan Dela Cruz', parent_phone: '09171234567', vaccine_name: 'Hepatitis B', dose_number: 1, status: 'Completed', date_administered: '2026-05-04', due_date: '2026-05-04', days_overdue: 0, administered_by: 'BHW Maria' },
-    { id: 3, child_name: 'Baby Ana Reyes', parent_phone: '09204567890', vaccine_name: 'DPT', dose_number: 2, status: 'Completed', date_administered: '2026-05-03', due_date: '2026-05-03', days_overdue: 0, administered_by: 'BHW Maria' },
-    { id: 4, child_name: 'Baby Sofia Martinez', parent_phone: '09226789012', vaccine_name: 'MMR', dose_number: 1, status: 'Overdue', date_administered: null, due_date: '2026-04-20', days_overdue: 16, administered_by: '' },
-    { id: 5, child_name: 'Baby Carlos Lopez', parent_phone: '09237890123', vaccine_name: 'DPT Booster', dose_number: 3, status: 'Overdue', date_administered: null, due_date: '2026-04-25', days_overdue: 11, administered_by: '' },
-    { id: 6, child_name: 'Baby Elena Cruz', parent_phone: '09248901234', vaccine_name: 'Hepatitis B', dose_number: 2, status: 'Overdue', date_administered: null, due_date: '2026-04-28', days_overdue: 8, administered_by: '' }
-  ],
-  notifications: [
-    { id: 1, recipient_name: 'Sofia Martinez', recipient_phone: '09226789012', type: 'Immunization Reminder', message: 'Reminder: Baby Sofia is scheduled for MMR vaccine at Barangay Health Center.', status: 'Sent', sent_at: '2026-05-06 08:15 AM' },
-    { id: 2, recipient_name: 'Juan Dela Cruz', recipient_phone: '09171234567', type: 'Document Ready', message: 'Your Barangay Clearance request DOC-001 is now being processed.', status: 'Sent', sent_at: '2026-05-06 09:35 AM' }
-  ],
-  logs: [
-    { id: 1, user_name: 'Super Admin Rodrigo Lim', user_role: 'superadmin', action: 'Configured Document Service Categories', action_type: 'Category', barangay: 'All (City-Wide)', details: 'Updated active status for Barangay Clearance and Good Moral Clearance', timestamp: '2026-08-20 08:15 AM' },
-    { id: 2, user_name: 'Barangay Captain Juan Dela Cruz', user_role: 'admin', action: 'Approved Resident Registration', action_type: 'Resident', barangay: 'Pianing', details: 'Verified resident account for Juan Dela Cruz with valid Postal ID', timestamp: '2026-08-19 02:45 PM' },
-    { id: 3, user_name: 'Barangay Clerk Ana Reyes', user_role: 'staff', action: 'Completed Barangay ID DOC-004', action_type: 'Document', barangay: 'Pianing', details: 'Issued official community ID card for Ana Reyes', timestamp: '2026-08-19 04:30 PM' },
-    { id: 4, user_name: 'Nurse Maria Santos', user_role: 'bhw', action: 'Administered BCG Vaccine', action_type: 'Health', barangay: 'Pianing', details: 'Administered BCG Dose 1 to Baby Maria Santos at Health Center', timestamp: '2026-08-18 10:00 AM' },
-    { id: 5, user_name: 'Super Admin Rodrigo Lim', user_role: 'superadmin', action: 'Created Barangay Administrator Account', action_type: 'User', barangay: 'Pianing', details: 'Generated administrative credentials for Captain Juan Dela Cruz', timestamp: '2026-08-17 09:30 AM' },
-    { id: 6, user_name: 'Barangay Captain Juan Dela Cruz', user_role: 'admin', action: 'Processed Certificate of Residency DOC-002', action_type: 'Document', barangay: 'Pianing', details: 'Validated residency records for Maria Santos (Purok 2)', timestamp: '2026-08-17 11:20 AM' },
-    { id: 7, user_name: 'Barangay Clerk Ana Reyes', user_role: 'staff', action: 'Broadcasted Health Alert SMS', action_type: 'System', barangay: 'Pianing', details: 'Sent SMS notification regarding upcoming immunization schedule to 45 registered parents', timestamp: '2026-08-16 08:00 AM' },
-    { id: 8, user_name: 'Admin Roberto Garcia', user_role: 'admin', action: 'Approved Business Clearance DOC-003', action_type: 'Document', barangay: 'Anticala', details: 'Approved commercial permit for Pedro Garcia Sari-Sari Store', timestamp: '2026-08-15 03:15 PM' },
-    { id: 9, user_name: 'Super Admin Rodrigo Lim', user_role: 'superadmin', action: 'System Security Audit Completed', action_type: 'Security', barangay: 'All (City-Wide)', details: 'Zero security anomalies detected across Pianing & Anticala nodes', timestamp: '2026-08-15 05:00 PM' }
-  ],
-  messages: [
-    { id: 1, sender_name: 'BHW Maria Santos', sender_role: 'bhw', recipient_role: 'admin', message: 'Good morning Captain/Admin Juan! We scheduled an immunization drive for Zone 2 this Friday. Please prepare clearance announcements.', timestamp: '2026-05-06 08:30 AM' },
-    { id: 2, sender_name: 'Admin Juan Dela Cruz', sender_role: 'admin', recipient_role: 'bhw', message: 'Noted BHW Maria! We will post the announcement on the resident portal and issue SMS alerts today.', timestamp: '2026-05-06 09:15 AM' }
-  ],
-  pendingRegistrations: [
-    { id: 101, name: 'Josefina Villanueva', email: 'josefina@gmail.com', phone: '09311234567', address: 'Purok 1, Barangay Pianing, Butuan City', submitted_id: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400', submitted_at: '2026-05-06 10:45 AM', verification_status: 'Pending_Review' }
-  ],
-  appointments: [
-    { id: 1, appointment_code: 'APT-2026-001', resident_id: 1, resident_name: 'Juan Dela Cruz', resident_phone: '09171234567', resident_email: 'resident@gmail.com', barangay: 'Pianing', service_type: 'Pre-Marriage Counseling (PMC)', preferred_date: '2026-09-02', preferred_time: 'Morning (8:00 AM - 11:30 AM)', scheduled_date: '2026-09-02', scheduled_time: '09:00 AM', status: 'Approved', bhw_notes: 'Confirmed slot for couple counseling seminar. Please bring Certificate of No Marriage (CENOMAR) and valid IDs.', resident_notes: 'Applying for marriage license at Butuan City Hall.', attending_bhw: 'Nurse Maria Santos', created_at: '2026-08-25 09:00 AM' },
-    { id: 2, appointment_code: 'APT-2026-002', resident_id: 2, resident_name: 'Maria Santos', resident_phone: '09182345678', resident_email: 'maria.santos@gmail.com', barangay: 'Pianing', service_type: 'Prenatal Check-up', preferred_date: '2026-09-03', preferred_time: 'Morning (8:00 AM - 11:30 AM)', scheduled_date: '2026-09-03', scheduled_time: '10:00 AM', status: 'Approved', bhw_notes: '3rd Trimester prenatal check-up scheduled.', resident_notes: 'Routine monthly checkup.', attending_bhw: 'Nurse Maria Santos', created_at: '2026-08-26 10:30 AM' },
-    { id: 3, appointment_code: 'APT-2026-003', resident_id: 5, resident_name: 'Teresa Ramos', resident_phone: '09215678901', resident_email: 'teresa.ramos@gmail.com', barangay: 'Pianing', service_type: 'Child Immunization', preferred_date: '2026-09-04', preferred_time: 'Afternoon (1:00 PM - 4:00 PM)', scheduled_date: null, scheduled_time: null, status: 'Pending', bhw_notes: '', resident_notes: 'Hepatitis B 2nd dose for infant.', attending_bhw: '', created_at: '2026-08-27 02:15 PM' }
-  ],
-  clinicSchedules: [
-    { id: 1, title: 'Pre-Marriage Counseling (PMC) Seminar', service_type: 'Pre-Marriage Counseling (PMC)', day_of_week: 'Every Wednesday', time_slot: '8:30 AM - 11:30 AM', location: 'Barangay Pianing Health Center - Conference Room', slots_available: 15, bhw_in_charge: 'Nurse Maria Santos & PopCom Officer', status: 'Active', barangay: 'Pianing', created_by: 'Nurse Maria Santos', created_at: '2026-08-20' },
-    { id: 2, title: 'Expanded Child Immunization Day', service_type: 'Child Immunization', day_of_week: 'Every Thursday', time_slot: '8:00 AM - 3:00 PM', location: 'Barangay Health Center - Immunization Ward', slots_available: 40, bhw_in_charge: 'Nurse Maria Santos', status: 'Active', barangay: 'Pianing', created_by: 'Nurse Maria Santos', created_at: '2026-08-20' },
-    { id: 3, title: 'Maternal & Prenatal Care Clinic', service_type: 'Prenatal Check-up', day_of_week: 'Every Tuesday & Friday', time_slot: '9:00 AM - 4:00 PM', location: 'Barangay Health Center - Maternal Room', slots_available: 25, bhw_in_charge: 'Midwife Elena Gomez', status: 'Active', barangay: 'Pianing', created_by: 'Nurse Maria Santos', created_at: '2026-08-20' },
-    { id: 4, title: 'Family Planning & Responsible Parenthood', service_type: 'Family Planning', day_of_week: 'Monday to Friday', time_slot: '1:00 PM - 4:30 PM', location: 'Barangay Health Center - Counseling Office', slots_available: 20, bhw_in_charge: 'Nurse Maria Santos', status: 'Active', barangay: 'Pianing', created_by: 'Nurse Maria Santos', created_at: '2026-08-20' },
-    { id: 5, title: 'General Medical & Senior Citizen Check-up', service_type: 'General Consultation', day_of_week: 'Every Monday', time_slot: '8:00 AM - 12:00 PM', location: 'Barangay Health Center - Consultation Room', slots_available: 30, bhw_in_charge: 'Municipal Health Officer & BHWs', status: 'Active', barangay: 'Pianing', created_by: 'Barangay Captain Juan Dela Cruz', created_at: '2026-08-20' }
-  ],
+  residents: [],
+  documents: [],
+  maternal: [],
+  immunizations: [],
+  notifications: [],
+  logs: [],
+  messages: [],
+  pendingRegistrations: [],
+  appointments: [],
+  clinicSchedules: [],
   faq: [
-    { topic: 'Clearance', keywords: ['clearance', 'requirement', 'document', 'how to request'], response: 'To request a Barangay Clearance, you need a valid Government ID, Cedula, and proof of residency in Zone 1-4. Note: Unverified resident accounts must be verified by Barangay Admin first.' },
-    { topic: 'Hours', keywords: ['hours', 'open', 'schedule', 'time', 'health center', 'clinic'], response: 'The Barangay Health Center is open Monday to Friday, from 8:00 AM to 5:00 PM. Infant immunizations take place every Wednesday & Friday morning.' },
-    { topic: 'Vaccine', keywords: ['vaccine', 'immunization', 'baby', 'infant', 'bcg', 'polio', 'mmr'], response: 'Free infant vaccines (BCG, Hepatitis B, DPT, Polio, MMR) are available. Please bring your Mother-Baby Handbook when visiting BHW clinic.' },
-    { topic: 'Business Permit', keywords: ['business', 'permit', 'store', 'sari-sari'], response: 'Barangay Business Permit requirements: DTI Registration, Lease/Property title, and Owner Valid ID. Processing takes 1-2 business days.' }
+    { topic: 'Clearance', keywords: ['clearance', 'requirement', 'document', 'how to request'], response: 'To request a Barangay Clearance, you need a valid Government ID and proof of residency. Unverified resident accounts must be approved by the Barangay Administrator first.' },
+    { topic: 'Hours', keywords: ['hours', 'open', 'schedule', 'time', 'health center', 'clinic'], response: 'The Barangay Health Center is open Monday to Friday, from 8:00 AM to 5:00 PM.' },
+    { topic: 'Vaccine', keywords: ['vaccine', 'immunization', 'baby', 'infant', 'bcg', 'polio', 'mmr'], response: 'Free infant immunization is available at the Barangay Health Center. Please bring your Mother-Baby Handbook.' },
+    { topic: 'Business Permit', keywords: ['business', 'permit', 'store', 'sari-sari'], response: 'Barangay Business Clearance requirements: DTI Registration, Lease/Property agreement, and Owner Valid ID.' }
   ]
 };
 

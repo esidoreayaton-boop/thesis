@@ -455,9 +455,9 @@ export default function LoginPage() {
                       </Label>
                       <Input
                         value={regPhone}
-                        onChange={e => setRegPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                        onChange={e => setRegPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
                         placeholder="09171234567"
-                        maxLength={12}
+                        maxLength={11}
                         inputMode="numeric"
                         required
                         className="h-9 text-xs font-mono"

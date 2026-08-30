@@ -200,12 +200,16 @@ export default function AdminDashboard() {
   const [newResPassword, setNewResPassword] = useState('123');
   const [newResEmail, setNewResEmail] = useState('');
 
-  const [newUserName, setNewUserName] = useState('');
+  // New User Form State (First, Middle, Last Name)
+  const [newUserFirstName, setNewUserFirstName] = useState('');
+  const [newUserMiddleName, setNewUserMiddleName] = useState('');
+  const [newUserLastName, setNewUserLastName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('123');
   const [newUserRole, setNewUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident'>('staff');
   const [newUserBarangay, setNewUserBarangay] = useState('Pianing');
   const [newUserPhone, setNewUserPhone] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // User Directory tab & filter states
   const [userCategoryTab, setUserCategoryTab] = useState<'all' | 'officials' | 'residents' | 'archived'>('all');
@@ -934,12 +938,35 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    toast.loading('Refreshing barangay data...', { id: 'manual-refresh' });
+    try {
+      await loadData();
+      toast.success('Barangay records are up to date!', { id: 'manual-refresh' });
+    } catch {
+      toast.error('Could not refresh data. Please check connection.', { id: 'manual-refresh' });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserName.trim() || !newUserEmail.trim()) {
-      toast.error('Full Name and Email are required');
+    if (!newUserFirstName.trim() || !newUserLastName.trim() || !newUserEmail.trim()) {
+      toast.error('First Name, Last Name, and Email are required');
       return;
     }
+
+    if (newUserPhone.trim() && newUserPhone.trim().length !== 11) {
+      toast.error('Mobile Phone must be exactly 11 digits (e.g. 09171234567)');
+      return;
+    }
+
+    const cleanFirst = newUserFirstName.trim();
+    const cleanMiddle = newUserMiddleName.trim();
+    const cleanLast = newUserLastName.trim();
+    const fullName = `${cleanFirst} ${cleanMiddle ? cleanMiddle + ' ' : ''}${cleanLast}`.trim();
     const assignedBarangay = user?.role === 'superadmin' ? (newUserBarangay || 'Pianing') : (user?.barangay || 'Pianing');
 
     // 1 Admin per Barangay rule check
@@ -957,7 +984,7 @@ export default function AdminDashboard() {
 
     try {
       const created = await apiService.createUser({
-        name: newUserName.trim(),
+        name: fullName,
         email: newUserEmail.trim(),
         password: newUserPassword || '123',
         role: newUserRole,
@@ -966,9 +993,11 @@ export default function AdminDashboard() {
         phone: newUserPhone.trim() || undefined
       });
       setUsers([created, ...users]);
-      toast.success(`${newUserRole.toUpperCase()} account created for Barangay ${assignedBarangay}`);
+      toast.success(`${newUserRole === 'admin' ? 'Administrator' : newUserRole.toUpperCase()} account created for Barangay ${assignedBarangay}`);
       setIsAddUserOpen(false);
-      setNewUserName('');
+      setNewUserFirstName('');
+      setNewUserMiddleName('');
+      setNewUserLastName('');
       setNewUserEmail('');
       setNewUserPassword('123');
       setNewUserPhone('');
@@ -1483,10 +1512,22 @@ export default function AdminDashboard() {
                   </h2>
                   <p className="text-xs text-slate-500">Real-time overview of document clearance requests, resident profiles, and administrative services.</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleManualRefresh}
+                    disabled={isRefreshing || loading}
+                    className="gap-1.5 text-xs cursor-pointer hover:bg-slate-50 border-slate-200 shadow-xs"
+                    title="Refresh all barangay records"
+                  >
+                    <RefreshCcw size={13} className={isRefreshing || loading ? "animate-spin text-indigo-600" : ""} />
+                    <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                  </Button>
+
                   <Dialog open={isAddDocOpen} onOpenChange={setIsAddDocOpen}>
                     <DialogTrigger asChild>
-                      <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm">
+                      <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm cursor-pointer">
                         <PlusCircle size={15} />
                         New Document Request
                       </Button>
@@ -1692,8 +1733,15 @@ export default function AdminDashboard() {
                     Review submitted Government IDs from residents of Barangay {user?.barangay || 'Pianing'} who created an account. Approve to unlock online certificate & clearance requests.
                   </p>
                 </div>
-                <Button variant="outline" size="sm" onClick={loadData} className="gap-1.5 text-xs">
-                  <RefreshCcw size={13} className={loading ? "animate-spin" : ""} /> Refresh List
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing || loading}
+                  className="gap-1.5 text-xs cursor-pointer hover:bg-slate-50 border-slate-200 shadow-xs"
+                >
+                  <RefreshCcw size={13} className={isRefreshing || loading ? "animate-spin text-indigo-600" : ""} />
+                  <span>{isRefreshing ? 'Refreshing...' : 'Refresh List'}</span>
                 </Button>
               </div>
 
@@ -2609,13 +2657,13 @@ export default function AdminDashboard() {
                           <Input value={newResPurok} onChange={e => setNewResPurok(e.target.value)} placeholder="e.g. Purok 1" className="text-xs" />
                         </div>
                         <div>
-                          <Label className="text-xs font-semibold">Mobile Number (Max 12 digits)</Label>
+                          <Label className="text-xs font-semibold">Mobile Phone Number</Label>
                           <Input
                             value={newResPhone}
-                            onChange={e => setNewResPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                            onChange={e => setNewResPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
                             placeholder="09171234567"
                             className="text-xs font-mono"
-                            maxLength={12}
+                            maxLength={11}
                             inputMode="numeric"
                           />
                         </div>
@@ -2858,19 +2906,23 @@ export default function AdminDashboard() {
                     />
                   </div>
 
-                  {/* Barangay Filter (Super Admin) */}
+                  {/* Searchable Barangay Filter (Super Admin) */}
                   {isSuperAdmin && (
-                    <Select value={userBarangayFilter} onValueChange={setUserBarangayFilter}>
-                      <SelectTrigger className="h-8 text-xs w-44 bg-slate-50">
-                        <SelectValue placeholder="All Barangays" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        <SelectItem value="all">All Barangays (86 City-Wide)</SelectItem>
+                    <div className="relative">
+                      <Input
+                        list="user-accounts-barangay-list"
+                        placeholder="Search Barangay..."
+                        value={userBarangayFilter === 'all' ? '' : userBarangayFilter}
+                        onChange={e => setUserBarangayFilter(e.target.value.trim() || 'all')}
+                        className="h-8 text-xs w-48 bg-slate-50 border-slate-200"
+                      />
+                      <datalist id="user-accounts-barangay-list">
+                        <option value="all">All Barangays</option>
                         {BUTUAN_BARANGAYS.map(b => (
-                          <SelectItem key={b} value={b}>Barangay {b}</SelectItem>
+                          <option key={b} value={b}>Barangay {b}</option>
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </datalist>
+                    </div>
                   )}
 
                   {/* Add User Dialog */}
@@ -2882,28 +2934,48 @@ export default function AdminDashboard() {
                           {isSuperAdmin ? 'Add User Account' : `Add Staff (${user?.barangay || 'Pianing'})`}
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="bg-white max-w-md">
+                      <DialogContent className="bg-white max-w-lg">
                         <DialogHeader>
                           <DialogTitle className="flex items-center gap-2 text-slate-900">
                             <UserPlus className="text-indigo-600" size={18} />
                             {isSuperAdmin ? 'Add System User Account' : `Add Staff for Barangay ${user?.barangay || 'Pianing'}`}
                           </DialogTitle>
-                          <DialogDescription className="text-xs">
-                            {isSuperAdmin
-                              ? 'Register a new account for any role — Barangay Admin (strictly 1 Admin per Barangay), Staff, BHW, or Resident.'
-                              : `Grant portal access to a staff member or health worker in Barangay ${user?.barangay || 'Pianing'}.`}
+                          <DialogDescription className="text-xs text-slate-500">
+                            Register a new account for an Administrator, Staff member, Health Worker, or Resident.
                           </DialogDescription>
                         </DialogHeader>
                         <form onSubmit={handleCreateUser} className="space-y-3 py-2">
-                          <div>
-                            <Label className="text-xs font-semibold">Full Name <span className="text-red-500">*</span></Label>
-                            <Input
-                              value={newUserName}
-                              onChange={e => setNewUserName(e.target.value)}
-                              placeholder="e.g. Maria Santos"
-                              required
-                              className="h-9 text-xs"
-                            />
+                          {/* First, Middle, and Last Name */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div>
+                              <Label className="text-xs font-semibold">First Name <span className="text-red-500">*</span></Label>
+                              <Input
+                                value={newUserFirstName}
+                                onChange={e => setNewUserFirstName(e.target.value)}
+                                placeholder="e.g. Maria"
+                                required
+                                className="h-9 text-xs mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold">Middle Name</Label>
+                              <Input
+                                value={newUserMiddleName}
+                                onChange={e => setNewUserMiddleName(e.target.value)}
+                                placeholder="e.g. Clara"
+                                className="h-9 text-xs mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold">Last Name <span className="text-red-500">*</span></Label>
+                              <Input
+                                value={newUserLastName}
+                                onChange={e => setNewUserLastName(e.target.value)}
+                                placeholder="e.g. Santos"
+                                required
+                                className="h-9 text-xs mt-1"
+                              />
+                            </div>
                           </div>
 
                           <div>
@@ -2914,19 +2986,32 @@ export default function AdminDashboard() {
                               onChange={e => setNewUserEmail(e.target.value)}
                               placeholder="e.g. maria.santos@barangay.gov.ph"
                               required
-                              className="h-9 text-xs"
+                              className="h-9 text-xs mt-1"
                             />
                           </div>
 
-                          <div>
-                            <Label className="text-xs font-semibold">Default Password</Label>
-                            <Input
-                              type="text"
-                              value={newUserPassword}
-                              onChange={e => setNewUserPassword(e.target.value)}
-                              placeholder="Default: 123"
-                              className="h-9 text-xs font-mono"
-                            />
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-xs font-semibold">Default Password</Label>
+                              <Input
+                                type="text"
+                                value={newUserPassword}
+                                onChange={e => setNewUserPassword(e.target.value)}
+                                placeholder="Default: 123"
+                                className="h-9 text-xs font-mono mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold">Mobile Phone Number</Label>
+                              <Input
+                                value={newUserPhone}
+                                onChange={e => setNewUserPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                                placeholder="09XXXXXXXXX"
+                                maxLength={11}
+                                inputMode="numeric"
+                                className="h-9 text-xs font-mono mt-1"
+                              />
+                            </div>
                           </div>
 
                           <div className="grid grid-cols-2 gap-2">
@@ -2936,17 +3021,17 @@ export default function AdminDashboard() {
                                 value={newUserRole}
                                 onValueChange={(val: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident') => setNewUserRole(val)}
                               >
-                                <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {isSuperAdmin && (
                                     <>
-                                      <SelectItem value="superadmin">Super Admin (City-Wide)</SelectItem>
-                                      <SelectItem value="admin">Barangay Admin (Max 1 per Brgy)</SelectItem>
+                                      <SelectItem value="superadmin">Super Administrator</SelectItem>
+                                      <SelectItem value="admin">Barangay Administrator</SelectItem>
                                       <SelectItem value="resident">Resident</SelectItem>
                                     </>
                                   )}
                                   <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
-                                  <SelectItem value="bhw">BHW (Health Worker / Nurse)</SelectItem>
+                                  <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -2954,7 +3039,7 @@ export default function AdminDashboard() {
                               <Label className="text-xs font-semibold">Assigned Barangay <span className="text-red-500">*</span></Label>
                               {user?.role === 'superadmin' ? (
                                 <Select value={newUserBarangay} onValueChange={setNewUserBarangay}>
-                                  <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select Barangay" /></SelectTrigger>
+                                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue placeholder="Select Barangay" /></SelectTrigger>
                                   <SelectContent className="max-h-60">
                                     {BUTUAN_BARANGAYS.map(b => (
                                       <SelectItem key={b} value={b}>Barangay {b}</SelectItem>
@@ -2965,27 +3050,15 @@ export default function AdminDashboard() {
                                 <Input
                                   value={`Barangay ${user?.barangay || 'Pianing'}`}
                                   disabled
-                                  className="h-9 text-xs bg-slate-100 font-semibold text-slate-700"
+                                  className="h-9 text-xs bg-slate-100 font-semibold text-slate-700 mt-1"
                                 />
                               )}
                             </div>
                           </div>
 
-                          <div>
-                            <Label className="text-xs font-semibold">Mobile Phone Number (Digits only, max 12)</Label>
-                            <Input
-                              value={newUserPhone}
-                              onChange={e => setNewUserPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                              placeholder="09171234567"
-                              maxLength={12}
-                              inputMode="numeric"
-                              className="h-9 text-xs font-mono"
-                            />
-                          </div>
-
                           <DialogFooter className="pt-2">
                             <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs w-full cursor-pointer">
-                              Create {newUserRole.toUpperCase()} Account
+                              Create Account
                             </Button>
                           </DialogFooter>
                         </form>
@@ -3317,12 +3390,12 @@ export default function AdminDashboard() {
                         )}
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold">Mobile Phone (Max 12 digits)</Label>
+                        <Label className="text-xs font-semibold">Mobile Phone Number</Label>
                         <Input
                           value={editUserPhone}
-                          onChange={e => setEditUserPhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                          onChange={e => setEditUserPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
                           placeholder="09171234567"
-                          maxLength={12}
+                          maxLength={11}
                           inputMode="numeric"
                           className="h-9 text-xs font-mono"
                         />
@@ -3972,19 +4045,23 @@ export default function AdminDashboard() {
                         </SelectContent>
                       </Select>
 
-                      {/* Barangay Filter (Super Admin) */}
+                      {/* Searchable Barangay Filter (Super Admin) */}
                       {isSuperAdmin && (
-                        <Select value={logBarangayFilter} onValueChange={setLogBarangayFilter}>
-                          <SelectTrigger className="h-9 text-xs w-36">
-                            <SelectValue placeholder="Barangay" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="All">All Barangays</SelectItem>
-                            <SelectItem value="Pianing">Brgy. Pianing</SelectItem>
-                            <SelectItem value="Anticala">Brgy. Anticala</SelectItem>
-                            <SelectItem value="All (City-Wide)">City-Wide</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <div className="relative">
+                          <Input
+                            list="activity-logs-barangay-list"
+                            placeholder="Filter by Barangay..."
+                            value={logBarangayFilter === 'All' ? '' : logBarangayFilter}
+                            onChange={e => setLogBarangayFilter(e.target.value.trim() || 'All')}
+                            className="h-9 text-xs w-44 bg-white dark:bg-slate-800 border-slate-200"
+                          />
+                          <datalist id="activity-logs-barangay-list">
+                            <option value="All">All Barangays</option>
+                            {BUTUAN_BARANGAYS.map(b => (
+                              <option key={b} value={b}>Barangay {b}</option>
+                            ))}
+                          </datalist>
+                        </div>
                       )}
 
                       {(logSearch || logActionTypeFilter !== 'All' || logRoleFilter !== 'All' || logBarangayFilter !== 'All') && (
@@ -4523,19 +4600,20 @@ export default function AdminDashboard() {
                 </Label>
                 <Input
                   value={profilePhone}
-                  onChange={e => setProfilePhone(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                  onChange={e => setProfilePhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
                   placeholder="09XXXXXXXXX"
-                  maxLength={12}
+                  maxLength={11}
                   inputMode="numeric"
                   className="h-9 text-sm font-mono mt-1"
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                  <MapPin size={12} /> Assigned Barangay
-                </Label>
+                <Label className="text-xs font-semibold text-slate-700">Assigned Barangay</Label>
                 <Input
-                  value={user?.barangay || (user?.role === 'superadmin' ? 'All (City-Wide)' : 'Pianing')}
+                  value={user?.barangay || (user?.role === 'superadmin' ? 'Butuan City' : 'Pianing')}
                   disabled
                   className="h-9 text-sm bg-slate-100 text-slate-600 mt-1"
                 />
