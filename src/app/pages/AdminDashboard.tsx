@@ -63,6 +63,15 @@ import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
 import { BUTUAN_BARANGAYS } from '../../utils/barangays';
 import { PIANING_LOGO_BASE64, BUTUAN_LOGO_BASE64 } from '../components/officialLogos';
+import {
+  sendResidentApprovalEmail,
+  sendResidentCorrectionEmail,
+  sendDocumentReadyEmail,
+  sendEmailNotification,
+  getEmailJsConfig,
+  saveEmailJsConfig,
+  EmailJsConfig
+} from '../../services/emailJsService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -251,7 +260,10 @@ export default function AdminDashboard() {
   const [smsMarkAsRejected, setSmsMarkAsRejected] = useState(true);
   const [smsSending, setSmsSending] = useState(false);
 
-  // Email & Scheduling System State
+  // Email & EmailJS Integration State
+  const [emailJsSettings, setEmailJsSettings] = useState<EmailJsConfig>(() => getEmailJsConfig());
+  const [emailJsTestTarget, setEmailJsTestTarget] = useState('');
+  const [emailJsTestSending, setEmailJsTestSending] = useState(false);
   const [emailStatus, setEmailStatus] = useState<{ configured: boolean; mode: string; message: string; user: string | null } | null>(null);
   const [emailTestTarget, setEmailTestTarget] = useState('');
   const [emailTestLoading, setEmailTestLoading] = useState(false);
@@ -260,6 +272,41 @@ export default function AdminDashboard() {
   const [announcementEmailTitle, setAnnouncementEmailTitle] = useState('');
   const [announcementEmailBody, setAnnouncementEmailBody] = useState('');
   const [announcementEmailLoading, setAnnouncementEmailLoading] = useState(false);
+
+  const handleSaveEmailJsSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveEmailJsConfig(emailJsSettings);
+    toast.success('EmailJS settings saved successfully!');
+  };
+
+  const handleSendEmailJsTest = async () => {
+    if (!emailJsTestTarget.includes('@')) {
+      toast.error('Please enter a valid recipient email address.');
+      return;
+    }
+    setEmailJsTestSending(true);
+    try {
+      const res = await sendEmailNotification({
+        to_name: 'Resident Constituent',
+        to_email: emailJsTestTarget.trim(),
+        subject: '🧪 [Test] Barangay Pianing Smart System EmailJS Test',
+        message: 'Mabuhay! This is an automated test message from the Barangay Pianing Smart Governance System powered by EmailJS (Service ID: service_6nk2ylj). If you received this email, automated resident notifications for approvals, clearance pick-up, and correction notices are active and working!',
+        barangay: user?.barangay || 'Pianing',
+        status: 'Operational'
+      });
+      if (res.success) {
+        toast.success(`✅ Live test email sent to ${emailJsTestTarget}!`, {
+          description: res.message
+        });
+      } else {
+        toast.error(`Email delivery failed: ${res.message}`);
+      }
+    } catch (err: any) {
+      toast.error(`Failed to send test email: ${err?.message || 'Error'}`);
+    } finally {
+      setEmailJsTestSending(false);
+    }
+  };
 
   const loadEmailStatus = async () => {
     try {
@@ -786,6 +833,19 @@ export default function AdminDashboard() {
           description: `📲 SMS sent to ${resName}: "Your document is now being processed by ${user?.name || 'Barangay Staff'}."`
         });
       }
+
+      // Automated EmailJS Notification on Document Status Change
+      if (targetDoc && (targetDoc as any).resident_email) {
+        sendDocumentReadyEmail({
+          resident_name: resName,
+          resident_email: (targetDoc as any).resident_email,
+          document_type: targetDoc.document_type,
+          request_code: targetDoc.request_code,
+          status: nextStatus,
+          barangay: targetDoc.barangay || user?.barangay || 'Pianing'
+        }).catch(() => {});
+      }
+
       loadData();
     } catch (err) {
       toast.error('Failed to update document status');
@@ -804,8 +864,23 @@ export default function AdminDashboard() {
 
   const handleApproveResident = async (id: number) => {
     try {
+      const applicant = pendingResidents.find(r => r.id === id);
       await apiService.approveResident(id, user?.name || 'Admin Juan');
       toast.success('Resident application approved! Account is now Verified.');
+
+      // Automated EmailJS Notification to Resident on Verification
+      if (applicant && applicant.email && applicant.email.includes('@')) {
+        sendResidentApprovalEmail({
+          name: applicant.name || `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || 'Resident',
+          email: applicant.email,
+          barangay: applicant.barangay || user?.barangay || 'Pianing'
+        }).then(res => {
+          if (res.success) {
+            toast.info(`📧 Verification email dispatched to ${applicant.email}`);
+          }
+        }).catch(() => {});
+      }
+
       loadData();
     } catch (err) {
       toast.error('Failed to approve resident');
@@ -893,10 +968,26 @@ export default function AdminDashboard() {
 
   const handleRejectWithDirectReason = async (id: number, reason: string) => {
     try {
+      const applicant = pendingResidents.find(r => r.id === id);
       await apiService.rejectResident(id, reason);
       toast.warning('Correction / Resubmission notice dispatched to resident.', {
         description: `Reason: ${reason}`
       });
+
+      // Automated EmailJS Correction Notice Email
+      if (applicant && applicant.email && applicant.email.includes('@')) {
+        sendResidentCorrectionEmail({
+          name: applicant.name || `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || 'Resident',
+          email: applicant.email,
+          barangay: applicant.barangay || user?.barangay || 'Pianing',
+          reason
+        }).then(res => {
+          if (res.success) {
+            toast.info(`📧 Correction instructions emailed to ${applicant.email}`);
+          }
+        }).catch(() => {});
+      }
+
       loadData();
     } catch {
       toast.error('Failed to dispatch resubmission notice');
@@ -2481,6 +2572,94 @@ export default function AdminDashboard() {
                   </span>
                 </button>
               </div>
+
+              {/* EmailJS Automated Gateway Configuration Card */}
+              <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/50 via-white to-blue-50/40 shadow-xs">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                        @
+                      </div>
+                      <div>
+                        <CardTitle className="text-sm font-bold text-slate-900">
+                          EmailJS Automated Gateway Connection
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          Auto-dispatch real emails for account approvals, ID corrections, and document ready-for-pickup notifications.
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <Badge className="bg-indigo-600 text-white text-[10px] font-mono">
+                      Service: {emailJsSettings.serviceId}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4 text-xs">
+                  <form onSubmit={handleSaveEmailJsSettings} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs font-semibold text-slate-700">EmailJS Service ID</Label>
+                      <Input
+                        value={emailJsSettings.serviceId}
+                        onChange={e => setEmailJsSettings({ ...emailJsSettings, serviceId: e.target.value })}
+                        placeholder="service_6nk2ylj"
+                        className="h-8 text-xs font-mono mt-1 bg-white"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold text-slate-700">Template ID</Label>
+                      <Input
+                        value={emailJsSettings.templateId}
+                        onChange={e => setEmailJsSettings({ ...emailJsSettings, templateId: e.target.value })}
+                        placeholder="e.g. template_xxxxxxx"
+                        className="h-8 text-xs font-mono mt-1 bg-white"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold text-slate-700">Public Key (User ID)</Label>
+                      <Input
+                        value={emailJsSettings.publicKey}
+                        onChange={e => setEmailJsSettings({ ...emailJsSettings, publicKey: e.target.value })}
+                        placeholder="From EmailJS Account > API Keys"
+                        className="h-8 text-xs font-mono mt-1 bg-white"
+                        required
+                      />
+                    </div>
+                    <div className="sm:col-span-3 flex justify-end">
+                      <Button type="submit" size="sm" className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white">
+                        Save EmailJS Gateway Settings
+                      </Button>
+                    </div>
+                  </form>
+
+                  {/* Send Live Test Email Box */}
+                  <div className="pt-3 border-t border-slate-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="text-xs text-slate-600">
+                      <span className="font-semibold text-slate-800">Test Live Delivery:</span> Send a test email to verify your EmailJS connection.
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <Input
+                        type="email"
+                        placeholder="your-email@gmail.com"
+                        value={emailJsTestTarget}
+                        onChange={e => setEmailJsTestTarget(e.target.value)}
+                        className="h-8 text-xs w-full sm:w-60 bg-white"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleSendEmailJsTest}
+                        disabled={emailJsTestSending || !emailJsTestTarget}
+                        className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+                      >
+                        {emailJsTestSending ? 'Sending...' : 'Send Test'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Archived Documents Section */}
               <Card id="completed-docs-section" className="border-slate-200 bg-white shadow-xs scroll-mt-6">
