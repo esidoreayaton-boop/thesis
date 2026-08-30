@@ -1318,9 +1318,10 @@ export default function AdminDashboard() {
 
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: Home },
-    // Super Admin does NOT see pending approvals, document processing, or resident records (privacy)
+    // Barangay-specific tabs (not for Super Admin except documents)
     ...(!isSuperAdmin ? [{ id: 'approvals', label: 'Pending Approvals', icon: CheckCircle }] : []),
-    ...(!isSuperAdmin ? [{ id: 'documents', label: 'Document Processing', icon: InboxIcon }] : []),
+    // All admins (including Super Admin) can access Document Processing
+    { id: 'documents', label: isSuperAdmin ? 'Document Requests' : 'Document Processing', icon: InboxIcon },
     ...(!isSuperAdmin ? [{ id: 'records', label: 'Resident Records', icon: FolderOpen }] : []),
     // Staff members do NOT have System Management (User Accounts) or Activity History Logs permission
     ...(!isStaff ? [{ id: 'users', label: isSuperAdmin ? 'User Directory' : 'User Accounts', icon: Users }] : []),
@@ -1594,55 +1595,100 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* Stats Cards */}
+              {/* Stats Cards — 4 columns */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Card className="border-slate-200 bg-white shadow-xs">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
-                      <Clock size={24} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500">Pending Requests</p>
-                      <h3 className="text-2xl font-bold text-slate-900">{brgyPendingDocsCount}</h3>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-slate-200 bg-white shadow-xs">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                      <CheckCircle size={24} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500">Processed Today</p>
-                      <h3 className="text-2xl font-bold text-slate-900">{brgyProcessedCount}</h3>
+                {/* Card 1: Pending Document Requests */}
+                <Card className="border-l-4 border-l-amber-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Pending Requests</p>
+                        <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyPendingDocsCount}</h3>
+                        <p className="text-[11px] text-amber-600 font-medium mt-1">
+                          {brgyPendingDocsCount === 0 ? 'Queue is clear ✓' : `${brgyPendingDocsCount} awaiting action`}
+                        </p>
+                      </div>
+                      <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                        <Clock size={22} />
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card className="border-slate-200 bg-white shadow-xs">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                      <Users size={24} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500">Total Residents</p>
-                      <h3 className="text-2xl font-bold text-slate-900">{brgyTotalResidentsCount}</h3>
+                {/* Card 2: Completed Documents */}
+                <Card className="border-l-4 border-l-emerald-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Documents Issued</p>
+                        <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyProcessedCount}</h3>
+                        <p className="text-[11px] text-emerald-600 font-medium mt-1">
+                          {brgyProcessedCount > 0 ? `${brgyProcessedCount} completed` : 'None yet this period'}
+                        </p>
+                      </div>
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                        <CheckCircle size={22} />
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card className="border-slate-200 bg-white shadow-xs">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
-                      <FolderOpen size={24} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500">Active Records</p>
-                      <h3 className="text-2xl font-bold text-slate-900">{brgyActiveRecordsCount}</h3>
+                {/* Card 3: Total Registered Residents */}
+                <Card className="border-l-4 border-l-blue-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+                          {isSuperAdmin ? 'System Users' : 'Registered Residents'}
+                        </p>
+                        <h3 className="text-3xl font-black text-slate-900 mt-1">
+                          {isSuperAdmin ? users.length : brgyTotalResidentsCount}
+                        </h3>
+                        <p className="text-[11px] text-blue-600 font-medium mt-1">
+                          {isSuperAdmin ? 'All roles combined' : `Barangay ${user?.barangay || 'Pianing'}`}
+                        </p>
+                      </div>
+                      <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                        <Users size={22} />
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Card 4: Pending Approvals / Active Records */}
+                {!isSuperAdmin ? (
+                  <Card className="border-l-4 border-l-rose-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setActiveTab('approvals')}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Pending Approvals</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{myPendingResidents.length}</h3>
+                          <p className="text-[11px] text-rose-600 font-medium mt-1">
+                            {myPendingResidents.length === 0 ? 'All residents verified ✓' : 'Click to review →'}
+                          </p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                          <UserCheck size={22} />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="border-l-4 border-l-purple-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Document Records</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{documents.length}</h3>
+                          <p className="text-[11px] text-purple-600 font-medium mt-1">All barangays combined</p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
+                          <FolderOpen size={22} />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
 
               {/* Document Requests Quick View */}
@@ -1817,10 +1863,10 @@ export default function AdminDashboard() {
                                   variant="outline"
                                   onClick={() => openApplicantReview(r)}
                                   className="h-7 text-[11px] gap-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950 font-semibold cursor-pointer"
-                                  title="View full applicant details, inspect ID, and accept/resubmit"
+                                  title="View full applicant details, inspect ID, and accept or request correction"
                                 >
                                   <Eye size={12} />
-                                  Details
+                                  Review
                                 </Button>
                                 <Button
                                   size="sm"
@@ -1830,16 +1876,6 @@ export default function AdminDashboard() {
                                 >
                                   <Check size={12} />
                                   Approve
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleRejectResident(r.id)}
-                                  className="h-7 text-[11px] gap-1 text-amber-700 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950 font-semibold cursor-pointer"
-                                  title="Request ID correction / resubmission"
-                                >
-                                  <AlertCircle size={12} />
-                                  Needs Correction
                                 </Button>
                                 <Button
                                   size="sm"
@@ -2941,7 +2977,7 @@ export default function AdminDashboard() {
                             {isSuperAdmin ? 'Add System User Account' : `Add Staff for Barangay ${user?.barangay || 'Pianing'}`}
                           </DialogTitle>
                           <DialogDescription className="text-xs text-slate-500">
-                            Register a new account for an Administrator, Staff member, Health Worker, or Resident.
+                            Register a new barangay staff, health worker, or resident account. All fields marked with <span className="text-red-500">*</span> are required.
                           </DialogDescription>
                         </DialogHeader>
                         <form onSubmit={handleCreateUser} className="space-y-3 py-2">
@@ -3019,19 +3055,14 @@ export default function AdminDashboard() {
                               <Label className="text-xs font-semibold">System Role</Label>
                               <Select
                                 value={newUserRole}
-                                onValueChange={(val: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident') => setNewUserRole(val)}
+                                onValueChange={(val: 'admin' | 'staff' | 'bhw' | 'resident') => setNewUserRole(val)}
                               >
                                 <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                  {isSuperAdmin && (
-                                    <>
-                                      <SelectItem value="superadmin">Super Administrator</SelectItem>
-                                      <SelectItem value="admin">Barangay Administrator</SelectItem>
-                                      <SelectItem value="resident">Resident</SelectItem>
-                                    </>
-                                  )}
+                                  <SelectItem value="admin">Barangay Admin</SelectItem>
                                   <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
                                   <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
+                                  <SelectItem value="resident">Resident</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>

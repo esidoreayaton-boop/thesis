@@ -24,7 +24,10 @@ import {
   Eye,
   ZoomIn,
   Send,
-  RotateCcw
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  Info
 } from 'lucide-react';
 import { PendingResident } from '../../services/api';
 
@@ -38,13 +41,61 @@ interface PendingApplicantReviewModalProps {
   approving?: boolean;
 }
 
-const COMMON_REASONS = [
-  'Invalid / Blurry ID Photo – please provide a clearer copy',
-  'Name discrepancy with PhilSys / Government ID',
-  'Birthdate does not match registered record',
-  'Address is outside Barangay jurisdiction',
-  'Expired Government ID – please submit a valid unexpired ID',
-  'Missing back photo of the Government ID'
+const CORRECTION_OPTIONS = [
+  {
+    key: 'blurry_id',
+    label: '📸 Blurry / Invalid ID Photo',
+    description: 'ID photo is unclear, low resolution, or illegible',
+    defaultMsg: 'Your submitted Government ID photo is blurry or illegible. Please retake the photo in good lighting and ensure the ID details (name, birthdate, ID number) are clearly readable.'
+  },
+  {
+    key: 'name_mismatch',
+    label: '🏷️ Name Mismatch',
+    description: 'Name on ID does not match your registration',
+    defaultMsg: 'The name on your submitted Government ID does not match the name you registered with. Please check that your First Name, Middle Name, and Last Name match your official government ID exactly.'
+  },
+  {
+    key: 'birthday_mismatch',
+    label: '🎂 Birthday Mismatch',
+    description: 'Date of Birth does not match ID or records',
+    defaultMsg: 'The Date of Birth you provided does not match your submitted Government ID. Please correct your birthdate to match your official ID or birth certificate.'
+  },
+  {
+    key: 'address_issue',
+    label: '📍 Address Outside Barangay',
+    description: 'Registered address is outside our barangay',
+    defaultMsg: 'Your registered address could not be verified as a resident of this barangay. Please ensure you are registering in the correct barangay, and bring proof of residency (utility bill, lease contract, or barangay certificate).'
+  },
+  {
+    key: 'expired_id',
+    label: '⌛ Expired Government ID',
+    description: 'Submitted ID is expired or no longer valid',
+    defaultMsg: 'The Government ID you submitted appears to be expired. Please resubmit using a currently valid government-issued ID (PhilSys, Passport, Driver\'s License, UMID, Voter\'s ID, etc.).'
+  },
+  {
+    key: 'missing_back',
+    label: '📋 Incomplete ID (Missing Back)',
+    description: 'Back side of the ID was not submitted',
+    defaultMsg: 'The back side of your Government ID is missing. Please resubmit showing both the front and back of your ID in a single clear photo.'
+  },
+  {
+    key: 'wrong_id_type',
+    label: '🪪 Invalid ID Type',
+    description: 'Submitted ID is not an accepted government ID',
+    defaultMsg: 'The document you submitted is not an accepted Government ID. Please use a PhilSys National ID, Passport, Driver\'s License, UMID, SSS ID, Voter\'s ID, or PRC ID.'
+  },
+  {
+    key: 'gender_mismatch',
+    label: '⚥ Gender Discrepancy',
+    description: 'Gender on record does not match ID',
+    defaultMsg: 'The gender listed in your registration does not match your submitted Government ID. Please correct this before resubmitting.'
+  },
+  {
+    key: 'custom',
+    label: '✏️ Custom / Other Reason',
+    description: 'Specify a specific or unique issue',
+    defaultMsg: ''
+  }
 ];
 
 export default function PendingApplicantReviewModal({
@@ -57,17 +108,28 @@ export default function PendingApplicantReviewModal({
   approving = false
 }: PendingApplicantReviewModalProps) {
   const [showResubmitPanel, setShowResubmitPanel] = useState(false);
-  const [selectedReason, setSelectedReason] = useState(COMMON_REASONS[0]);
-  const [customNotes, setCustomNotes] = useState('');
+  const [selectedReasonKey, setSelectedReasonKey] = useState('blurry_id');
+  const [customMessage, setCustomMessage] = useState(CORRECTION_OPTIONS[0].defaultMsg);
   const [isZoomed, setIsZoomed] = useState(false);
 
   if (!applicant) return null;
 
   const fullName = applicant.name || `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || 'Resident Applicant';
+  const selectedOption = CORRECTION_OPTIONS.find(o => o.key === selectedReasonKey) || CORRECTION_OPTIONS[0];
+
+  const handleReasonSelect = (key: string) => {
+    setSelectedReasonKey(key);
+    const opt = CORRECTION_OPTIONS.find(o => o.key === key);
+    if (opt && opt.defaultMsg) {
+      setCustomMessage(opt.defaultMsg);
+    } else {
+      setCustomMessage('');
+    }
+  };
 
   const handleSendResubmitNotice = () => {
-    const finalReason = customNotes.trim() ? `${selectedReason} (${customNotes.trim()})` : selectedReason;
-    onRejectWithReason(applicant.id, finalReason);
+    if (!customMessage.trim()) return;
+    onRejectWithReason(applicant.id, customMessage.trim());
     setShowResubmitPanel(false);
     onClose();
   };
@@ -88,14 +150,14 @@ export default function PendingApplicantReviewModal({
               </div>
               <div>
                 <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
-                  Resident Applicant Review &amp; Verification
+                  Resident Applicant Review & Verification
                 </DialogTitle>
                 <DialogDescription className="text-xs text-slate-500">
-                  Application ID: <span className="font-mono font-bold text-indigo-600">APP-#{applicant.id}</span> • Registered on {applicant.submitted_at ? new Date(applicant.submitted_at).toLocaleDateString() : 'Recent'}
+                  Application ID: <span className="font-mono font-bold text-indigo-600">APP-#{applicant.id}</span> • Registered on {applicant.submitted_at ? new Date(applicant.submitted_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Recent'}
                 </DialogDescription>
               </div>
             </div>
-            <Badge className="bg-amber-500 text-white text-xs px-2.5 py-0.5">
+            <Badge className="bg-amber-500 text-white text-xs px-2.5 py-0.5 shrink-0">
               {applicant.verification_status || 'Pending Review'}
             </Badge>
           </div>
@@ -106,7 +168,7 @@ export default function PendingApplicantReviewModal({
           <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-2.5">
             <h4 className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
               <User size={14} className="text-indigo-600" />
-              Applicant Personal &amp; Demographic Profile
+              Applicant Personal & Demographic Profile
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -115,9 +177,10 @@ export default function PendingApplicantReviewModal({
                 <span className="font-bold text-slate-900 dark:text-white text-sm">{fullName}</span>
               </div>
               <div>
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Date of Birth / Age</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {applicant.date_of_birth ? new Date(applicant.date_of_birth).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Not provided'}
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Date of Birth</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                  <Calendar size={12} className="text-indigo-500" />
+                  {applicant.date_of_birth ? new Date(applicant.date_of_birth).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Not provided'}
                 </span>
               </div>
               <div>
@@ -185,77 +248,97 @@ export default function PendingApplicantReviewModal({
             )}
           </div>
 
-          {/* Resubmit / Rejection Reason Panel (Expandable) */}
+          {/* Resubmit / Correction Notice Panel */}
           {showResubmitPanel && (
-            <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              {/* Panel Header */}
               <div className="flex items-center justify-between">
                 <span className="font-bold text-amber-950 dark:text-amber-200 flex items-center gap-1.5 text-xs">
                   <AlertTriangle size={14} className="text-amber-600" />
-                  Select Reason for ID Correction / Resubmission
+                  Request ID Correction / Resubmission
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowResubmitPanel(false)}
-                  className="text-amber-700 hover:text-amber-900 text-xs font-bold"
+                  className="text-amber-700 hover:text-amber-900 text-xs font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
               </div>
 
-              <div className="space-y-1.5">
-                <span className="text-[10px] text-amber-800 font-semibold block">Quick Selection:</span>
-                <div className="grid grid-cols-1 gap-1.5">
-                  {COMMON_REASONS.map(reason => (
+              {/* Correction Reason Grid */}
+              <div>
+                <span className="text-[10px] text-amber-800 dark:text-amber-300 font-semibold block mb-2">
+                  Select Correction Reason (Required):
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {CORRECTION_OPTIONS.map(opt => (
                     <button
-                      key={reason}
+                      key={opt.key}
                       type="button"
-                      onClick={() => setSelectedReason(reason)}
-                      className={`p-2 text-left rounded-lg text-xs border transition-all cursor-pointer ${
-                        selectedReason === reason
-                          ? 'bg-amber-100 border-amber-500 text-amber-950 font-bold shadow-2xs'
-                          : 'bg-white/80 hover:bg-amber-100/50 border-amber-200 text-amber-900'
+                      onClick={() => handleReasonSelect(opt.key)}
+                      className={`p-2.5 text-left rounded-lg border transition-all cursor-pointer group ${
+                        selectedReasonKey === opt.key
+                          ? 'bg-amber-100 border-amber-500 text-amber-950 dark:bg-amber-900/50 dark:border-amber-500 dark:text-amber-100 shadow-sm'
+                          : 'bg-white/80 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/30 border-amber-200 dark:border-slate-700 text-amber-900 dark:text-slate-300'
                       }`}
                     >
-                      • {reason}
+                      <div className="font-semibold text-xs leading-tight">{opt.label}</div>
+                      <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-0.5 opacity-80">{opt.description}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
+              {/* Detailed Message Textarea */}
               <div>
-                <Label className="text-[11px] font-semibold text-amber-900">Additional Instructions for Resident (Optional):</Label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <Label className="text-xs font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-1">
+                    <Info size={12} />
+                    Message to Resident <span className="text-red-500">*</span>
+                  </Label>
+                  <span className="text-[10px] text-amber-700 font-mono">{customMessage.length} chars</span>
+                </div>
                 <textarea
-                  value={customNotes}
-                  onChange={e => setCustomNotes(e.target.value)}
-                  rows={2}
-                  placeholder="e.g. Please capture the ID under good lighting so the PhilSys barcode and birthdate are legible."
-                  className="w-full mt-1 p-2 text-xs rounded-md border border-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  value={customMessage}
+                  onChange={e => setCustomMessage(e.target.value)}
+                  rows={4}
+                  required
+                  placeholder={selectedReasonKey === 'custom'
+                    ? 'Describe the specific issue and what the resident needs to correct or resubmit...'
+                    : 'Edit or add additional instructions for the resident...'}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none leading-relaxed"
                 />
+                <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-1">
+                  This message will be shown on the resident's portal and notification center.
+                </p>
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-2 pt-1 border-t border-amber-200 dark:border-amber-800">
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => setShowResubmitPanel(false)}
-                  className="h-8 text-xs border-amber-300 text-amber-900"
+                  className="h-8 text-xs border-amber-300 text-amber-900 cursor-pointer"
                 >
                   Cancel
                 </Button>
                 <Button
                   size="sm"
+                  disabled={!customMessage.trim()}
                   onClick={handleSendResubmitNotice}
-                  className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold gap-1.5 shadow-xs cursor-pointer"
+                  className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
                 >
                   <Send size={13} />
-                  Send Resubmission Notice to Resident
+                  Send Correction Notice
                 </Button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Modal Action Buttons: Accept / Resubmit / Reject */}
+        {/* Modal Footer Action Buttons */}
         {!showResubmitPanel && (
           <DialogFooter className="gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
             {onPurge && (
@@ -285,7 +368,7 @@ export default function PendingApplicantReviewModal({
               className="text-xs border-amber-300 hover:bg-amber-50 text-amber-800 font-semibold gap-1.5 cursor-pointer"
             >
               <RotateCcw size={14} className="text-amber-600" />
-              Request Resubmission / ID Correction
+              Request Correction
             </Button>
 
             <Button
