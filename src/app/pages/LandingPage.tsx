@@ -68,12 +68,19 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <Button
-              onClick={() => navigate('/login')}
+              variant="outline"
+              onClick={() => navigate('/login?tab=register')}
+              className="border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold text-xs h-9 px-3.5"
+            >
+              Sign Up
+            </Button>
+            <Button
+              onClick={() => navigate('/login?tab=login')}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 px-4 shadow-sm"
             >
-              Portal Login
+              Log In
               <ArrowRight size={14} className="ml-1" />
             </Button>
           </div>
@@ -95,16 +102,24 @@ export default function LandingPage() {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Button
             size="lg"
-            onClick={() => navigate('/login')}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-8 h-12 shadow-lg shadow-blue-500/20"
+            onClick={() => navigate('/login?tab=register')}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-8 h-12 shadow-lg shadow-blue-500/20 w-full sm:w-auto"
           >
-            Access the Portal
+            Sign Up / Create Account
             <ArrowRight size={18} className="ml-2" />
           </Button>
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <MapPin size={13} />
-            <span>Barangay Pianing, Butuan City</span>
-          </div>
+          <Button
+            size="lg"
+            variant="outline"
+            onClick={() => navigate('/login?tab=login')}
+            className="border-slate-300 text-slate-800 hover:bg-slate-100 font-semibold text-sm px-8 h-12 w-full sm:w-auto"
+          >
+            Resident / Staff Log In
+          </Button>
+        </div>
+        <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 mt-4">
+          <MapPin size={13} />
+          <span>Barangay Pianing, Butuan City</span>
         </div>
       </section>
 
@@ -151,22 +166,30 @@ export default function LandingPage() {
         <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-8 sm:p-12 shadow-xl flex flex-col md:flex-row items-center justify-between gap-8">
           <div className="space-y-3 text-center md:text-left">
             <Badge className="bg-blue-500 text-white text-[11px]">Serving Barangay Pianing</Badge>
-            <h3 className="text-2xl font-bold">Ready to Use? Log In to Get Started</h3>
+            <h3 className="text-2xl font-bold">Ready to Get Started?</h3>
             <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-              Residents may register for an account to request documents online. Barangay staff and health workers may log in using their assigned credentials.
+              New residents can register for an online account in minutes. Registered residents and barangay personnel can sign in directly to access their services.
             </p>
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <Clock size={13} />
               <span>Office Hours: Mon – Fri, 8:00 AM – 5:00 PM</span>
             </div>
           </div>
-          <Button
-            onClick={() => navigate('/login')}
-            className="bg-white text-slate-900 hover:bg-slate-100 font-bold text-xs h-11 px-6 shrink-0 shadow-md"
-          >
-            Log In to the Portal
-            <ArrowRight size={14} className="ml-1.5" />
-          </Button>
+          <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
+            <Button
+              onClick={() => navigate('/login?tab=register')}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs h-11 px-5 shadow-md w-full sm:w-auto"
+            >
+              Create Account
+              <ArrowRight size={14} className="ml-1.5" />
+            </Button>
+            <Button
+              onClick={() => navigate('/login?tab=login')}
+              className="bg-white text-slate-900 hover:bg-slate-100 font-bold text-xs h-11 px-5 shadow-md w-full sm:w-auto"
+            >
+              Sign In
+            </Button>
+          </div>
         </div>
       </section>
 

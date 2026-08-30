@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { useNavigate } from 'react-router';
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router';
 import {
   Shield,
   UserCircle,
@@ -50,6 +50,19 @@ const ID_TYPES = [
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Tab State (allows /login?tab=register)
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('tab') === 'register') {
+      setActiveTab('register');
+    } else {
+      setActiveTab('login');
+    }
+  }, [location.search]);
 
   // Login State
   const [email, setEmail] = useState('admin@barangay.gov');
@@ -297,7 +310,7 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardContent className="pt-2">
-            <Tabs defaultValue="login" className="w-full">
+            <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'login' | 'register')} className="w-full">
               <TabsList className="grid grid-cols-2 bg-slate-100 p-1 rounded-xl mb-4">
                 <TabsTrigger value="login" className="text-xs font-semibold">Sign In</TabsTrigger>
                 <TabsTrigger value="register" className="text-xs font-semibold">Create Account</TabsTrigger>
