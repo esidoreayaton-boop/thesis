@@ -13,8 +13,8 @@ export interface EmailJsConfig {
 
 const DEFAULT_CONFIG: EmailJsConfig = {
   serviceId: 'service_6nk2ylj',
-  templateId: 'template_barangay', // Replace with your EmailJS Template ID (e.g. template_xxxxxxx)
-  publicKey: 'mD2qC6wMh5kXjU9Za'   // Replace with your EmailJS Public Key from Account > API Keys
+  templateId: '',
+  publicKey: ''
 };
 
 // Retrieve configuration (allows dynamic setting via Settings tab or localStorage)
@@ -60,19 +60,27 @@ export async function sendEmailNotification(params: {
     return { success: false, message: 'Invalid recipient email address' };
   }
 
+  if (!config.templateId || !config.publicKey) {
+    console.warn('[EmailJS] Missing Template ID or Public Key. Configure in Settings tab.');
+    return { success: false, message: 'EmailJS not configured. Add Template ID and Public Key in Settings.' };
+  }
+
+  // Variable names match your EmailJS "Contact Us" template EXACTLY
   const templateParams = {
-    to_name: params.to_name || 'Resident',
-    to_email: params.to_email.trim().toLowerCase(),
-    recipient_email: params.to_email.trim().toLowerCase(),
-    subject: params.subject,
-    message: params.message,
-    barangay: params.barangay || 'Barangay Pianing',
-    status: params.status || 'Active',
-    request_code: params.request_code || 'N/A',
-    document_type: params.document_type || 'Barangay Document',
-    date: new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }),
-    from_name: 'Barangay Pianing Administration',
-    reply_to: 'admin@barangay.gov.ph'
+    name:          params.to_name || 'Resident',
+    email:         params.to_email.trim().toLowerCase(),
+    to_email:      params.to_email.trim().toLowerCase(),
+    title:         params.subject,
+    message:       params.message,
+    time:          new Date().toLocaleString('en-PH', {
+                     year: 'numeric', month: 'long', day: 'numeric',
+                     hour: '2-digit', minute: '2-digit'
+                   }),
+    barangay:      params.barangay || 'Barangay Pianing',
+    status:        params.status || '',
+    request_code:  params.request_code || '',
+    document_type: params.document_type || '',
+    from_name:     'Barangay Pianing Administration',
   };
 
   try {
