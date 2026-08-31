@@ -1063,8 +1063,14 @@ export default function AdminDashboard() {
       return;
     }
 
-    if (newUserPhone.trim() && newUserPhone.trim().length !== 11) {
-      toast.error('Mobile Phone must be exactly 11 digits (e.g. 09171234567)');
+    const cleanPhone = newUserPhone.trim().replace(/\D/g, '');
+    if (!cleanPhone) {
+      toast.error('Mobile Phone Number is required. Enter an 11-digit PH mobile number.');
+      return;
+    }
+
+    if (!/^09\d{9}$/.test(cleanPhone)) {
+      toast.error('Invalid Philippine mobile number format! Must be exactly 11 digits starting with 09 (e.g. 09171234567).');
       return;
     }
 
@@ -1092,10 +1098,10 @@ export default function AdminDashboard() {
         name: fullName,
         email: newUserEmail.trim(),
         password: newUserPassword || '123',
-        role: newUserRole,
+        role: newUserRole === 'resident' ? 'staff' : newUserRole,
         status: 'Active',
         barangay: assignedBarangay,
-        phone: newUserPhone.trim() || undefined
+        phone: cleanPhone
       });
       setUsers([created, ...users]);
       toast.success(`${newUserRole === 'admin' ? 'Administrator' : newUserRole.toUpperCase()} account created for Barangay ${assignedBarangay}`);
@@ -1220,6 +1226,16 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!editingUser) return;
 
+    const cleanEditPhone = editUserPhone.trim().replace(/\D/g, '');
+    if (!cleanEditPhone) {
+      toast.error('Mobile Phone Number is required.');
+      return;
+    }
+    if (!/^09\d{9}$/.test(cleanEditPhone)) {
+      toast.error('Invalid Philippine mobile number format! Must be exactly 11 digits starting with 09 (e.g. 09171234567).');
+      return;
+    }
+
     // 1 Admin per Barangay rule check
     if (editUserRole === 'admin') {
       const existingAdmin = users.find(u =>
@@ -1240,7 +1256,7 @@ export default function AdminDashboard() {
         email: editUserEmail.trim(),
         role: editUserRole,
         barangay: editUserBarangay,
-        phone: editUserPhone.trim(),
+        phone: cleanEditPhone,
         status: editUserStatus
       });
       setUsers(users.map(u => u.id === editingUser.id ? {
@@ -1249,7 +1265,7 @@ export default function AdminDashboard() {
         email: editUserEmail.trim(),
         role: editUserRole,
         barangay: editUserBarangay,
-        phone: editUserPhone.trim(),
+        phone: cleanEditPhone,
         status: editUserStatus
       } : u));
       toast.success('User details updated successfully');
@@ -1423,10 +1439,9 @@ export default function AdminDashboard() {
 
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: Home },
-    // Barangay-specific tabs (not for Super Admin except documents)
+    // Barangay-specific tabs (not for Super Admin)
     ...(!isSuperAdmin ? [{ id: 'approvals', label: 'Pending Approvals', icon: CheckCircle }] : []),
-    // All admins (including Super Admin) can access Document Processing
-    { id: 'documents', label: isSuperAdmin ? 'Document Requests' : 'Document Processing', icon: InboxIcon },
+    ...(!isSuperAdmin ? [{ id: 'documents', label: 'Document Processing', icon: InboxIcon }] : []),
     ...(!isSuperAdmin ? [{ id: 'records', label: 'Resident Records', icon: FolderOpen }] : []),
     // Staff members do NOT have System Management (User Accounts) or Activity History Logs permission
     ...(!isStaff ? [{ id: 'users', label: isSuperAdmin ? 'User Directory' : 'User Accounts', icon: Users }] : []),
@@ -1631,51 +1646,53 @@ export default function AdminDashboard() {
                     <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
                   </Button>
 
-                  <Dialog open={isAddDocOpen} onOpenChange={setIsAddDocOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm cursor-pointer">
-                        <PlusCircle size={15} />
-                        New Document Request
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="bg-white">
-                      <DialogHeader>
-                        <DialogTitle>Issue New Clearance / Certificate</DialogTitle>
-                        <DialogDescription className="text-xs">Create a new document request in the database.</DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleCreateDocument} className="space-y-4 py-2">
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Resident Name</Label>
-                          <Input value={newDocName} onChange={e => setNewDocName(e.target.value)} placeholder="e.g. Juan Dela Cruz" required />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Document Type</Label>
-                          <Select value={newDocType} onValueChange={setNewDocType}>
-                            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Barangay Clearance">Barangay Clearance</SelectItem>
-                              <SelectItem value="Certificate of Residency">Certificate of Residency</SelectItem>
-                              <SelectItem value="Business Permit">Business Permit</SelectItem>
-                              <SelectItem value="Certificate of Indigency">Certificate of Indigency</SelectItem>
-                              <SelectItem value="Barangay ID">Barangay ID</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Purpose</Label>
-                          <Input value={newDocPurpose} onChange={e => setNewDocPurpose(e.target.value)} placeholder="e.g. Employment / Local Permit" />
-                        </div>
-                        <DialogFooter>
-                          <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white">Save Request</Button>
-                        </DialogFooter>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
+                  {!isSuperAdmin && (
+                    <Dialog open={isAddDocOpen} onOpenChange={setIsAddDocOpen}>
+                      <DialogTrigger asChild>
+                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm cursor-pointer">
+                          <PlusCircle size={15} />
+                          New Document Request
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="bg-white">
+                        <DialogHeader>
+                          <DialogTitle>Issue New Clearance / Certificate</DialogTitle>
+                          <DialogDescription className="text-xs">Create a new document request in the database.</DialogDescription>
+                        </DialogHeader>
+                        <form onSubmit={handleCreateDocument} className="space-y-4 py-2">
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Resident Name</Label>
+                            <Input value={newDocName} onChange={e => setNewDocName(e.target.value)} placeholder="e.g. Juan Dela Cruz" required />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Document Type</Label>
+                            <Select value={newDocType} onValueChange={setNewDocType}>
+                              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Barangay Clearance">Barangay Clearance</SelectItem>
+                                <SelectItem value="Certificate of Residency">Certificate of Residency</SelectItem>
+                                <SelectItem value="Business Permit">Business Permit</SelectItem>
+                                <SelectItem value="Certificate of Indigency">Certificate of Indigency</SelectItem>
+                                <SelectItem value="Barangay ID">Barangay ID</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Purpose</Label>
+                            <Input value={newDocPurpose} onChange={e => setNewDocPurpose(e.target.value)} placeholder="e.g. Employment / Local Permit" />
+                          </div>
+                          <DialogFooter>
+                            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white">Save Request</Button>
+                          </DialogFooter>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+                  )}
                 </div>
               </div>
 
-              {/* Pending Resident Approvals Alert Banner */}
-              {myPendingResidents.length > 0 && (
+              {/* Pending Resident Approvals Alert Banner (Barangay Admins only) */}
+              {!isSuperAdmin && myPendingResidents.length > 0 && (
                 <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-300 dark:border-amber-700/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
@@ -1686,7 +1703,7 @@ export default function AdminDashboard() {
                         {myPendingResidents.length} Pending Resident Account {myPendingResidents.length > 1 ? 'Registrations' : 'Registration'}
                       </h4>
                       <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-                        New resident submitted government ID for account verification in Barangay {user?.barangay || 'Pianing'}. Review & approve to unlock online requests.
+                        New resident submitted government ID for account verification in Barangay {user?.barangay || 'Pianing'}. Review &amp; approve to unlock online requests.
                       </p>
                     </div>
                   </div>
@@ -1701,67 +1718,127 @@ export default function AdminDashboard() {
               )}
 
               {/* Stats Cards — 4 columns */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Card 1: Pending Document Requests */}
-                <Card className="border-l-4 border-l-amber-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Pending Requests</p>
-                        <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyPendingDocsCount}</h3>
-                        <p className="text-[11px] text-amber-600 font-medium mt-1">
-                          {brgyPendingDocsCount === 0 ? 'Queue is clear ✓' : `${brgyPendingDocsCount} awaiting action`}
-                        </p>
+              {isSuperAdmin ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Super Admin Card 1: Total System Accounts */}
+                  <Card className="border-l-4 border-l-indigo-500 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Total System Users</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{users.length}</h3>
+                          <p className="text-[11px] text-indigo-600 font-medium mt-1">All barangay accounts</p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                          <Users size={22} />
+                        </div>
                       </div>
-                      <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
-                        <Clock size={22} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
 
-                {/* Card 2: Completed Documents */}
-                <Card className="border-l-4 border-l-emerald-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Documents Issued</p>
-                        <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyProcessedCount}</h3>
-                        <p className="text-[11px] text-emerald-600 font-medium mt-1">
-                          {brgyProcessedCount > 0 ? `${brgyProcessedCount} completed` : 'None yet this period'}
-                        </p>
+                  {/* Super Admin Card 2: Barangay Administrators */}
+                  <Card className="border-l-4 border-l-blue-500 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Barangay Admins</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{users.filter(u => u.role === 'admin').length}</h3>
+                          <p className="text-[11px] text-blue-600 font-medium mt-1">Active barangay heads</p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                          <Shield size={22} />
+                        </div>
                       </div>
-                      <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                        <CheckCircle size={22} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
 
-                {/* Card 3: Total Registered Residents */}
-                <Card className="border-l-4 border-l-blue-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
-                          {isSuperAdmin ? 'System Users' : 'Registered Residents'}
-                        </p>
-                        <h3 className="text-3xl font-black text-slate-900 mt-1">
-                          {isSuperAdmin ? users.length : brgyTotalResidentsCount}
-                        </h3>
-                        <p className="text-[11px] text-blue-600 font-medium mt-1">
-                          {isSuperAdmin ? 'All roles combined' : `Barangay ${user?.barangay || 'Pianing'}`}
-                        </p>
+                  {/* Super Admin Card 3: Barangay Staff & BHWs */}
+                  <Card className="border-l-4 border-l-emerald-500 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Staff &amp; Health Workers</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{users.filter(u => u.role === 'staff' || u.role === 'bhw').length}</h3>
+                          <p className="text-[11px] text-emerald-600 font-medium mt-1">Operational personnel</p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                          <UserCheck size={22} />
+                        </div>
                       </div>
-                      <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                        <Users size={22} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
 
-                {/* Card 4: Pending Approvals / Active Records */}
-                {!isSuperAdmin ? (
+                  {/* Super Admin Card 4: Audit Logs */}
+                  <Card className="border-l-4 border-l-purple-500 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setActiveTab('logs')}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">System Audit Logs</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{activityLogs.length}</h3>
+                          <p className="text-[11px] text-purple-600 font-medium mt-1">Click to view audit trail →</p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
+                          <History size={22} />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Card 1: Pending Document Requests */}
+                  <Card className="border-l-4 border-l-amber-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Pending Requests</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyPendingDocsCount}</h3>
+                          <p className="text-[11px] text-amber-600 font-medium mt-1">
+                            {brgyPendingDocsCount === 0 ? 'Queue is clear ✓' : `${brgyPendingDocsCount} awaiting action`}
+                          </p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                          <Clock size={22} />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 2: Completed Documents */}
+                  <Card className="border-l-4 border-l-emerald-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Documents Issued</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyProcessedCount}</h3>
+                          <p className="text-[11px] text-emerald-600 font-medium mt-1">
+                            {brgyProcessedCount > 0 ? `${brgyProcessedCount} completed` : 'None yet this period'}
+                          </p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                          <CheckCircle size={22} />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 3: Total Registered Residents */}
+                  <Card className="border-l-4 border-l-blue-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Registered Residents</p>
+                          <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyTotalResidentsCount}</h3>
+                          <p className="text-[11px] text-blue-600 font-medium mt-1">Barangay {user?.barangay || 'Pianing'}</p>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                          <Users size={22} />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 4: Pending Approvals */}
                   <Card className="border-l-4 border-l-rose-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setActiveTab('approvals')}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
@@ -1778,96 +1855,133 @@ export default function AdminDashboard() {
                       </div>
                     </CardContent>
                   </Card>
-                ) : (
-                  <Card className="border-l-4 border-l-purple-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Document Records</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{documents.length}</h3>
-                          <p className="text-[11px] text-purple-600 font-medium mt-1">All barangays combined</p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
-                          <FolderOpen size={22} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Document Requests Quick View */}
-              <Card className="border-slate-200 bg-white shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <div>
-                    <CardTitle className="text-base font-bold text-slate-900">Recent Document Requests</CardTitle>
-                    <CardDescription className="text-xs">Active clearance requests for Barangay {user?.barangay || 'Pianing'}</CardDescription>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => setActiveTab('documents')} className="text-indigo-600 text-xs font-semibold">
-                    View All Documents →
-                  </Button>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Request Code</TableHead>
-                        <TableHead className="text-xs">Resident Name</TableHead>
-                        <TableHead className="text-xs">Document Type</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {barangayDocs.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-center text-xs py-8 text-slate-400">
-                            No document requests found for Barangay {user?.barangay || 'Pianing'}.
-                          </TableCell>
+              {/* Overview Quick View Section */}
+              {isSuperAdmin ? (
+                <Card className="border-slate-200 bg-white shadow-xs">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <div>
+                      <CardTitle className="text-base font-bold text-slate-900">Recent System Activity Audit Logs</CardTitle>
+                      <CardDescription className="text-xs">Live activity log stream across all barangay users and administrators</CardDescription>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => setActiveTab('logs')} className="text-indigo-600 text-xs font-semibold">
+                      View Full Audit Trail →
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50">
+                          <TableHead className="text-xs">Timestamp</TableHead>
+                          <TableHead className="text-xs">Actor / User</TableHead>
+                          <TableHead className="text-xs">Role</TableHead>
+                          <TableHead className="text-xs">Barangay</TableHead>
+                          <TableHead className="text-xs">Action Performed</TableHead>
                         </TableRow>
-                      ) : (
-                        barangayDocs.slice(0, 5).map((doc, idx) => (
-                          <TableRow key={`quick-doc-${doc.id}-${idx}`} className="text-xs">
-                            <TableCell>
-                              <button
-                                onClick={() => openDocInfo(doc)}
-                                className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
-                                title="Click to view document info"
-                              >
-                                {doc.request_code}
-                                <Eye size={12} className="opacity-70" />
-                              </button>
-                            </TableCell>
-                            <TableCell>
-                              <button
-                                onClick={() => openResidentProfile(doc.resident_id || 1)}
-                                className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline transition-colors"
-                              >
-                                {doc.resident_name}
-                              </button>
-                            </TableCell>
-                            <TableCell>{doc.document_type}</TableCell>
-                            <TableCell>
-                              <Badge variant={doc.status === 'Completed' ? 'default' : doc.status === 'Processing' ? 'outline' : 'secondary'}
-                                className={doc.status === 'Completed' ? 'bg-emerald-600' : doc.status === 'Processing' ? 'border-amber-400 text-amber-800 bg-amber-50' : 'bg-orange-100 text-orange-800'}>
-                                {doc.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              {doc.status !== 'Completed' && (
-                                <Button size="sm" variant="outline" onClick={() => handleUpdateDocStatus(doc.id, doc.status)} className="h-7 text-[11px] gap-1">
-                                  <Check size={12} />
-                                  {doc.status === 'Pending' ? 'Process' : 'Complete'}
-                                </Button>
-                              )}
+                      </TableHeader>
+                      <TableBody>
+                        {activityLogs.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center text-xs py-8 text-slate-400">
+                              No activity logs recorded yet.
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                        ) : (
+                          activityLogs.slice(0, 6).map((log, idx) => (
+                            <TableRow key={`sa-ov-log-${log.id}-${idx}`} className="text-xs">
+                              <TableCell className="font-mono text-slate-500 text-[11px]">
+                                {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Recent'}
+                              </TableCell>
+                              <TableCell className="font-semibold text-slate-900">{log.user_name || 'System'}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-[10px] uppercase font-mono">
+                                  {log.user_role || 'User'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-slate-600">{log.barangay || 'Pianing'}</TableCell>
+                              <TableCell className="text-slate-700 font-medium">{log.action}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="border-slate-200 bg-white shadow-xs">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <div>
+                      <CardTitle className="text-base font-bold text-slate-900">Recent Document Requests</CardTitle>
+                      <CardDescription className="text-xs">Active clearance requests for Barangay {user?.barangay || 'Pianing'}</CardDescription>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => setActiveTab('documents')} className="text-indigo-600 text-xs font-semibold">
+                      View All Documents →
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50">
+                          <TableHead className="text-xs">Request Code</TableHead>
+                          <TableHead className="text-xs">Resident Name</TableHead>
+                          <TableHead className="text-xs">Document Type</TableHead>
+                          <TableHead className="text-xs">Status</TableHead>
+                          <TableHead className="text-xs">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {barangayDocs.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center text-xs py-8 text-slate-400">
+                              No document requests found for Barangay {user?.barangay || 'Pianing'}.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          barangayDocs.slice(0, 5).map((doc, idx) => (
+                            <TableRow key={`quick-doc-${doc.id}-${idx}`} className="text-xs">
+                              <TableCell>
+                                <button
+                                  onClick={() => openDocInfo(doc)}
+                                  className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+                                  title="Click to view document info"
+                                >
+                                  {doc.request_code}
+                                  <Eye size={12} className="opacity-70" />
+                                </button>
+                              </TableCell>
+                              <TableCell>
+                                <button
+                                  onClick={() => openResidentProfile(doc.resident_id || 1)}
+                                  className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline transition-colors"
+                                >
+                                  {doc.resident_name}
+                                </button>
+                              </TableCell>
+                              <TableCell>{doc.document_type}</TableCell>
+                              <TableCell>
+                                <Badge variant={doc.status === 'Completed' ? 'default' : doc.status === 'Processing' ? 'outline' : 'secondary'}
+                                  className={doc.status === 'Completed' ? 'bg-emerald-600' : doc.status === 'Processing' ? 'border-amber-400 text-amber-800 bg-amber-50' : 'bg-orange-100 text-orange-800'}>
+                                  {doc.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {doc.status !== 'Completed' && (
+                                  <Button size="sm" variant="outline" onClick={() => handleUpdateDocStatus(doc.id, doc.status)} className="h-7 text-[11px] gap-1">
+                                    <Check size={12} />
+                                    {doc.status === 'Pending' ? 'Process' : 'Complete'}
+                                  </Button>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
 
@@ -3231,12 +3345,15 @@ export default function AdminDashboard() {
                               />
                             </div>
                             <div>
-                              <Label className="text-xs font-semibold">Mobile Phone Number</Label>
+                              <Label className="text-xs font-semibold">Mobile Phone Number <span className="text-red-500">*</span></Label>
                               <Input
                                 value={newUserPhone}
                                 onChange={e => setNewUserPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                                placeholder="09XXXXXXXXX"
+                                placeholder="09XXXXXXXXX (11 digits)"
                                 maxLength={11}
+                                required
+                                pattern="09[0-9]{9}"
+                                title="Must be an 11-digit Philippine mobile number starting with 09 (e.g. 09171234567)"
                                 inputMode="numeric"
                                 className="h-9 text-xs font-mono mt-1"
                               />
@@ -3245,17 +3362,16 @@ export default function AdminDashboard() {
 
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <Label className="text-xs font-semibold">System Role</Label>
+                              <Label className="text-xs font-semibold">System Role <span className="text-red-500">*</span></Label>
                               <Select
-                                value={newUserRole}
-                                onValueChange={(val: 'admin' | 'staff' | 'bhw' | 'resident') => setNewUserRole(val)}
+                                value={newUserRole === 'resident' ? 'staff' : newUserRole}
+                                onValueChange={(val: 'admin' | 'staff' | 'bhw') => setNewUserRole(val)}
                               >
                                 <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="admin">Barangay Admin</SelectItem>
                                   <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
                                   <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
-                                  <SelectItem value="resident">Resident</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -3578,11 +3694,10 @@ export default function AdminDashboard() {
                               <>
                                 <SelectItem value="superadmin">Super Admin</SelectItem>
                                 <SelectItem value="admin">Barangay Admin</SelectItem>
-                                <SelectItem value="resident">Resident</SelectItem>
                               </>
                             )}
-                            <SelectItem value="staff">Barangay Staff</SelectItem>
-                            <SelectItem value="bhw">BHW Worker</SelectItem>
+                            <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
+                            <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -3630,12 +3745,15 @@ export default function AdminDashboard() {
                         )}
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold">Mobile Phone Number</Label>
+                        <Label className="text-xs font-semibold">Mobile Phone Number <span className="text-red-500">*</span></Label>
                         <Input
                           value={editUserPhone}
                           onChange={e => setEditUserPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                          placeholder="09171234567"
+                          placeholder="09XXXXXXXXX (11 digits)"
                           maxLength={11}
+                          required
+                          pattern="09[0-9]{9}"
+                          title="Must be an 11-digit Philippine mobile number starting with 09 (e.g. 09171234567)"
                           inputMode="numeric"
                           className="h-9 text-xs font-mono"
                         />
