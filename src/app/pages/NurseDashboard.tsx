@@ -4,12 +4,13 @@ import {
   Stethoscope, Heart, Baby, Activity, CalendarCheck, Clock,
   CheckCircle2, PlusCircle, RefreshCcw, LogOut, MapPin, Pill,
   Syringe, Calendar, Check, X, Menu, Phone, Edit2, Trash2, Bell,
-  AlertTriangle, Send, Package, ClipboardList, UserPlus, Save
+  AlertTriangle, Send, Package, ClipboardList, UserPlus, Save, Archive, Eye
 } from 'lucide-react';
 import {
   apiService, ImmunizationRecord, MaternalRecord,
   HealthAppointment, ClinicSchedule, Resident
 } from '../../services/api';
+import PatientDetailModal, { PatientRecordData } from '../components/PatientDetailModal';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -33,6 +34,7 @@ interface ClinicalConsultation {
   bp: string; temp: string; weight: string; heart_rate: string;
   chief_complaint: string; diagnosis: string; treatment: string;
   attending_nurse: string; consultation_date: string;
+  status?: string;
 }
 
 interface InventoryItem {
@@ -41,7 +43,6 @@ interface InventoryItem {
   category: string;
   stock: number;
   unit: string;
-  cold_chain: string;
   expiry_date: string;
   status: string;
 }
@@ -67,12 +68,18 @@ interface ImmunRecord {
   child_name: string;
   contact_number: string;
   age_months: string;
+  gender?: string;
   guardian: string;
   barangay: string;
+  weight?: string;
+  height?: string;
+  temp?: string;
   vaccine_given: string;
   dose_number: string;
+  batch_number?: string;
   date_given: string;
   next_due_date: string;
+  remarks?: string;
   attending_nurse: string;
   sms_sent: boolean;
 }
@@ -82,18 +89,27 @@ interface WeeklySchedule {
   title: string;
   service_type: string;
   day: string;
-  time: string;
+  time_slot: string;
   location: string;
-  slots: string;
   assigned_to: string;
   posted_date: string;
+}
+
+interface EncounterArchive {
+  id: number | string;
+  patient_name: string;
+  contact_number: string;
+  encounter_type: string;
+  details: string;
+  date: string;
+  attending: string;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function NurseDashboard() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'overview' | 'consultations' | 'maternal' | 'immunizations' | 'schedule' | 'inventory' | 'sms'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'consultations' | 'maternal' | 'immunizations' | 'schedule' | 'inventory' | 'archives' | 'sms'>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -118,10 +134,14 @@ export default function NurseDashboard() {
   // API Data States
   const [appointments, setAppointments] = useState<HealthAppointment[]>([]);
 
+  // 360 Patient Modal
+  const [selectedPatientModal, setSelectedPatientModal] = useState<PatientRecordData | null>(null);
+  const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
+
   // Clinical Consultations State
   const [consultations, setConsultations] = useState<ClinicalConsultation[]>([
-    { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', age: 28, gender: 'Female', barangay: nurseBarangay, service_type: 'Prenatal Care', bp: '118/76 mmHg', temp: '36.5 °C', weight: '56.4 kg', heart_rate: '78 bpm', chief_complaint: 'Routine 2nd Trimester follow-up', diagnosis: 'IUP 22 Weeks AOG, Normal', treatment: 'FeSO4 + Folic Acid 400mcg daily', attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0] },
-    { id: 2, patient_name: 'Roberto Manalo', contact_number: '09289876543', age: 58, gender: 'Male', barangay: nurseBarangay, service_type: 'General Consultation', bp: '135/85 mmHg', temp: '36.7 °C', weight: '68.0 kg', heart_rate: '82 bpm', chief_complaint: 'Headache, BP monitoring', diagnosis: 'Stage 1 Hypertension, well-controlled', treatment: 'Amlodipine 5mg OD, low sodium diet', attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0] },
+    { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', age: 28, gender: 'Female', barangay: nurseBarangay, service_type: 'Prenatal Care', bp: '118/76 mmHg', temp: '36.5 °C', weight: '56.4 kg', heart_rate: '78 bpm', chief_complaint: 'Routine 2nd Trimester follow-up', diagnosis: 'IUP 22 Weeks AOG, Normal', treatment: 'FeSO4 + Folic Acid 400mcg daily', attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0], status: 'Completed' },
+    { id: 2, patient_name: 'Roberto Manalo', contact_number: '09289876543', age: 58, gender: 'Male', barangay: nurseBarangay, service_type: 'General Consultation', bp: '135/85 mmHg', temp: '36.7 °C', weight: '68.0 kg', heart_rate: '82 bpm', chief_complaint: 'Headache, BP monitoring', diagnosis: 'Stage 1 Hypertension, well-controlled', treatment: 'Amlodipine 5mg OD, low sodium diet', attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0], status: 'Completed' },
   ]);
 
   // Prenatal Records State
@@ -129,27 +149,34 @@ export default function NurseDashboard() {
     { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', age: 28, barangay: nurseBarangay, gravida: 'G2', para: 'P1', lmp: '2025-02-10', edd: '2025-11-17', aog_weeks: '22', bp: '118/76', weight: '56.4', temp: '36.5', fetal_heart_rate: '148 bpm', fundic_height: '22 cm', next_visit_date: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0], next_visit_note: '3rd Trimester Check-up', prescribed_meds: 'FeSO4 60mg + Folic Acid 400mcg', attending_nurse: nurseName, visit_date: new Date().toISOString().split('T')[0], visit_number: 2, sms_sent: false },
   ]);
 
-  // Immunization Records State
+  // Immunization Records State (Standard DOH Fields)
   const [immunRecords, setImmunRecords] = useState<ImmunRecord[]>([
-    { id: 1, child_name: 'Baby Liam Kenneth Diaz', contact_number: '09151234567', age_months: '6', guardian: 'Maria Diaz', barangay: nurseBarangay, vaccine_given: 'Pentavalent-3 + PCV-3', dose_number: 'Dose 3', date_given: new Date().toISOString().split('T')[0], next_due_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0], attending_nurse: nurseName, sms_sent: false },
-    { id: 2, child_name: 'Baby Sofia Grace Reyes', contact_number: '09281234567', age_months: '2', guardian: 'Lyn Reyes', barangay: nurseBarangay, vaccine_given: 'BCG + Hepatitis B', dose_number: 'Dose 1', date_given: new Date(Date.now() - 60 * 86400000).toISOString().split('T')[0], next_due_date: new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0], attending_nurse: nurseName, sms_sent: false },
+    { id: 1, child_name: 'Baby Liam Kenneth Diaz', contact_number: '09151234567', age_months: '6', gender: 'Male', guardian: 'Maria Diaz', barangay: nurseBarangay, weight: '7.8 kg', height: '66 cm', temp: '36.6 °C', vaccine_given: 'Pentavalent (DPT-HepB-Hib)', dose_number: 'Dose 3', batch_number: 'LOT-2026-X9', date_given: new Date().toISOString().split('T')[0], next_due_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0], remarks: 'Tolerated well, no adverse reactions', attending_nurse: nurseName, sms_sent: false },
+    { id: 2, child_name: 'Baby Sofia Grace Reyes', contact_number: '09281234567', age_months: '2', gender: 'Female', guardian: 'Lyn Reyes', barangay: nurseBarangay, weight: '4.5 kg', height: '54 cm', temp: '36.5 °C', vaccine_given: 'BCG', dose_number: 'Single Dose', batch_number: 'LOT-2026-BCG1', date_given: new Date(Date.now() - 60 * 86400000).toISOString().split('T')[0], next_due_date: new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0], remarks: 'Scar forming on left arm', attending_nurse: nurseName, sms_sent: false },
   ]);
 
-  // Inventory State
+  // Inventory State (NO cold_chain)
   const [inventory, setInventory] = useState<InventoryItem[]>([
-    { id: 1, item_name: 'Pentavalent Vaccine (DPT-HepB-Hib)', category: 'Vaccine (EPI)', stock: 45, unit: 'vials', cold_chain: '4.2 °C', expiry_date: '2026-06-30', status: 'In Stock' },
-    { id: 2, item_name: 'PCV 13 (Pneumococcal Conjugate)', category: 'Vaccine (EPI)', stock: 32, unit: 'vials', cold_chain: '4.1 °C', expiry_date: '2026-09-30', status: 'In Stock' },
-    { id: 3, item_name: 'Measles-Rubella (MR) Vaccine', category: 'Vaccine (EPI)', stock: 8, unit: 'vials', cold_chain: '3.9 °C', expiry_date: '2026-03-15', status: 'Low Stock' },
-    { id: 4, item_name: 'Ferrous Sulfate + Folic Acid', category: 'Maternal Vitamin', stock: 1200, unit: 'tablets', cold_chain: 'Room Temp', expiry_date: '2027-01-01', status: 'In Stock' },
-    { id: 5, item_name: 'Calcium Carbonate 500mg', category: 'Maternal Vitamin', stock: 850, unit: 'tablets', cold_chain: 'Room Temp', expiry_date: '2026-12-31', status: 'In Stock' },
-    { id: 6, item_name: 'Paracetamol 500mg Tablet', category: 'Essential Medicine', stock: 600, unit: 'tablets', cold_chain: 'Room Temp', expiry_date: '2027-06-30', status: 'In Stock' },
-    { id: 7, item_name: 'Oral Rehydration Salts (ORS)', category: 'Pediatric Supply', stock: 0, unit: 'packets', cold_chain: 'Room Temp', expiry_date: '2026-08-01', status: 'Out of Stock' },
+    { id: 1, item_name: 'Pentavalent Vaccine (DPT-HepB-Hib)', category: 'Vaccine (EPI)', stock: 45, unit: 'vials', expiry_date: '2026-06-30', status: 'In Stock' },
+    { id: 2, item_name: 'PCV 13 (Pneumococcal Conjugate)', category: 'Vaccine (EPI)', stock: 32, unit: 'vials', expiry_date: '2026-09-30', status: 'In Stock' },
+    { id: 3, item_name: 'Measles-Rubella (MR) Vaccine', category: 'Vaccine (EPI)', stock: 8, unit: 'vials', expiry_date: '2026-03-15', status: 'Low Stock' },
+    { id: 4, item_name: 'Ferrous Sulfate + Folic Acid', category: 'Maternal Vitamin', stock: 1200, unit: 'tablets', expiry_date: '2027-01-01', status: 'In Stock' },
+    { id: 5, item_name: 'Calcium Carbonate 500mg', category: 'Maternal Vitamin', stock: 850, unit: 'tablets', expiry_date: '2026-12-31', status: 'In Stock' },
+    { id: 6, item_name: 'Paracetamol 500mg Tablet', category: 'Essential Medicine', stock: 600, unit: 'tablets', expiry_date: '2027-06-30', status: 'In Stock' },
+    { id: 7, item_name: 'Oral Rehydration Salts (ORS)', category: 'Pediatric Supply', stock: 0, unit: 'packets', expiry_date: '2026-08-01', status: 'Out of Stock' },
   ]);
 
-  // Weekly Schedule State
+  // Weekly Schedule State (NO slots, operating hours only)
   const [weeklySchedules, setWeeklySchedules] = useState<WeeklySchedule[]>([
-    { id: 1, title: 'Prenatal / Maternal Care Clinic', service_type: 'Prenatal Care', day: 'Every Monday & Thursday', time: '8:00 AM – 12:00 PM', location: `Barangay ${nurseBarangay} Health Center`, slots: '20', assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0] },
-    { id: 2, title: 'EPI Immunization Day (Infants)', service_type: 'Child Immunization', day: 'Every Wednesday', time: '8:30 AM – 11:00 AM', location: `Barangay ${nurseBarangay} Health Center`, slots: '15', assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0] },
+    { id: 1, title: 'Prenatal & Maternal Care Clinic', service_type: 'Prenatal Care', day: 'Every Monday & Thursday', time_slot: '8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0] },
+    { id: 2, title: 'EPI Child Immunization Day', service_type: 'Child Immunization', day: 'Every Wednesday', time_slot: '8:00 AM – 12:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0] },
+    { id: 3, title: 'General Medical Consultation', service_type: 'General Consultation', day: 'Every Tuesday & Friday', time_slot: '8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0] },
+  ]);
+
+  // Encounters Archive Log
+  const [archives, setArchives] = useState<EncounterArchive[]>([
+    { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', encounter_type: 'Prenatal Consultation', details: 'AOG 22 Wks. FeSO4 prescribed.', date: new Date().toISOString().split('T')[0], attending: nurseName },
+    { id: 2, patient_name: 'Baby Liam Kenneth Diaz', contact_number: '09151234567', encounter_type: 'Immunization (Pentavalent-3)', details: 'Dose 3 administered successfully.', date: new Date().toISOString().split('T')[0], attending: nurseName },
   ]);
 
   // Modals state
@@ -182,23 +209,24 @@ export default function NurseDashboard() {
   const [pFh, setPFh] = useState(''); const [pNextDate, setPNextDate] = useState('');
   const [pNextNote, setPNextNote] = useState(''); const [pMeds, setPMeds] = useState('FeSO4 + Folic Acid');
 
-  // Immunization Form State
+  // Immunization Form State (Full DOH Barangay Health Center Standard)
   const [iChild, setIChild] = useState(''); const [iPhone, setIPhone] = useState('');
-  const [iAge, setIAge] = useState(''); const [iGuardian, setIGuardian] = useState('');
+  const [iAge, setIAge] = useState(''); const [iGender, setIGender] = useState('Male');
+  const [iGuardian, setIGuardian] = useState(''); const [iWeight, setIWeight] = useState('');
+  const [iHeight, setIHeight] = useState(''); const [iTemp, setITemp] = useState('36.5');
   const [iVaccine, setIVaccine] = useState('Pentavalent (DPT-HepB-Hib)'); const [iDose, setIDose] = useState('Dose 1');
-  const [iDateGiven, setIDateGiven] = useState(new Date().toISOString().split('T')[0]);
-  const [iNextDue, setINextDue] = useState('');
+  const [iBatch, setIBatch] = useState(''); const [iDateGiven, setIDateGiven] = useState(new Date().toISOString().split('T')[0]);
+  const [iNextDue, setINextDue] = useState(''); const [iRemarks, setIRemarks] = useState('Cleared for routine vaccination');
 
   // Inventory Form State
   const [invName, setInvName] = useState(''); const [invCat, setInvCat] = useState('Vaccine (EPI)');
   const [invStock, setInvStock] = useState(''); const [invUnit, setInvUnit] = useState('vials');
-  const [invCold, setInvCold] = useState(''); const [invExpiry, setInvExpiry] = useState('');
+  const [invExpiry, setInvExpiry] = useState('');
 
   // Schedule Form State
   const [sTitle, setSTitle] = useState(''); const [sService, setSService] = useState('Prenatal Care');
-  const [sDay, setSDay] = useState('Every Monday'); const [sTime, setSTime] = useState('8:00 AM – 12:00 PM');
+  const [sDay, setSDay] = useState('Every Monday'); const [sTime, setSTime] = useState('8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM');
   const [sLocation, setSLocation] = useState(`Barangay ${nurseBarangay} Health Center`);
-  const [sSlots, setSSlots] = useState('20');
 
   // Load API data
   const loadData = async () => {
@@ -231,11 +259,40 @@ export default function NurseDashboard() {
       return diff > 0 && diff <= 7;
     }), [immunRecords]);
 
+  // Open 360 Patient Profile Modal
+  const openPatient360 = (name: string, phone: string, barangay?: string) => {
+    const patientCons = consultations.filter(c => c.patient_name.toLowerCase() === name.toLowerCase()).map(c => ({
+      id: c.id, date: c.consultation_date, service_type: c.service_type, vitals: `BP: ${c.bp}, Temp: ${c.temp}`,
+      complaint: c.chief_complaint, diagnosis: c.diagnosis, treatment: c.treatment, attending: c.attending_nurse
+    }));
+
+    const patientPrenatal = prenatalRecords.filter(p => p.patient_name.toLowerCase() === name.toLowerCase()).map(p => ({
+      id: p.id, date: p.visit_date, gravida: p.gravida, para: p.para, lmp: p.lmp, edd: p.edd, aog: p.aog_weeks,
+      bp: p.bp, fhr: p.fetal_heart_rate, next_visit: p.next_visit_date, meds: p.prescribed_meds, attending: p.attending_nurse
+    }));
+
+    const patientImmun = immunRecords.filter(i => i.child_name.toLowerCase() === name.toLowerCase()).map(i => ({
+      id: i.id, vaccine: i.vaccine_given, dose: i.dose_number, date_given: i.date_given, next_due: i.next_due_date,
+      batch_number: i.batch_number, attending: i.attending_nurse
+    }));
+
+    setSelectedPatientModal({
+      id: Date.now(),
+      name,
+      contact_number: phone,
+      barangay: barangay || nurseBarangay,
+      consultations: patientCons,
+      prenatal: patientPrenatal,
+      immunizations: patientImmun
+    });
+    setIsPatientModalOpen(true);
+  };
+
   // Handlers
   const handleCreateConsultation = (e: React.FormEvent) => {
     e.preventDefault();
     if (!cName.trim()) { toast.error('Patient name is required'); return; }
-    setConsultations(prev => [{
+    const newConsult: ClinicalConsultation = {
       id: Date.now(), patient_name: cName.trim(), contact_number: cPhone.trim(),
       age: cAge || '—', gender: cGender, barangay: nurseBarangay, service_type: cService,
       bp: cBp ? `${cBp} mmHg` : 'N/A', temp: cTemp ? `${cTemp} °C` : 'N/A',
@@ -243,9 +300,23 @@ export default function NurseDashboard() {
       chief_complaint: cComplaint || 'Routine Health Visit',
       diagnosis: cDiagnosis || 'Assessment Complete',
       treatment: cTreatment || 'Health counseling advised.',
-      attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0]
+      attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0], status: 'Completed'
+    };
+
+    setConsultations(prev => [newConsult, ...prev]);
+
+    // Auto-archive encounter
+    setArchives(prev => [{
+      id: Date.now(),
+      patient_name: cName.trim(),
+      contact_number: cPhone.trim(),
+      encounter_type: `Consultation (${cService})`,
+      details: `Diagnosis: ${cDiagnosis || 'Assessment Complete'}. Treatment: ${cTreatment || 'Counseling'}`,
+      date: new Date().toISOString().split('T')[0],
+      attending: nurseName
     }, ...prev]);
-    toast.success('Consultation recorded!');
+
+    toast.success('Consultation recorded & saved to Patient Archives!');
     setIsNewConsultOpen(false);
     setCName(''); setCPhone(''); setCAge(''); setCComplaint(''); setCDiagnosis(''); setCTreatment('');
   };
@@ -267,8 +338,21 @@ export default function NurseDashboard() {
       visit_number: prenatalRecords.filter(r => r.patient_name === pName.trim()).length + 1,
       sms_sent: false
     };
+
     setPrenatalRecords(prev => [rec, ...prev]);
-    toast.success(`Prenatal record for ${pName} saved! SMS reminder ready for next visit.`);
+
+    // Auto-archive
+    setArchives(prev => [{
+      id: Date.now(),
+      patient_name: pName.trim(),
+      contact_number: pPhone.trim(),
+      encounter_type: 'Prenatal Care Visit',
+      details: `AOG: ${pAog} wks. Next visit: ${pNextDate}. Meds: ${pMeds}`,
+      date: new Date().toISOString().split('T')[0],
+      attending: nurseName
+    }, ...prev]);
+
+    toast.success(`Prenatal record for ${pName} saved & archived!`);
     setIsNewPrenatalOpen(false);
     setPName(''); setPPhone(''); setPAge(''); setPLmp(''); setPEdd(''); setPAog('');
     setPBp('120/80'); setPWeight(''); setPTemp('36.5'); setPFhr(''); setPFh('');
@@ -282,15 +366,30 @@ export default function NurseDashboard() {
     if (!iGuardian.trim()) { toast.error('Guardian name is required'); return; }
     const rec: ImmunRecord = {
       id: Date.now(), child_name: iChild.trim(), contact_number: iPhone.trim(),
-      age_months: iAge, guardian: iGuardian.trim(), barangay: nurseBarangay,
-      vaccine_given: iVaccine, dose_number: iDose, date_given: iDateGiven,
-      next_due_date: iNextDue, attending_nurse: nurseName, sms_sent: false
+      age_months: iAge, gender: iGender, guardian: iGuardian.trim(), barangay: nurseBarangay,
+      weight: iWeight, height: iHeight, temp: iTemp,
+      vaccine_given: iVaccine, dose_number: iDose, batch_number: iBatch || `LOT-${new Date().getFullYear()}-EPI`,
+      date_given: iDateGiven, next_due_date: iNextDue, remarks: iRemarks,
+      attending_nurse: nurseName, sms_sent: false
     };
+
     setImmunRecords(prev => [rec, ...prev]);
-    toast.success(`Immunization record for ${iChild} saved!`);
+
+    // Auto-archive
+    setArchives(prev => [{
+      id: Date.now(),
+      patient_name: `${iChild.trim()} (Guardian: ${iGuardian.trim()})`,
+      contact_number: iPhone.trim(),
+      encounter_type: `Immunization (${iVaccine})`,
+      details: `Dose: ${iDose}. Batch #: ${iBatch || 'EPI-Standard'}. Remarks: ${iRemarks}`,
+      date: iDateGiven,
+      attending: nurseName
+    }, ...prev]);
+
+    toast.success(`Immunization for ${iChild} recorded & archived!`);
     setIsNewImmunOpen(false);
     setIChild(''); setIPhone(''); setIAge(''); setIGuardian(''); setIVaccine('Pentavalent (DPT-HepB-Hib)');
-    setIDose('Dose 1'); setINextDue('');
+    setIDose('Dose 1'); setIBatch(''); setINextDue(''); setIRemarks('Cleared for routine vaccination');
   };
 
   const handleAddInventory = (e: React.FormEvent) => {
@@ -299,13 +398,12 @@ export default function NurseDashboard() {
     const qty = parseInt(invStock) || 0;
     setInventory(prev => [{
       id: Date.now(), item_name: invName.trim(), category: invCat,
-      stock: qty, unit: invUnit, cold_chain: invCold || 'Room Temp',
-      expiry_date: invExpiry, status: qty === 0 ? 'Out of Stock' : qty < 10 ? 'Low Stock' : 'In Stock'
+      stock: qty, unit: invUnit, expiry_date: invExpiry,
+      status: qty === 0 ? 'Out of Stock' : qty < 10 ? 'Low Stock' : 'In Stock'
     }, ...prev]);
     toast.success(`${invName} added to inventory!`);
     setIsInventoryOpen(false);
-    setInvName(''); setInvCat('Vaccine (EPI)'); setInvStock(''); setInvUnit('vials');
-    setInvCold(''); setInvExpiry('');
+    setInvName(''); setInvCat('Vaccine (EPI)'); setInvStock(''); setInvUnit('vials'); setInvExpiry('');
   };
 
   const handleUpdateInventory = (e: React.FormEvent) => {
@@ -330,13 +428,13 @@ export default function NurseDashboard() {
     if (!sTitle.trim()) { toast.error('Schedule title is required'); return; }
     setWeeklySchedules(prev => [{
       id: Date.now(), title: sTitle.trim(), service_type: sService,
-      day: sDay, time: sTime, location: sLocation, slots: sSlots,
+      day: sDay, time_slot: sTime, location: sLocation,
       assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0]
     }, ...prev]);
-    toast.success('Weekly schedule posted!');
+    toast.success('Weekly clinic schedule posted!');
     setIsScheduleOpen(false);
     setSTitle(''); setSService('Prenatal Care'); setSDay('Every Monday');
-    setSTime('8:00 AM – 12:00 PM'); setSSlots('20');
+    setSTime('8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM');
   };
 
   const handleUpdateSchedule = (e: React.FormEvent) => {
@@ -400,6 +498,7 @@ export default function NurseDashboard() {
     { id: 'immunizations', label: 'EPI Immunizations', icon: Baby },
     { id: 'schedule', label: 'Weekly Schedule', icon: CalendarCheck },
     { id: 'inventory', label: 'Vaccines & Medicine Supply', icon: Pill },
+    { id: 'archives', label: 'Encounters Archive', icon: Archive },
     { id: 'sms', label: 'SMS Notifications', icon: Bell },
   ];
 
@@ -481,7 +580,7 @@ export default function NurseDashboard() {
                     <Stethoscope className="text-teal-700" size={22} />
                     Barangay {nurseBarangay} — Clinical Command
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Real-time health center overview, alerts, and quick actions</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Real-time health center overview, patient encounters, and due alerts</p>
                 </div>
                 <Button onClick={() => setIsNewConsultOpen(true)} className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold gap-1.5 cursor-pointer">
                   <PlusCircle size={14} /> New Consultation
@@ -513,13 +612,13 @@ export default function NurseDashboard() {
                   { label: 'Consultations Recorded', value: consultations.length, icon: Stethoscope, color: 'teal', action: () => setActiveTab('consultations') },
                   { label: 'Prenatal Patients', value: prenatalRecords.length, icon: Heart, color: 'pink', action: () => setActiveTab('maternal') },
                   { label: 'Immunization Records', value: immunRecords.length, icon: Syringe, color: 'blue', action: () => setActiveTab('immunizations') },
-                  { label: 'Overdue Alerts', value: overduePrenatal.length + overdueImmun.length, icon: Bell, color: 'red', action: () => setActiveTab('sms') },
+                  { label: 'Archived Encounters', value: archives.length, icon: Archive, color: 'violet', action: () => setActiveTab('archives') },
                 ].map((s, i) => (
                   <Card key={i} className="bg-white border border-slate-200 cursor-pointer hover:shadow-md transition-shadow" onClick={s.action}>
                     <CardContent className="p-4 flex items-start justify-between">
                       <div>
                         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{s.label}</p>
-                        <h3 className={`text-3xl font-black mt-1 ${s.color === 'red' && s.value > 0 ? 'text-red-600' : 'text-slate-900'}`}>{s.value}</h3>
+                        <h3 className="text-3xl font-black mt-1 text-slate-900">{s.value}</h3>
                       </div>
                       <div className={`w-10 h-10 rounded-xl bg-${s.color}-100 text-${s.color}-700 flex items-center justify-center`}>
                         <s.icon size={20} />
@@ -537,7 +636,7 @@ export default function NurseDashboard() {
                   { label: 'Post Weekly Schedule', icon: CalendarCheck, color: 'violet', action: () => { setActiveTab('schedule'); setIsScheduleOpen(true); } },
                   { label: 'Add to Inventory', icon: Package, color: 'emerald', action: () => { setActiveTab('inventory'); setIsInventoryOpen(true); } },
                   { label: 'Send SMS Alerts', icon: Send, color: 'amber', action: handleSendDueSmsAll },
-                  { label: 'View Schedule', icon: CalendarCheck, color: 'teal', action: () => setActiveTab('schedule') },
+                  { label: 'View Encounters Log', icon: Archive, color: 'teal', action: () => setActiveTab('archives') },
                 ].map((q, i) => (
                   <button key={i} onClick={q.action}
                     className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-teal-200 transition-all cursor-pointer text-left">
@@ -561,7 +660,7 @@ export default function NurseDashboard() {
                     {upcomingPrenatal.map(r => (
                       <div key={r.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200">
                         <div>
-                          <p className="text-xs font-bold text-slate-800">{r.patient_name}</p>
+                          <p className="text-xs font-bold text-slate-800 cursor-pointer hover:text-teal-700" onClick={() => openPatient360(r.patient_name, r.contact_number)}>{r.patient_name}</p>
                           <p className="text-[11px] text-slate-500">Prenatal visit due: {r.next_visit_date} — {r.contact_number}</p>
                         </div>
                         <Button size="sm" variant="outline" onClick={() => handleSendSmsReminder(r.patient_name, r.contact_number, `Reminder: Your prenatal visit is scheduled on ${r.next_visit_date} at ${nurseBarangay} Health Center. — ${nurseName}`, 'Prenatal Reminder')} className="text-[10px] gap-1 h-7 border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer">
@@ -572,7 +671,7 @@ export default function NurseDashboard() {
                     {upcomingImmun.map(r => (
                       <div key={r.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200">
                         <div>
-                          <p className="text-xs font-bold text-slate-800">{r.child_name}</p>
+                          <p className="text-xs font-bold text-slate-800 cursor-pointer hover:text-teal-700" onClick={() => openPatient360(r.child_name, r.contact_number)}>{r.child_name}</p>
                           <p className="text-[11px] text-slate-500">Vaccine due: {r.next_due_date} — {r.contact_number}</p>
                         </div>
                         <Button size="sm" variant="outline" onClick={() => handleSendSmsReminder(r.child_name, r.contact_number, `Reminder: ${r.child_name}'s ${r.vaccine_given} (${r.dose_number}) is due on ${r.next_due_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`, 'Immunization Reminder')} className="text-[10px] gap-1 h-7 border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer">
@@ -600,7 +699,7 @@ export default function NurseDashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Patient Name</TableHead>
+                        <TableHead className="text-xs">Patient Name (Click for 360° Profile)</TableHead>
                         <TableHead className="text-xs">Contact Number</TableHead>
                         <TableHead className="text-xs">Service</TableHead>
                         <TableHead className="text-xs">Vitals</TableHead>
@@ -611,15 +710,24 @@ export default function NurseDashboard() {
                     <TableBody>
                       {consultations.filter(c => !search || c.patient_name.toLowerCase().includes(search.toLowerCase())).map((c, idx) => (
                         <TableRow key={`cons-${c.id}-${idx}`} className="text-xs hover:bg-teal-50/30">
-                          <TableCell className="font-semibold text-slate-800">{c.patient_name}<br /><span className="text-[10px] text-slate-400">{c.age} / {c.gender}</span></TableCell>
-                          <TableCell><span className="flex items-center gap-1 text-teal-700 font-mono"><Phone size={11} />{c.contact_number || '—'}</span></TableCell>
+                          <TableCell>
+                            <button
+                              onClick={() => openPatient360(c.patient_name, c.contact_number, c.barangay)}
+                              className="font-bold text-teal-800 hover:underline text-left cursor-pointer flex items-center gap-1.5"
+                            >
+                              <User size={13} className="text-teal-600" />
+                              {c.patient_name}
+                            </button>
+                            <span className="text-[10px] text-slate-400 block ml-4.5">{c.age} / {c.gender}</span>
+                          </TableCell>
+                          <TableCell><span className="flex items-center gap-1 text-slate-700 font-mono"><Phone size={11} className="text-teal-600" />{c.contact_number || '—'}</span></TableCell>
                           <TableCell><Badge className="bg-teal-100 text-teal-800 text-[10px] font-medium border-0">{c.service_type}</Badge></TableCell>
                           <TableCell className="text-slate-500 text-[10px]">BP: {c.bp}<br />Temp: {c.temp} | Wt: {c.weight}</TableCell>
                           <TableCell className="text-slate-400">{c.consultation_date}</TableCell>
                           <TableCell>
                             {c.contact_number && (
                               <Button size="sm" variant="outline" onClick={() => handleSendSmsReminder(c.patient_name, c.contact_number, `Dear ${c.patient_name}, follow up check-up recommended at ${nurseBarangay} Health Center. — ${nurseName}`, 'Follow-up')} className="text-[10px] h-6 gap-1 border-teal-200 text-teal-700 cursor-pointer">
-                                <Send size={10} /> SMS Follow-up
+                                <Send size={10} /> SMS
                               </Button>
                             )}
                           </TableCell>
@@ -652,7 +760,7 @@ export default function NurseDashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-pink-50/50">
-                        <TableHead className="text-xs">Patient</TableHead>
+                        <TableHead className="text-xs">Mother Patient (Click for 360° Profile)</TableHead>
                         <TableHead className="text-xs">Contact Number</TableHead>
                         <TableHead className="text-xs">AOG / EDD</TableHead>
                         <TableHead className="text-xs">Vitals & FHR</TableHead>
@@ -667,8 +775,17 @@ export default function NurseDashboard() {
                         const isDueSoon = r.next_visit_date && !isOverdue && (new Date(r.next_visit_date).getTime() - Date.now()) / 86400000 <= 7;
                         return (
                           <TableRow key={`prn-${r.id}-${idx}`} className={`text-xs ${isOverdue ? 'bg-red-50' : isDueSoon ? 'bg-amber-50' : ''}`}>
-                            <TableCell className="font-semibold text-slate-800">{r.patient_name}<br /><span className="text-[10px] text-slate-400">{r.gravida} {r.para} · Visit #{r.visit_number}</span></TableCell>
-                            <TableCell><span className="flex items-center gap-1 text-teal-700 font-mono"><Phone size={11} />{r.contact_number}</span></TableCell>
+                            <TableCell>
+                              <button
+                                onClick={() => openPatient360(r.patient_name, r.contact_number, r.barangay)}
+                                className="font-bold text-pink-900 hover:underline text-left cursor-pointer flex items-center gap-1.5"
+                              >
+                                <Heart size={13} className="text-pink-600" />
+                                {r.patient_name}
+                              </button>
+                              <span className="text-[10px] text-slate-400 block ml-4.5">{r.gravida} {r.para} · Visit #{r.visit_number}</span>
+                            </TableCell>
+                            <TableCell><span className="flex items-center gap-1 text-slate-700 font-mono"><Phone size={11} className="text-pink-600" />{r.contact_number}</span></TableCell>
                             <TableCell className="text-[10px]">{r.aog_weeks} wks AOG<br />EDD: {r.edd || '—'}</TableCell>
                             <TableCell className="text-[10px] text-slate-500">BP: {r.bp}<br />Wt: {r.weight} kg · FHR: {r.fetal_heart_rate}</TableCell>
                             <TableCell className="text-[10px]">
@@ -699,17 +816,17 @@ export default function NurseDashboard() {
             </div>
           )}
 
-          {/* ═══ IMMUNIZATIONS ══════════════════════════════════════════════ */}
+          {/* ═══ IMMUNIZATIONS (Standard DOH Fields) ════════════════════════ */}
           {activeTab === 'immunizations' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Syringe className="text-blue-600" size={20} /> EPI Child Immunization Records</h2>
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Syringe className="text-blue-600" size={20} /> EPI Child Immunization Records (DOH Standard)</h2>
                 <div className="flex gap-2">
                   <Button onClick={handleSendDueSmsAll} variant="outline" className="text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer">
                     <Send size={13} /> Send Due SMS
                   </Button>
                   <Button onClick={() => setIsNewImmunOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 cursor-pointer">
-                    <PlusCircle size={14} /> Record Vaccination
+                    <PlusCircle size={14} /> Record Child Vaccination
                   </Button>
                 </div>
               </div>
@@ -718,12 +835,12 @@ export default function NurseDashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-blue-50/50">
-                        <TableHead className="text-xs">Child / Guardian</TableHead>
-                        <TableHead className="text-xs">Contact Number</TableHead>
-                        <TableHead className="text-xs">Vaccine & Dose</TableHead>
-                        <TableHead className="text-xs">Date Given</TableHead>
+                        <TableHead className="text-xs">Child Patient (Click for 360° Profile)</TableHead>
+                        <TableHead className="text-xs">Guardian Contact</TableHead>
+                        <TableHead className="text-xs">Vaccine & Batch #</TableHead>
+                        <TableHead className="text-xs">Growth & Vitals</TableHead>
+                        <TableHead className="text-xs">Date Administered</TableHead>
                         <TableHead className="text-xs">Next Due Date</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
                         <TableHead className="text-xs">SMS Reminder</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -733,19 +850,28 @@ export default function NurseDashboard() {
                         const isDueSoon = r.next_due_date && !isOverdue && (new Date(r.next_due_date).getTime() - Date.now()) / 86400000 <= 7;
                         return (
                           <TableRow key={`imm-${r.id}-${idx}`} className={`text-xs ${isOverdue ? 'bg-red-50' : isDueSoon ? 'bg-amber-50' : ''}`}>
-                            <TableCell className="font-semibold text-slate-800">{r.child_name}<br /><span className="text-[10px] text-slate-400">{r.age_months} mos · Guardian: {r.guardian}</span></TableCell>
-                            <TableCell><span className="flex items-center gap-1 text-teal-700 font-mono"><Phone size={11} />{r.contact_number}</span></TableCell>
-                            <TableCell><Badge className="bg-blue-100 text-blue-800 text-[10px] border-0">{r.vaccine_given}</Badge><br /><span className="text-[10px] text-slate-400">{r.dose_number}</span></TableCell>
+                            <TableCell>
+                              <button
+                                onClick={() => openPatient360(r.child_name, r.contact_number, r.barangay)}
+                                className="font-bold text-blue-900 hover:underline text-left cursor-pointer flex items-center gap-1.5"
+                              >
+                                <Baby size={13} className="text-blue-600" />
+                                {r.child_name}
+                              </button>
+                              <span className="text-[10px] text-slate-400 block ml-4.5">{r.age_months} mos · Guardian: {r.guardian}</span>
+                            </TableCell>
+                            <TableCell><span className="flex items-center gap-1 text-slate-700 font-mono"><Phone size={11} className="text-blue-600" />{r.contact_number}</span></TableCell>
+                            <TableCell>
+                              <Badge className="bg-blue-100 text-blue-800 text-[10px] border-0">{r.vaccine_given}</Badge>
+                              <br />
+                              <span className="text-[10px] text-slate-500 font-mono">{r.dose_number} · Batch: {r.batch_number || 'N/A'}</span>
+                            </TableCell>
+                            <TableCell className="text-[10px] text-slate-500">Wt: {r.weight || '—'} · Ht: {r.height || '—'}<br />Temp: {r.temp || '—'}</TableCell>
                             <TableCell className="text-slate-500 text-[10px]">{r.date_given}</TableCell>
                             <TableCell>
                               <span className={`text-xs font-semibold ${isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-slate-700'}`}>
-                                {r.next_due_date || '—'}
+                                {r.next_due_date || 'Complete'}
                               </span>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={`text-[10px] border-0 ${isOverdue ? 'bg-red-100 text-red-700' : isDueSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                                {isOverdue ? 'Overdue' : isDueSoon ? 'Due Soon' : 'On Track'}
-                              </Badge>
                             </TableCell>
                             <TableCell>
                               {r.contact_number && r.next_due_date && (
@@ -766,13 +892,13 @@ export default function NurseDashboard() {
             </div>
           )}
 
-          {/* ═══ WEEKLY SCHEDULE ════════════════════════════════════════════ */}
+          {/* ═══ WEEKLY SCHEDULE (NO SLOTS - OPERATING HOURS ONLY) ═════════ */}
           {activeTab === 'schedule' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><CalendarCheck className="text-violet-600" size={20} /> Weekly Clinic Schedule & Appointments</h2>
-                  <p className="text-xs text-slate-500">Post and edit weekly health center consultation hours for residents</p>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><CalendarCheck className="text-violet-600" size={20} /> Weekly Clinic Schedule & Operating Hours</h2>
+                  <p className="text-xs text-slate-500">Post and edit official health center consultation hours (no slot limits)</p>
                 </div>
                 <Button onClick={() => setIsScheduleOpen(true)} className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1.5 cursor-pointer">
                   <PlusCircle size={14} /> Post Weekly Schedule
@@ -780,7 +906,7 @@ export default function NurseDashboard() {
               </div>
 
               {/* Posted Schedules Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {weeklySchedules.map((s, idx) => (
                   <Card key={`sch-${s.id}-${idx}`} className="border border-violet-200 bg-white hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
@@ -799,82 +925,31 @@ export default function NurseDashboard() {
                         </div>
                       </div>
                       <div className="space-y-1.5 text-xs text-slate-600">
-                        <div className="flex items-center gap-2"><Calendar size={12} className="text-violet-500" />{s.day}</div>
-                        <div className="flex items-center gap-2"><Clock size={12} className="text-violet-500" />{s.time}</div>
-                        <div className="flex items-center gap-2"><MapPin size={12} className="text-violet-500" />{s.location}</div>
-                        <div className="flex items-center gap-2"><UserPlus size={12} className="text-violet-500" />{s.slots} slots · Assigned: {s.assigned_to}</div>
+                        <div className="flex items-center gap-2 font-semibold text-slate-800"><Calendar size={13} className="text-violet-600" />{s.day}</div>
+                        <div className="flex items-center gap-2 text-violet-700 font-mono"><Clock size={13} className="text-violet-600" />{s.time_slot}</div>
+                        <div className="flex items-center gap-2"><MapPin size={13} className="text-violet-600" />{s.location}</div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500"><UserPlus size={13} className="text-violet-600" />Attending: {s.assigned_to}</div>
                       </div>
-                      <p className="text-[10px] text-slate-400 mt-2">Posted date: {s.posted_date}</p>
+                      <p className="text-[10px] text-slate-400 mt-3 pt-2 border-t border-slate-100">Posted date: {s.posted_date}</p>
                     </CardContent>
                   </Card>
                 ))}
-                {weeklySchedules.length === 0 && (
-                  <div className="sm:col-span-2 text-center text-xs py-12 text-slate-400 bg-white rounded-xl border border-slate-200">
-                    <CalendarCheck size={32} className="mx-auto mb-2 opacity-30 text-violet-500" />
-                    No schedules posted yet. Click "Post Weekly Schedule" to create one.
-                  </div>
-                )}
               </div>
-
-              {/* Pending Appointments List */}
-              {appointments.length > 0 && (
-                <Card className="mt-6">
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-bold text-slate-800 flex items-center gap-2"><ClipboardList size={16} />Pending Resident Appointments</CardTitle></CardHeader>
-                  <CardContent className="p-0">
-                    <Table>
-                      <TableHeader><TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Resident Name</TableHead>
-                        <TableHead className="text-xs">Service Type</TableHead>
-                        <TableHead className="text-xs">Date Requested</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs">Action</TableHead>
-                      </TableRow></TableHeader>
-                      <TableBody>
-                        {appointments.map((a, idx) => (
-                          <TableRow key={`appt-${a.id}-${idx}`} className="text-xs">
-                            <TableCell className="font-semibold">{a.resident_name}</TableCell>
-                            <TableCell>{a.service_type}</TableCell>
-                            <TableCell className="text-slate-400">{a.appointment_date || '—'}</TableCell>
-                            <TableCell><Badge className={`text-[10px] border-0 ${a.status === 'Pending' ? 'bg-amber-100 text-amber-700' : a.status === 'Approved' ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-600'}`}>{a.status}</Badge></TableCell>
-                            <TableCell>
-                              {a.status === 'Pending' && (
-                                <Button size="sm" onClick={() => handleApproveAppointment(a)} className="h-7 text-[11px] bg-teal-600 hover:bg-teal-700 text-white gap-1 cursor-pointer">
-                                  <Check size={11} /> Approve
-                                </Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              )}
             </div>
           )}
 
-          {/* ═══ INVENTORY ══════════════════════════════════════════════════ */}
+          {/* ═══ INVENTORY (NO COLD CHAIN) ═════════════════════════════════ */}
           {activeTab === 'inventory' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Package className="text-emerald-600" size={20} /> Vaccines & Medicine Inventory</h2>
-                  <p className="text-xs text-slate-500">Track stock levels, cold chain storage temperature, and expiration dates</p>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Package className="text-emerald-600" size={20} /> Vaccines & Medicine Supply</h2>
+                  <p className="text-xs text-slate-500">Track stock levels and expiration dates for essential health center supplies</p>
                 </div>
                 <Button onClick={() => setIsInventoryOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 cursor-pointer">
                   <PlusCircle size={14} /> Add Medicine / Vaccine
                 </Button>
               </div>
-
-              {/* Stock Alerts */}
-              {inventory.filter(i => i.status !== 'In Stock').length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-                  <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-800">
-                    <strong>Inventory Alert:</strong> {inventory.filter(i => i.status === 'Out of Stock').length} item(s) out of stock · {inventory.filter(i => i.status === 'Low Stock').length} item(s) low stock.
-                  </div>
-                </div>
-              )}
 
               <Card>
                 <CardContent className="p-0">
@@ -884,7 +959,6 @@ export default function NurseDashboard() {
                         <TableHead className="text-xs">Item Name</TableHead>
                         <TableHead className="text-xs">Category</TableHead>
                         <TableHead className="text-xs">Stock Level</TableHead>
-                        <TableHead className="text-xs">Cold Chain / Storage</TableHead>
                         <TableHead className="text-xs">Expiry Date</TableHead>
                         <TableHead className="text-xs">Status</TableHead>
                         <TableHead className="text-xs text-right">Actions</TableHead>
@@ -896,7 +970,6 @@ export default function NurseDashboard() {
                           <TableCell className="font-semibold text-slate-800">{item.item_name}</TableCell>
                           <TableCell><Badge className="bg-slate-100 text-slate-700 text-[10px] border-0">{item.category}</Badge></TableCell>
                           <TableCell className="font-bold text-slate-800">{item.stock} <span className="text-slate-400 font-normal">{item.unit}</span></TableCell>
-                          <TableCell className="text-[11px] text-slate-500">{item.cold_chain}</TableCell>
                           <TableCell className="text-[11px] text-slate-500">{item.expiry_date || '—'}</TableCell>
                           <TableCell>
                             <Badge className={`text-[10px] border-0 ${item.status === 'In Stock' ? 'bg-emerald-100 text-emerald-700' : item.status === 'Low Stock' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{item.status}</Badge>
@@ -909,7 +982,46 @@ export default function NurseDashboard() {
                           </TableCell>
                         </TableRow>
                       ))}
-                      {inventory.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-xs py-8 text-slate-400">No inventory items added yet.</TableCell></TableRow>}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ═══ HISTORICAL ARCHIVES ═════════════════════════════════════════ */}
+          {activeTab === 'archives' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Archive className="text-teal-700" size={20} /> Clinical Encounters & Historical Archives</h2>
+                  <p className="text-xs text-slate-500">Permanent transaction history of all completed consultations, vaccinations, and maternal visits</p>
+                </div>
+              </div>
+              <Card>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50">
+                        <TableHead className="text-xs">Patient Name</TableHead>
+                        <TableHead className="text-xs">Contact</TableHead>
+                        <TableHead className="text-xs">Encounter Type</TableHead>
+                        <TableHead className="text-xs">Clinical Summary</TableHead>
+                        <TableHead className="text-xs">Encounter Date</TableHead>
+                        <TableHead className="text-xs">Attending Staff</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {archives.map((a, idx) => (
+                        <TableRow key={`arch-${a.id}-${idx}`} className="text-xs">
+                          <TableCell className="font-bold text-slate-800">{a.patient_name}</TableCell>
+                          <TableCell className="font-mono text-slate-600">{a.contact_number}</TableCell>
+                          <TableCell><Badge className="bg-teal-100 text-teal-800 border-0 text-[10px]">{a.encounter_type}</Badge></TableCell>
+                          <TableCell className="text-slate-600 text-[11px]">{a.details}</TableCell>
+                          <TableCell className="text-slate-400">{a.date}</TableCell>
+                          <TableCell className="text-slate-500">{a.attending}</TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -920,11 +1032,8 @@ export default function NurseDashboard() {
           {/* ═══ SMS NOTIFICATIONS ══════════════════════════════════════════ */}
           {activeTab === 'sms' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Bell className="text-amber-500" size={20} /> Automated SMS Reminders & Due Alerts</h2>
-                  <p className="text-xs text-slate-500">Send text notifications to mothers and parents for overdue or upcoming appointments</p>
-                </div>
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Bell className="text-amber-500" size={20} /> Automated SMS Reminders & Alerts</h2>
                 <Button onClick={handleSendDueSmsAll} className="bg-amber-500 hover:bg-amber-600 text-white text-xs gap-1.5 cursor-pointer">
                   <Send size={14} /> Send All Due SMS Reminders
                 </Button>
@@ -937,9 +1046,8 @@ export default function NurseDashboard() {
                     {overduePrenatal.map((r, idx) => (
                       <div key={`od-p-${idx}`} className="flex items-center justify-between bg-red-50 rounded-lg px-3 py-2.5 border border-red-200">
                         <div>
-                          <p className="text-xs font-bold text-slate-800">{r.patient_name}</p>
+                          <p className="text-xs font-bold text-slate-800 cursor-pointer hover:underline" onClick={() => openPatient360(r.patient_name, r.contact_number)}>{r.patient_name}</p>
                           <p className="text-[11px] text-red-600">Due: {r.next_visit_date} · Contact: {r.contact_number}</p>
-                          <p className="text-[11px] text-slate-500">{r.next_visit_note}</p>
                         </div>
                         <Button size="sm" onClick={() => handleSendSmsReminder(r.patient_name, r.contact_number, `URGENT: Dear ${r.patient_name}, your prenatal visit was due on ${r.next_visit_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`, 'Prenatal Overdue')} className="bg-red-600 hover:bg-red-700 text-white text-[10px] gap-1 cursor-pointer">
                           <Send size={10} /> Send SMS
@@ -957,9 +1065,8 @@ export default function NurseDashboard() {
                     {overdueImmun.map((r, idx) => (
                       <div key={`od-i-${idx}`} className="flex items-center justify-between bg-orange-50 rounded-lg px-3 py-2.5 border border-orange-200">
                         <div>
-                          <p className="text-xs font-bold text-slate-800">{r.child_name}</p>
+                          <p className="text-xs font-bold text-slate-800 cursor-pointer hover:underline" onClick={() => openPatient360(r.child_name, r.contact_number)}>{r.child_name}</p>
                           <p className="text-[11px] text-orange-600">{r.vaccine_given} ({r.dose_number}) due: {r.next_due_date} · Contact: {r.contact_number}</p>
-                          <p className="text-[11px] text-slate-500">Guardian: {r.guardian}</p>
                         </div>
                         <Button size="sm" onClick={() => handleSendSmsReminder(r.child_name, r.contact_number, `Reminder: ${r.child_name}'s ${r.vaccine_given} was due on ${r.next_due_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`, 'Immunization Overdue')} className="bg-orange-600 hover:bg-orange-700 text-white text-[10px] gap-1 cursor-pointer">
                           <Send size={10} /> Send SMS
@@ -969,38 +1076,6 @@ export default function NurseDashboard() {
                   </CardContent>
                 </Card>
               )}
-
-              {upcomingPrenatal.length + upcomingImmun.length > 0 && (
-                <Card className="border-amber-200">
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-bold text-amber-800 flex items-center gap-2"><Clock size={16} />Upcoming Visits (Due Within 7 Days)</CardTitle></CardHeader>
-                  <CardContent className="space-y-2">
-                    {[...upcomingPrenatal.map(r => ({ ...r, type: 'prenatal' as const })), ...upcomingImmun.map(r => ({ ...r, type: 'immun' as const }))].map((r, idx) => (
-                      <div key={`up-${idx}`} className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2.5 border border-amber-200">
-                        <div>
-                          <p className="text-xs font-bold text-slate-800">{'patient_name' in r ? r.patient_name : r.child_name}</p>
-                          <p className="text-[11px] text-amber-700">{r.type === 'prenatal' ? `Prenatal visit: ${'next_visit_date' in r ? r.next_visit_date : ''}` : `Vaccine due: ${'next_due_date' in r ? r.next_due_date : ''}`} · Contact: {r.contact_number}</p>
-                        </div>
-                        <Button size="sm" variant="outline" onClick={() => {
-                          const name = 'patient_name' in r ? r.patient_name : r.child_name;
-                          const date = r.type === 'prenatal' && 'next_visit_date' in r ? r.next_visit_date : 'next_due_date' in r ? r.next_due_date : '';
-                          const msg = r.type === 'prenatal' ? `Reminder: Your prenatal visit is on ${date} at ${nurseBarangay} Health Center. — ${nurseName}` : `Reminder: ${'vaccine_given' in r ? r.vaccine_given : ''} is due on ${date} at ${nurseBarangay} Health Center. — ${nurseName}`;
-                          handleSendSmsReminder(name, r.contact_number, msg, 'Upcoming Reminder');
-                        }} className="border-amber-300 text-amber-700 text-[10px] gap-1 cursor-pointer">
-                          <Send size={10} /> Send Reminder
-                        </Button>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
-              {totalAlerts === 0 && (
-                <div className="text-center py-16 text-slate-400 bg-white rounded-xl border border-slate-200">
-                  <CheckCircle2 size={40} className="mx-auto mb-3 text-teal-400" />
-                  <p className="font-semibold text-slate-600">All patients are up-to-date!</p>
-                  <p className="text-xs mt-1">No overdue prenatal visits or immunization due dates found.</p>
-                </div>
-              )}
             </div>
           )}
 
@@ -1009,18 +1084,24 @@ export default function NurseDashboard() {
 
       {/* ─── MODALS ──────────────────────────────────────────────────────────── */}
 
+      {/* 360 Patient Details Modal */}
+      <PatientDetailModal
+        isOpen={isPatientModalOpen}
+        onClose={() => setIsPatientModalOpen(false)}
+        patient={selectedPatientModal}
+      />
+
       {/* New Consultation Modal */}
       <Dialog open={isNewConsultOpen} onOpenChange={setIsNewConsultOpen}>
         <DialogContent className="bg-white max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900"><Stethoscope className="text-teal-600" size={18} /> Record Patient Consultation</DialogTitle>
-            <DialogDescription className="text-xs">Enter patient details, contact number, vitals, and prescription</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateConsultation} className="space-y-3 py-2">
             <div className="grid grid-cols-2 gap-2">
               <div className="col-span-2"><Label className="text-xs font-semibold">Patient Name <span className="text-red-500">*</span></Label><Input value={cName} onChange={e => setCName(e.target.value)} placeholder="Full name" required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label><Input value={cPhone} onChange={e => setCPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" className="h-9 text-xs font-mono mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Age</Label><Input value={cAge} onChange={e => setCAge(e.target.value)} placeholder="e.g. 28 or 6 mos" className="h-9 text-xs mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label><Input value={cPhone} onChange={e => setCPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required className="h-9 text-xs font-mono mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Age</Label><Input value={cAge} onChange={e => setCAge(e.target.value)} placeholder="e.g. 28" className="h-9 text-xs mt-1" /></div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div><Label className="text-xs font-semibold">Gender</Label>
@@ -1041,15 +1122,15 @@ export default function NurseDashboard() {
             <div className="bg-teal-50 border border-teal-200 rounded-xl p-3">
               <p className="text-[11px] font-bold text-teal-900 mb-2">Vital Signs</p>
               <div className="grid grid-cols-4 gap-2">
-                <div><Label className="text-[10px] text-teal-800">BP (mmHg)</Label><Input value={cBp} onChange={e => setCBp(e.target.value)} placeholder="120/80" className="h-8 text-xs font-mono bg-white" /></div>
-                <div><Label className="text-[10px] text-teal-800">Temp (°C)</Label><Input value={cTemp} onChange={e => setCTemp(e.target.value)} placeholder="36.5" className="h-8 text-xs font-mono bg-white" /></div>
-                <div><Label className="text-[10px] text-teal-800">Weight (kg)</Label><Input value={cWeight} onChange={e => setCWeight(e.target.value)} placeholder="54" className="h-8 text-xs font-mono bg-white" /></div>
-                <div><Label className="text-[10px] text-teal-800">HR (bpm)</Label><Input value={cHR} onChange={e => setCHR(e.target.value)} placeholder="76" className="h-8 text-xs font-mono bg-white" /></div>
+                <div><Label className="text-[10px]">BP (mmHg)</Label><Input value={cBp} onChange={e => setCBp(e.target.value)} placeholder="120/80" className="h-8 text-xs bg-white" /></div>
+                <div><Label className="text-[10px]">Temp (°C)</Label><Input value={cTemp} onChange={e => setCTemp(e.target.value)} placeholder="36.5" className="h-8 text-xs bg-white" /></div>
+                <div><Label className="text-[10px]">Weight (kg)</Label><Input value={cWeight} onChange={e => setCWeight(e.target.value)} placeholder="54" className="h-8 text-xs bg-white" /></div>
+                <div><Label className="text-[10px]">HR (bpm)</Label><Input value={cHR} onChange={e => setCHR(e.target.value)} placeholder="76" className="h-8 text-xs bg-white" /></div>
               </div>
             </div>
             <div><Label className="text-xs font-semibold">Chief Complaint</Label><Input value={cComplaint} onChange={e => setCComplaint(e.target.value)} placeholder="e.g. Mild fever for 2 days" className="h-9 text-xs mt-1" /></div>
-            <div><Label className="text-xs font-semibold">Diagnosis / Assessment</Label><Input value={cDiagnosis} onChange={e => setCDiagnosis(e.target.value)} placeholder="e.g. URTI, Stage 1 HTN" className="h-9 text-xs mt-1" /></div>
-            <div><Label className="text-xs font-semibold">Treatment / Prescription</Label><textarea value={cTreatment} onChange={e => setCTreatment(e.target.value)} placeholder="e.g. Paracetamol 500mg q4h PRN, oral hydration..." rows={2} className="w-full px-3 py-2 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 resize-none mt-1" /></div>
+            <div><Label className="text-xs font-semibold">Diagnosis</Label><Input value={cDiagnosis} onChange={e => setCDiagnosis(e.target.value)} placeholder="e.g. URTI" className="h-9 text-xs mt-1" /></div>
+            <div><Label className="text-xs font-semibold">Treatment / Prescription</Label><textarea value={cTreatment} onChange={e => setCTreatment(e.target.value)} placeholder="e.g. Paracetamol 500mg..." rows={2} className="w-full px-3 py-2 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 resize-none mt-1" /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsNewConsultOpen(false)} className="text-xs">Cancel</Button>
               <Button type="submit" className="bg-teal-700 hover:bg-teal-800 text-white text-xs gap-1 cursor-pointer"><Check size={13} /> Save Consultation</Button>
@@ -1063,14 +1144,13 @@ export default function NurseDashboard() {
         <DialogContent className="bg-white max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900"><Heart className="text-pink-600" size={18} /> New Prenatal / Maternal Record</DialogTitle>
-            <DialogDescription className="text-xs">Contact number is required for SMS visit reminders</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreatePrenatal} className="space-y-3 py-2">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2"><Label className="text-xs font-semibold">Patient Name <span className="text-red-500">*</span></Label><Input value={pName} onChange={e => setPName(e.target.value)} placeholder="Full name" required className="h-9 text-xs mt-1" /></div>
               <div><Label className="text-xs font-semibold">Age</Label><Input value={pAge} onChange={e => setPAge(e.target.value)} placeholder="e.g. 28" className="h-9 text-xs mt-1" /></div>
             </div>
-            <div><Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span> (for SMS reminders)</Label><Input value={pPhone} onChange={e => setPPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required className="h-9 text-xs font-mono mt-1" /></div>
+            <div><Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label><Input value={pPhone} onChange={e => setPPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required className="h-9 text-xs font-mono mt-1" /></div>
             <div className="grid grid-cols-4 gap-2">
               <div><Label className="text-xs font-semibold">Gravida</Label><Input value={pGravida} onChange={e => setPGravida(e.target.value)} placeholder="G1" className="h-9 text-xs mt-1" /></div>
               <div><Label className="text-xs font-semibold">Para</Label><Input value={pPara} onChange={e => setPPara(e.target.value)} placeholder="P0" className="h-9 text-xs mt-1" /></div>
@@ -1079,7 +1159,7 @@ export default function NurseDashboard() {
             </div>
             <div><Label className="text-xs font-semibold">AOG (weeks)</Label><Input value={pAog} onChange={e => setPAog(e.target.value)} placeholder="e.g. 22" className="h-9 text-xs mt-1 w-40" /></div>
             <div className="bg-pink-50 border border-pink-200 rounded-xl p-3">
-              <p className="text-[11px] font-bold text-pink-900 mb-2">Vital Signs & Clinical Measurements</p>
+              <p className="text-[11px] font-bold text-pink-900 mb-2">Vitals & Fetal Measurements</p>
               <div className="grid grid-cols-3 gap-2">
                 <div><Label className="text-[10px]">BP (mmHg)</Label><Input value={pBp} onChange={e => setPBp(e.target.value)} placeholder="120/80" className="h-8 text-xs bg-white mt-0.5" /></div>
                 <div><Label className="text-[10px]">Weight (kg)</Label><Input value={pWeight} onChange={e => setPWeight(e.target.value)} placeholder="56.5" className="h-8 text-xs bg-white mt-0.5" /></div>
@@ -1088,43 +1168,54 @@ export default function NurseDashboard() {
                 <div><Label className="text-[10px]">Fundic Height</Label><Input value={pFh} onChange={e => setPFh(e.target.value)} placeholder="22 cm" className="h-8 text-xs bg-white mt-0.5" /></div>
               </div>
             </div>
-            <div><Label className="text-xs font-semibold">Prescribed Medicines</Label><Input value={pMeds} onChange={e => setPMeds(e.target.value)} placeholder="e.g. FeSO4 60mg + Folic Acid 400mcg" className="h-9 text-xs mt-1" /></div>
+            <div><Label className="text-xs font-semibold">Prescribed Medicines</Label><Input value={pMeds} onChange={e => setPMeds(e.target.value)} placeholder="e.g. FeSO4 + Folic Acid" className="h-9 text-xs mt-1" /></div>
             <div className="grid grid-cols-2 gap-2">
               <div><Label className="text-xs font-semibold">Next Visit Date <span className="text-red-500">*</span></Label><Input type="date" value={pNextDate} onChange={e => setPNextDate(e.target.value)} required className="h-9 text-xs mt-1" /></div>
               <div><Label className="text-xs font-semibold">Visit Note</Label><Input value={pNextNote} onChange={e => setPNextNote(e.target.value)} placeholder="e.g. 3rd Trimester Check-up" className="h-9 text-xs mt-1" /></div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsNewPrenatalOpen(false)} className="text-xs">Cancel</Button>
-              <Button type="submit" className="bg-pink-600 hover:bg-pink-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Save Prenatal Record</Button>
+              <Button type="submit" className="bg-pink-600 hover:bg-pink-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Save Record</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* New Immunization Modal */}
+      {/* New Child Immunization Modal (DOH Barangay Standard) */}
       <Dialog open={isNewImmunOpen} onOpenChange={setIsNewImmunOpen}>
-        <DialogContent className="bg-white max-w-lg">
+        <DialogContent className="bg-white max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><Syringe className="text-blue-600" size={18} /> Record Immunization</DialogTitle>
-            <DialogDescription className="text-xs">Contact number required for SMS reminders on next dose</DialogDescription>
+            <DialogTitle className="flex items-center gap-2 text-slate-900"><Baby className="text-blue-600" size={18} /> Record Child Immunization (DOH Standard)</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreateImmun} className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="col-span-2"><Label className="text-xs font-semibold">Child's Name <span className="text-red-500">*</span></Label><Input value={iChild} onChange={e => setIChild(e.target.value)} placeholder="Full name of child" required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label><Input value={iPhone} onChange={e => setIPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX (parent/guardian)" required className="h-9 text-xs font-mono mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Age (months)</Label><Input value={iAge} onChange={e => setIAge(e.target.value)} placeholder="e.g. 6" className="h-9 text-xs mt-1" /></div>
-              <div className="col-span-2"><Label className="text-xs font-semibold">Guardian Name <span className="text-red-500">*</span></Label><Input value={iGuardian} onChange={e => setIGuardian(e.target.value)} placeholder="Parent or guardian's full name" required className="h-9 text-xs mt-1" /></div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2"><Label className="text-xs font-semibold">Child's Full Name <span className="text-red-500">*</span></Label><Input value={iChild} onChange={e => setIChild(e.target.value)} placeholder="Full name of child" required className="h-9 text-xs mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Sex</Label>
+                <Select value={iGender} onValueChange={setIGender}>
+                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="Male">Male</SelectItem><SelectItem value="Female">Female</SelectItem></SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs font-semibold">Vaccine</Label>
+              <div><Label className="text-xs font-semibold">Guardian Name <span className="text-red-500">*</span></Label><Input value={iGuardian} onChange={e => setIGuardian(e.target.value)} placeholder="Parent/Guardian" required className="h-9 text-xs mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Guardian Phone Number <span className="text-red-500">*</span></Label><Input value={iPhone} onChange={e => setIPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required className="h-9 text-xs font-mono mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div><Label className="text-xs font-semibold">Age (months)</Label><Input value={iAge} onChange={e => setIAge(e.target.value)} placeholder="e.g. 6" className="h-9 text-xs mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Weight (kg)</Label><Input value={iWeight} onChange={e => setIWeight(e.target.value)} placeholder="e.g. 7.8" className="h-9 text-xs mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Height (cm)</Label><Input value={iHeight} onChange={e => setIHeight(e.target.value)} placeholder="e.g. 66" className="h-9 text-xs mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div><Label className="text-xs font-semibold">Vaccine Type</Label>
                 <Select value={iVaccine} onValueChange={setIVaccine}>
                   <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {['BCG', 'Hepatitis B', 'Pentavalent (DPT-HepB-Hib)', 'PCV13', 'OPV (Oral Polio)', 'MMR', 'Measles-Rubella (MR)', 'Varicella', 'Influenza', 'Vitamin A'].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                    {['BCG', 'Hepatitis B', 'Pentavalent (DPT-HepB-Hib)', 'OPV (Oral Polio)', 'IPV (Inactivated Polio)', 'PCV13', 'MMR (Measles-Mumps-Rubella)', 'Measles-Rubella (MR)', 'Vitamin A'].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
-              <div><Label className="text-xs font-semibold">Dose</Label>
+              <div><Label className="text-xs font-semibold">Dose Number</Label>
                 <Select value={iDose} onValueChange={setIDose}>
                   <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1132,20 +1223,22 @@ export default function NurseDashboard() {
                   </SelectContent>
                 </Select>
               </div>
+              <div><Label className="text-xs font-semibold">Batch / Lot Number</Label><Input value={iBatch} onChange={e => setIBatch(e.target.value)} placeholder="e.g. LOT-2026-X9" className="h-9 text-xs font-mono mt-1" /></div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div><Label className="text-xs font-semibold">Date Given</Label><Input type="date" value={iDateGiven} onChange={e => setIDateGiven(e.target.value)} className="h-9 text-xs mt-1" /></div>
               <div><Label className="text-xs font-semibold">Next Due Date</Label><Input type="date" value={iNextDue} onChange={e => setINextDue(e.target.value)} className="h-9 text-xs mt-1" /></div>
             </div>
+            <div><Label className="text-xs font-semibold">Remarks / Adverse Effects Observation</Label><Input value={iRemarks} onChange={e => setIRemarks(e.target.value)} placeholder="e.g. Tolerated well, no post-vaccine reaction" className="h-9 text-xs mt-1" /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsNewImmunOpen(false)} className="text-xs">Cancel</Button>
-              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1 cursor-pointer"><Check size={13} /> Save Immunization</Button>
+              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1 cursor-pointer"><Check size={13} /> Save Immunization Record</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Add Inventory Modal */}
+      {/* Add Inventory Modal (NO cold_chain) */}
       <Dialog open={isInventoryOpen} onOpenChange={setIsInventoryOpen}>
         <DialogContent className="bg-white max-w-md">
           <DialogHeader>
@@ -1173,9 +1266,8 @@ export default function NurseDashboard() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div><Label className="text-xs font-semibold">Stock Quantity <span className="text-red-500">*</span></Label><Input type="number" min="0" value={invStock} onChange={e => setInvStock(e.target.value)} placeholder="e.g. 45" required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Cold Chain / Storage</Label><Input value={invCold} onChange={e => setInvCold(e.target.value)} placeholder="e.g. 4.2 °C or Room Temp" className="h-9 text-xs mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Expiry Date</Label><Input type="date" value={invExpiry} onChange={e => setInvExpiry(e.target.value)} className="h-9 text-xs mt-1" /></div>
             </div>
-            <div><Label className="text-xs font-semibold">Expiry Date</Label><Input type="date" value={invExpiry} onChange={e => setInvExpiry(e.target.value)} className="h-9 text-xs mt-1" /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsInventoryOpen(false)} className="text-xs">Cancel</Button>
               <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1 cursor-pointer"><PlusCircle size={13} /> Add Item</Button>
@@ -1184,7 +1276,7 @@ export default function NurseDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Inventory Modal */}
+      {/* Edit Inventory Modal (NO cold_chain) */}
       <Dialog open={isEditInventoryOpen} onOpenChange={setIsEditInventoryOpen}>
         <DialogContent className="bg-white max-w-md">
           <DialogHeader>
@@ -1194,13 +1286,10 @@ export default function NurseDashboard() {
             <form onSubmit={handleUpdateInventory} className="space-y-3 py-2">
               <div><Label className="text-xs font-semibold">Item Name</Label><Input value={editingItem.item_name} onChange={e => setEditingItem({ ...editingItem, item_name: e.target.value })} className="h-9 text-xs mt-1" /></div>
               <div className="grid grid-cols-2 gap-2">
-                <div><Label className="text-xs font-semibold">Stock</Label><Input type="number" min="0" value={editingItem.stock} onChange={e => setEditingItem({ ...editingItem, stock: parseInt(e.target.value) || 0 })} className="h-9 text-xs mt-1" /></div>
+                <div><Label className="text-xs font-semibold">Stock Level</Label><Input type="number" min="0" value={editingItem.stock} onChange={e => setEditingItem({ ...editingItem, stock: parseInt(e.target.value) || 0 })} className="h-9 text-xs mt-1" /></div>
                 <div><Label className="text-xs font-semibold">Unit</Label><Input value={editingItem.unit} onChange={e => setEditingItem({ ...editingItem, unit: e.target.value })} className="h-9 text-xs mt-1" /></div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><Label className="text-xs font-semibold">Cold Chain</Label><Input value={editingItem.cold_chain} onChange={e => setEditingItem({ ...editingItem, cold_chain: e.target.value })} className="h-9 text-xs mt-1" /></div>
-                <div><Label className="text-xs font-semibold">Expiry Date</Label><Input type="date" value={editingItem.expiry_date} onChange={e => setEditingItem({ ...editingItem, expiry_date: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              </div>
+              <div><Label className="text-xs font-semibold">Expiry Date</Label><Input type="date" value={editingItem.expiry_date} onChange={e => setEditingItem({ ...editingItem, expiry_date: e.target.value })} className="h-9 text-xs mt-1" /></div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsEditInventoryOpen(false)} className="text-xs">Cancel</Button>
                 <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Save Changes</Button>
@@ -1210,14 +1299,14 @@ export default function NurseDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Post Schedule Modal */}
+      {/* Post Schedule Modal (NO SLOTS - OPERATING HOURS ONLY) */}
       <Dialog open={isScheduleOpen} onOpenChange={setIsScheduleOpen}>
         <DialogContent className="bg-white max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><CalendarCheck className="text-violet-600" size={18} /> Post Weekly Schedule</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-slate-900"><CalendarCheck className="text-violet-600" size={18} /> Post Weekly Clinic Schedule</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleAddSchedule} className="space-y-3 py-2">
-            <div><Label className="text-xs font-semibold">Schedule Title <span className="text-red-500">*</span></Label><Input value={sTitle} onChange={e => setSTitle(e.target.value)} placeholder="e.g. Prenatal Care Clinic" required className="h-9 text-xs mt-1" /></div>
+            <div><Label className="text-xs font-semibold">Schedule Title <span className="text-red-500">*</span></Label><Input value={sTitle} onChange={e => setSTitle(e.target.value)} placeholder="e.g. Prenatal & Maternal Care Clinic" required className="h-9 text-xs mt-1" /></div>
             <div><Label className="text-xs font-semibold">Service Type</Label>
               <Select value={sService} onValueChange={setSService}>
                 <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
@@ -1226,19 +1315,16 @@ export default function NurseDashboard() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs font-semibold">Day / Schedule</Label>
-                <Select value={sDay} onValueChange={setSDay}>
-                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['Every Monday', 'Every Tuesday', 'Every Wednesday', 'Every Thursday', 'Every Friday', 'Every Monday & Thursday', 'Every Tuesday & Friday', 'Every Wednesday', '1st & 3rd Monday', 'Every Day (Mon-Fri)'].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div><Label className="text-xs font-semibold">Time Slot</Label><Input value={sTime} onChange={e => setSTime(e.target.value)} placeholder="8:00 AM – 12:00 PM" className="h-9 text-xs mt-1" /></div>
+            <div><Label className="text-xs font-semibold">Day / Days of Week</Label>
+              <Select value={sDay} onValueChange={setSDay}>
+                <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {['Every Monday', 'Every Tuesday', 'Every Wednesday', 'Every Thursday', 'Every Friday', 'Every Monday & Thursday', 'Every Tuesday & Friday', '1st & 3rd Wednesday', 'Every Day (Mon-Fri)'].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
+            <div><Label className="text-xs font-semibold">Operating Hours / Time Slot <span className="text-red-500">*</span></Label><Input value={sTime} onChange={e => setSTime(e.target.value)} placeholder="e.g. 8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM" required className="h-9 text-xs mt-1" /></div>
             <div><Label className="text-xs font-semibold">Location</Label><Input value={sLocation} onChange={e => setSLocation(e.target.value)} placeholder={`Barangay ${nurseBarangay} Health Center`} className="h-9 text-xs mt-1" /></div>
-            <div><Label className="text-xs font-semibold">Max Slots</Label><Input value={sSlots} onChange={e => setSSlots(e.target.value)} placeholder="20" className="h-9 text-xs mt-1 w-32" /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsScheduleOpen(false)} className="text-xs">Cancel</Button>
               <Button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Post Schedule</Button>
@@ -1247,21 +1333,18 @@ export default function NurseDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Schedule Modal */}
+      {/* Edit Schedule Modal (NO SLOTS) */}
       <Dialog open={isEditScheduleOpen} onOpenChange={setIsEditScheduleOpen}>
         <DialogContent className="bg-white max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><Edit2 className="text-violet-600" size={18} /> Edit Schedule</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-slate-900"><Edit2 className="text-violet-600" size={18} /> Edit Clinic Operating Hours</DialogTitle>
           </DialogHeader>
           {editingSchedule && (
             <form onSubmit={handleUpdateSchedule} className="space-y-3 py-2">
               <div><Label className="text-xs font-semibold">Title</Label><Input value={editingSchedule.title} onChange={e => setEditingSchedule({ ...editingSchedule, title: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><Label className="text-xs font-semibold">Day</Label><Input value={editingSchedule.day} onChange={e => setEditingSchedule({ ...editingSchedule, day: e.target.value })} className="h-9 text-xs mt-1" /></div>
-                <div><Label className="text-xs font-semibold">Time</Label><Input value={editingSchedule.time} onChange={e => setEditingSchedule({ ...editingSchedule, time: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              </div>
+              <div><Label className="text-xs font-semibold">Day</Label><Input value={editingSchedule.day} onChange={e => setEditingSchedule({ ...editingSchedule, day: e.target.value })} className="h-9 text-xs mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Operating Hours / Time Slot</Label><Input value={editingSchedule.time_slot} onChange={e => setEditingSchedule({ ...editingSchedule, time_slot: e.target.value })} className="h-9 text-xs mt-1" /></div>
               <div><Label className="text-xs font-semibold">Location</Label><Input value={editingSchedule.location} onChange={e => setEditingSchedule({ ...editingSchedule, location: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Max Slots</Label><Input value={editingSchedule.slots} onChange={e => setEditingSchedule({ ...editingSchedule, slots: e.target.value })} className="h-9 text-xs mt-1 w-32" /></div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsEditScheduleOpen(false)} className="text-xs">Cancel</Button>
                 <Button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Save Changes</Button>
