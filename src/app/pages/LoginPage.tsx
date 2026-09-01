@@ -70,26 +70,40 @@ export default function LoginPage() {
   const [showLoginPass, setShowLoginPass] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Register State
+  // Dynamic Register State (strictly dynamic — no hardcoded presets)
   const [regFirstName, setRegFirstName] = useState('');
   const [regMiddleName, setRegMiddleName] = useState('');
   const [regLastName, setRegLastName] = useState('');
-  const [regDob, setRegDob] = useState('2000-01-01');
-  const [regGender, setRegGender] = useState<'Male' | 'Female'>('Male');
-  const [regCivilStatus, setRegCivilStatus] = useState<'Single' | 'Married' | 'Widowed' | 'Separated'>('Single');
+  const [regDob, setRegDob] = useState('');
+  const [regGender, setRegGender] = useState<'Male' | 'Female' | ''>('');
+  const [regCivilStatus, setRegCivilStatus] = useState<'Single' | 'Married' | 'Widowed' | 'Separated' | ''>('');
   const [regResidencyYears, setRegResidencyYears] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [showRegPass, setShowRegPass] = useState(false);
   const [regPhone, setRegPhone] = useState('');
-  const [regPurok, setRegPurok] = useState('Purok 1');
-  const [regBarangay, setRegBarangay] = useState('Pianing');
-  const [regCity, setRegCity] = useState('Butuan City');
-  const [regIdType, setRegIdType] = useState(ID_TYPES[0]);
+  const [regPurok, setRegPurok] = useState('');
+  const [regBarangay, setRegBarangay] = useState('');
+  const [regCity, setRegCity] = useState('');
+  const [regIdType, setRegIdType] = useState('');
   const [regIdPhoto, setRegIdPhoto] = useState<string | null>(null);
   const [regIdFileName, setRegIdFileName] = useState<string>('');
   const [isChoiceModalOpen, setIsChoiceModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Dynamic Age calculation
+  const getDynamicAge = (dobStr: string): number | null => {
+    if (!dobStr) return null;
+    const birth = new Date(dobStr);
+    if (isNaN(birth.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age >= 0 ? age : null;
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -180,6 +194,14 @@ export default function LoginPage() {
       toast.error('Date of Birth / Birthday is required');
       return;
     }
+    if (!regGender) {
+      toast.error('Gender is required. Please choose Male or Female.');
+      return;
+    }
+    if (!regCivilStatus) {
+      toast.error('Civil Status is required. Please select an option.');
+      return;
+    }
     if (!regEmail.trim()) {
       toast.error('Email address is required');
       return;
@@ -208,7 +230,7 @@ export default function LoginPage() {
     }
 
     if (!regBarangay.trim()) {
-      toast.error('Barangay is required');
+      toast.error('Barangay is required. Please select your barangay.');
       return;
     }
     if (!regCity.trim()) {
@@ -219,6 +241,10 @@ export default function LoginPage() {
       toast.error('Purok / Street Address is required');
       return;
     }
+    if (!regIdType) {
+      toast.error('Valid Government ID Type is required');
+      return;
+    }
     if (!regIdPhoto) {
       toast.error('Government ID photo is required', {
         description: 'Please upload a photo of your valid government ID for Barangay Admin verification.'
@@ -226,6 +252,7 @@ export default function LoginPage() {
       return;
     }
 
+    const computedAge = getDynamicAge(regDob);
     const fullName = `${regFirstName.trim()} ${regMiddleName.trim() ? regMiddleName.trim() + ' ' : ''}${regLastName.trim()}`.trim();
     const fullAddress = `${regPurok.trim()}, Barangay ${regBarangay.trim()}, ${regCity.trim()}`;
 
@@ -256,6 +283,7 @@ export default function LoginPage() {
         date_of_birth: regDob,
         gender: regGender,
         civil_status: regCivilStatus,
+        age: computedAge !== null ? computedAge : undefined,
         email: regEmail.trim(),
         phone: cleanPhone,
         address: fullAddress,
@@ -461,12 +489,12 @@ export default function LoginPage() {
                     </div>
                   </div>
 
-                  {/* 3. Mobile Phone Number, Date of Birth, Gender */}
+                  {/* 3. Mobile Phone Number, Date of Birth with Dynamic Age, Gender */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div className="space-y-1">
                       <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                         <Phone size={13} className="text-teal-600" />
-                        Mobile Phone <RequiredBadge />
+                        Contact Number <RequiredBadge />
                       </Label>
                       <Input
                         value={regPhone}
@@ -481,10 +509,17 @@ export default function LoginPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                        <Calendar size={13} className="text-teal-600" />
-                        Birthday <RequiredBadge />
-                      </Label>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                          <Calendar size={13} className="text-teal-600" />
+                          Birthday <RequiredBadge />
+                        </Label>
+                        {getDynamicAge(regDob) !== null && (
+                          <span className="text-[10px] text-teal-700 font-bold bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200">
+                            {getDynamicAge(regDob)} yrs old
+                          </span>
+                        )}
+                      </div>
                       <Input
                         type="date"
                         value={regDob}
@@ -500,7 +535,7 @@ export default function LoginPage() {
                       </Label>
                       <Select value={regGender} onValueChange={(val: 'Male' | 'Female') => setRegGender(val)}>
                         <SelectTrigger className="h-9 text-xs">
-                          <SelectValue placeholder="Gender" />
+                          <SelectValue placeholder="Select Gender" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="Male" className="text-xs">Male</SelectItem>
@@ -517,7 +552,7 @@ export default function LoginPage() {
                     </Label>
                     <Select value={regCivilStatus} onValueChange={(val: 'Single' | 'Married' | 'Widowed' | 'Separated') => setRegCivilStatus(val)}>
                       <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Civil Status" />
+                        <SelectValue placeholder="Select Civil Status" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Single" className="text-xs">Single</SelectItem>
@@ -533,7 +568,7 @@ export default function LoginPage() {
                     <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                       <MapPin size={13} className="text-teal-600" />
                       Years of Residency in the Barangay
-                      <span className="ml-1 text-[10px] font-normal text-slate-400">(Optional — for Certificate of Residency)</span>
+                      <span className="ml-1 text-[10px] font-normal text-slate-400">(for Certificate of Residency)</span>
                     </Label>
                     <Input
                       value={regResidencyYears}
@@ -542,7 +577,7 @@ export default function LoginPage() {
                       className="h-9 text-xs"
                     />
 
-                    <p className="text-[10px] text-slate-400">This will be used if you request a Certificate of Residency.</p>
+                    <p className="text-[10px] text-slate-400">Used for official Barangay Certificates &amp; Residency verification.</p>
                   </div>
 
                   {/* 4. Address: Barangay, City, Purok/Street */}
@@ -580,7 +615,7 @@ export default function LoginPage() {
                         <Input
                           value={regPurok}
                           onChange={e => setRegPurok(e.target.value)}
-                          placeholder="e.g. Purok 1"
+                          placeholder="e.g. Purok 1, Zone 2"
                           required
                           className="h-8 text-xs mt-0.5"
                         />
@@ -597,7 +632,7 @@ export default function LoginPage() {
                       </Label>
                       <Select value={regIdType} onValueChange={setRegIdType}>
                         <SelectTrigger className="h-9 text-xs">
-                          <SelectValue placeholder="Select Valid ID Type" />
+                          <SelectValue placeholder="Select Valid Government ID Type" />
                         </SelectTrigger>
                         <SelectContent>
                           {ID_TYPES.map((idType) => (

@@ -208,7 +208,7 @@ export default function AdminDashboard() {
   const [newResPurok, setNewResPurok] = useState('');
   const [newResGender, setNewResGender] = useState<'Male' | 'Female'>('Male');
   const [newResPhone, setNewResPhone] = useState('');
-  const [newResPassword, setNewResPassword] = useState('123');
+  const [newResPassword, setNewResPassword] = useState('');
   const [newResEmail, setNewResEmail] = useState('');
 
   // New User Form State (First, Middle, Last Name)
@@ -1026,22 +1026,42 @@ export default function AdminDashboard() {
 
   const handleCreateResident = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newResFirstName || !newResLastName) return;
-    // Auto-build address from purok + admin's barangay
+    if (!newResFirstName.trim() || !newResLastName.trim()) {
+      toast.error('First Name and Last Name are required');
+      return;
+    }
+    if (!newResDOB) {
+      toast.error('Date of Birth is required');
+      return;
+    }
+    if (!newResPhone.trim()) {
+      toast.error('Contact Number is required');
+      return;
+    }
+    const cleanPhone = newResPhone.replace(/\D/g, '');
+    if (!/^09\d{9}$/.test(cleanPhone)) {
+      toast.error('Invalid Contact Number format (must be 11 digits starting with 09)');
+      return;
+    }
+    if (!newResPurok.trim()) {
+      toast.error('Purok / Street Address is required');
+      return;
+    }
+
+    // Auto-build address from dynamic purok + admin's current barangay
     const adminBarangay = user?.barangay || 'Pianing';
-    const purokStr = newResPurok ? newResPurok.trim() : 'Purok 1';
-    const autoAddress = `${purokStr}, Barangay ${adminBarangay}, Butuan City`;
+    const autoAddress = `${newResPurok.trim()}, Barangay ${adminBarangay}, Butuan City`;
     try {
       await apiService.createResident({
         first_name: newResFirstName.trim(),
         middle_name: newResMiddleName.trim(),
         last_name: newResLastName.trim(),
-        date_of_birth: newResDOB || '2000-01-01',
+        date_of_birth: newResDOB,
         gender: newResGender,
         address: autoAddress,
-        phone: newResPhone.trim() || '09170000000',
+        phone: cleanPhone,
         email: newResEmail.trim() || undefined,
-        password: newResPassword.trim() || '123'
+        password: newResPassword.trim() || undefined
       } as any);
       // Reload to avoid duplicates (never manually push)
       const freshResidents = await apiService.getResidents();
@@ -1055,7 +1075,7 @@ export default function AdminDashboard() {
       setNewResDOB('');
       setNewResPurok('');
       setNewResPhone('');
-      setNewResPassword('123');
+      setNewResPassword('');
       setNewResEmail('');
     } catch (err) {
       toast.error('Could not register resident');
