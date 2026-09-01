@@ -42,7 +42,6 @@ import {
   ClinicSchedule,
   Resident
 } from '../../services/api';
-import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -90,6 +89,25 @@ export default function NurseDashboard() {
   });
 
   const nurseBarangay = user?.barangay || 'Pianing';
+  const nurseName = user?.name || 'Health Center Nurse';
+
+  // Auth guard: redirect to login if not a nurse
+  useEffect(() => {
+    const stored = localStorage.getItem('barangay_user');
+    if (!stored) {
+      navigate('/login');
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored);
+      const role = (parsed?.role || '').toLowerCase().trim();
+      if (role !== 'nurse') {
+        navigate('/login');
+      }
+    } catch {
+      navigate('/login');
+    }
+  }, [navigate]);
 
   // Dynamic Data States
   const [appointments, setAppointments] = useState<HealthAppointment[]>([]);
@@ -114,7 +132,7 @@ export default function NurseDashboard() {
       chief_complaint: 'Routine 2nd Trimester follow-up checkup',
       diagnosis: 'Intrauterine Pregnancy at 22 Weeks, Normal Condition',
       treatment: 'Prescribed Ferrous Sulfate 60mg + Folic Acid 400mcg daily. Advised iron-rich diet & adequate hydration.',
-      attending_nurse: user?.name || 'Nurse Maria Santos, RN',
+      attending_nurse: nurseName,
       consultation_date: new Date().toISOString().split('T')[0]
     },
     {
@@ -131,7 +149,7 @@ export default function NurseDashboard() {
       chief_complaint: 'Scheduled Pentavalent Dose 3 & PCV Dose 3',
       diagnosis: 'Well Infant, cleared for DOH routine immunization',
       treatment: 'Administered Pentavalent-3 (0.5 mL IM) and PCV-3 (0.5 mL IM). Paracetamol drops prescribed for post-vaccine fever PRN.',
-      attending_nurse: user?.name || 'Nurse Maria Santos, RN',
+      attending_nurse: nurseName,
       consultation_date: new Date().toISOString().split('T')[0]
     },
     {
@@ -148,7 +166,7 @@ export default function NurseDashboard() {
       chief_complaint: 'Mild headache, BP monitoring',
       diagnosis: 'Stage 1 Hypertension, well-controlled',
       treatment: 'Lifestyle modification, low sodium diet advised. Continue maintenance Amlodipine 5mg OD.',
-      attending_nurse: user?.name || 'Nurse Maria Santos, RN',
+      attending_nurse: nurseName,
       consultation_date: new Date().toISOString().split('T')[0]
     }
   ]);
@@ -231,7 +249,7 @@ export default function NurseDashboard() {
       chief_complaint: consultComplaint || 'Routine Health Visit',
       diagnosis: consultDiagnosis || 'Clinical Assessment Complete',
       treatment: consultTreatment || 'Health counseling and monitoring advised.',
-      attending_nurse: user?.name || 'Nurse Maria Santos, RN',
+      attending_nurse: nurseName,
       consultation_date: new Date().toISOString().split('T')[0]
     };
 
@@ -251,7 +269,7 @@ export default function NurseDashboard() {
     try {
       await apiService.updateAppointment(appt.id, {
         status: 'Approved',
-        attending_bhw: user?.name || 'Nurse Maria Santos, RN',
+        attending_bhw: nurseName,
         bhw_notes: 'Confirmed by Attending Nurse. Please arrive on time with your Health Card / Pink Book.'
       });
       toast.success(`Appointment for ${appt.resident_name} approved!`);
@@ -265,7 +283,7 @@ export default function NurseDashboard() {
     try {
       await apiService.updateAppointment(appt.id, {
         status: 'Completed',
-        attending_bhw: user?.name || 'Nurse Maria Santos, RN',
+        attending_bhw: nurseName,
         bhw_notes: 'Consultation completed successfully. Follow-up scheduled if necessary.'
       });
       toast.success(`Appointment for ${appt.resident_name} marked Completed!`);
@@ -287,8 +305,7 @@ export default function NurseDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {/* Super Admin Ecosystem Dock */}
-      <SuperAdminNavigationDock currentRole={user?.role} />
+      {/* Nurse Portal — no SuperAdmin navigation dock */}
 
       {/* Top Navbar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-3 shadow-xs">
@@ -306,7 +323,7 @@ export default function NurseDashboard() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="text-sm font-bold text-slate-900 leading-tight">Barangay Pianing</h1>
+                  <h1 className="text-sm font-bold text-slate-900 leading-tight">Barangay {nurseBarangay} Health Center</h1>
                   <Badge className="bg-teal-600 text-white text-[10px] font-bold px-1.5 py-0.2">
                     Nurse Portal
                   </Badge>
@@ -319,7 +336,7 @@ export default function NurseDashboard() {
           <div className="flex items-center gap-2">
             <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 text-teal-800 border border-teal-200 rounded-full text-xs font-semibold">
               <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
-              Attending Nurse: <strong>{user?.name || 'Nurse Maria Santos, RN'}</strong>
+              Attending Nurse: <strong>{nurseName}</strong>
             </span>
 
             <Button
@@ -390,7 +407,7 @@ export default function NurseDashboard() {
                 <div>
                   <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                     <Stethoscope className="text-teal-700" size={24} />
-                    Barangay {nurseBarangay} Health Center Clinical Command
+                    Barangay {nurseBarangay} Health Center — Clinical Command
                   </h2>
                   <p className="text-xs text-slate-500">Clinical triage, maternal health monitoring, child vaccination tracking, and patient encounters.</p>
                 </div>
