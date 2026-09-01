@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `name` VARCHAR(100) NOT NULL,
   `email` VARCHAR(100) NOT NULL UNIQUE,
   `password_hash` VARCHAR(255) NOT NULL,
-  `role` ENUM('superadmin', 'admin', 'staff', 'bhw', 'resident') NOT NULL DEFAULT 'resident',
+  `role` VARCHAR(50) NOT NULL DEFAULT 'resident',
   `status` ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
   `verification_status` ENUM('Verified', 'Unverified', 'Pending_Review', 'Rejected') NOT NULL DEFAULT 'Verified',
   `civil_status` ENUM('Single', 'Married', 'Widowed', 'Separated') DEFAULT 'Single',

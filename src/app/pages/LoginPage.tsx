@@ -157,11 +157,14 @@ export default function LoginPage() {
         const portalLabel = user.role === 'superadmin' ? 'Super Admin Portal'
           : user.role === 'admin' ? 'Barangay Admin Portal'
           : user.role === 'staff' ? 'Barangay Staff Portal'
+          : user.role === 'nurse' ? 'Health Center Nurse Portal'
           : 'BHW Health Center Portal';
         toast.success(`Welcome back, ${user.name}!`, { description: `Opening ${portalLabel}...` });
 
         if (user.role === 'superadmin' || user.role === 'admin' || user.role === 'staff') {
           navigate('/admin');
+        } else if (user.role === 'nurse') {
+          navigate('/nurse');
         } else if (user.role === 'bhw') {
           navigate('/bhw');
         }

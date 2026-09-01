@@ -134,6 +134,7 @@ async function migrateDatabase() {
 
     // Safe column additions and modifications
     try {
+      await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(50) NOT NULL DEFAULT 'resident'");
       await pool.query("ALTER TABLE users MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'Active'");
       await pool.query("ALTER TABLE users MODIFY COLUMN verification_status ENUM('Verified', 'Pending_Review', 'Rejected', 'Unverified', 'Pending') NOT NULL DEFAULT 'Pending_Review'");
       await pool.query("ALTER TABLE residents MODIFY COLUMN verification_status ENUM('Verified', 'Pending_Review', 'Rejected', 'Unverified', 'Pending') NOT NULL DEFAULT 'Pending_Review'");

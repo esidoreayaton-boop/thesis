@@ -6,6 +6,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import ResidentPortal from "./pages/ResidentPortal";
 import BarangayPortal from "./pages/BarangayPortal";
 import HealthCenterPortal from "./pages/HealthCenterPortal";
+import NurseDashboard from "./pages/NurseDashboard";
 
 export const router = createBrowserRouter([
   {
@@ -15,6 +16,10 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     Component: LoginPage,
+  },
+  {
+    path: "/nurse",
+    Component: NurseDashboard,
   },
   {
     path: "/bhw",

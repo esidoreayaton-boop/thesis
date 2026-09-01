@@ -218,7 +218,7 @@ export default function AdminDashboard() {
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [showNewUserPass, setShowNewUserPass] = useState(false);
-  const [newUserRole, setNewUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident'>('staff');
+  const [newUserRole, setNewUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'nurse' | 'resident'>('staff');
   const [newUserBarangay, setNewUserBarangay] = useState('');
   const [newUserPhone, setNewUserPhone] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -233,7 +233,7 @@ export default function AdminDashboard() {
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editUserName, setEditUserName] = useState('');
   const [editUserEmail, setEditUserEmail] = useState('');
-  const [editUserRole, setEditUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident'>('staff');
+  const [editUserRole, setEditUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'nurse' | 'resident'>('staff');
   const [editUserBarangay, setEditUserBarangay] = useState('Pianing');
   const [editUserPhone, setEditUserPhone] = useState('');
   const [editUserStatus, setEditUserStatus] = useState<'Active' | 'Inactive' | 'Archived'>('Active');
@@ -1121,7 +1121,7 @@ export default function AdminDashboard() {
 
     // Role Access Rule: Only Super Admin can create Barangay Admin accounts
     if (newUserRole === 'admin' && !isSuperAdmin) {
-      toast.error('Access Restricted: Only Super Admin can create Barangay Administrator accounts. You may create Staff and BHW accounts.');
+      toast.error('Access Restricted: Only Super Admin can create Barangay Administrator accounts. You may create Staff, BHW, and Nurse accounts.');
       return;
     }
 
@@ -1390,7 +1390,7 @@ export default function AdminDashboard() {
       if (u.role === 'superadmin') return false;
       const uBrgy = (u.barangay || (u.email?.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing')).toLowerCase().trim();
       if (uBrgy !== currentAdminBarangay) return false;
-      return true; // allows admin, staff, bhw, and resident!
+      return true; // allows admin, staff, bhw, nurse, and resident!
     }
     return false;
   };
@@ -1527,23 +1527,6 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Notification Alert Indicator */}
-            {(!isSuperAdmin && (myPendingResidents.length > 0 || activeDocuments.length > 0)) && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setActiveTab(myPendingResidents.length > 0 ? 'approvals' : 'documents')}
-                className="relative flex items-center gap-1.5 text-xs text-amber-800 bg-amber-50 border-amber-300 hover:bg-amber-100 font-semibold cursor-pointer shadow-2xs"
-                title={`${myPendingResidents.length} Pending Resident Approvals, ${activeDocuments.length} Active Document Requests`}
-              >
-                <Bell size={14} className="text-amber-600 animate-bounce" />
-                <span className="hidden sm:inline">Alerts</span>
-                <span className="bg-red-600 text-white text-[10px] font-extrabold rounded-full px-1.5 py-0.2 min-w-[18px] text-center shadow-xs animate-pulse">
-                  {myPendingResidents.length + activeDocuments.length}
-                </span>
-              </Button>
-            )}
-
             <Button
               variant="outline"
               size="sm"
@@ -1735,32 +1718,6 @@ export default function AdminDashboard() {
                   )}
                 </div>
               </div>
-
-              {/* Pending Resident Approvals Alert Banner (Barangay Admins only) */}
-              {!isSuperAdmin && myPendingResidents.length > 0 && (
-                <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-300 dark:border-amber-700/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <UserCheck size={22} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                        {myPendingResidents.length} Pending Resident Account {myPendingResidents.length > 1 ? 'Registrations' : 'Registration'}
-                      </h4>
-                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-                        New resident submitted government ID for account verification in Barangay {user?.barangay || 'Pianing'}. Review &amp; approve to unlock online requests.
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => setActiveTab('approvals')}
-                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs shrink-0 font-semibold shadow-xs"
-                  >
-                    Review Applications →
-                  </Button>
-                </div>
-              )}
 
               {/* Stats Cards — 4 columns */}
               {isSuperAdmin ? (
@@ -3470,14 +3427,15 @@ export default function AdminDashboard() {
                               <Label className="text-xs font-semibold">System Role <span className="text-red-500">*</span></Label>
                               <Select
                                 value={newUserRole === 'resident' || (!isSuperAdmin && newUserRole === 'admin') ? 'staff' : newUserRole}
-                                onValueChange={(val: 'admin' | 'staff' | 'bhw') => setNewUserRole(val)}
+                                onValueChange={(val: 'admin' | 'staff' | 'bhw' | 'nurse') => setNewUserRole(val)}
                               >
                                 <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                  {/* Only Super Admin can create Admin accounts; Admin can only add Staff & BHW */}
+                                  {/* Only Super Admin can create Admin accounts; Admin can add Staff, BHW, and Nurse */}
                                   {isSuperAdmin && <SelectItem value="admin">Barangay Admin</SelectItem>}
                                   <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
                                   <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
+                                  <SelectItem value="nurse">Nurse (Health Center Nurse)</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -3605,11 +3563,12 @@ export default function AdminDashboard() {
                               <Badge variant="outline" className={
                                 u.role === 'superadmin' ? 'border-violet-500 text-violet-700 bg-violet-50 font-semibold' :
                                 u.role === 'admin' ? 'border-indigo-500 text-indigo-700 bg-indigo-50 font-semibold' :
+                                u.role === 'nurse' ? 'border-teal-500 text-teal-700 bg-teal-50 font-semibold' :
                                 u.role === 'bhw' ? 'border-emerald-500 text-emerald-700 bg-emerald-50 font-semibold' :
                                 u.role === 'staff' ? 'border-blue-500 text-blue-700 bg-blue-50 font-semibold' :
                                 'border-slate-300 text-slate-700 bg-slate-50'
                               }>
-                                {u.role === 'superadmin' ? 'SUPER ADMIN' : u.role === 'admin' ? 'BARANGAY ADMIN' : u.role === 'bhw' ? 'BHW WORKER' : u.role === 'staff' ? 'STAFF / CLERK' : 'RESIDENT'}
+                                {u.role === 'superadmin' ? 'SUPER ADMIN' : u.role === 'admin' ? 'BARANGAY ADMIN' : u.role === 'nurse' ? 'HEALTH NURSE' : u.role === 'bhw' ? 'BHW WORKER' : u.role === 'staff' ? 'STAFF / CLERK' : 'RESIDENT'}
                               </Badge>
                             </TableCell>
                             <TableCell>
@@ -3806,6 +3765,7 @@ export default function AdminDashboard() {
                             )}
                             <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
                             <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
+                            <SelectItem value="nurse">Nurse (Health Center Nurse)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

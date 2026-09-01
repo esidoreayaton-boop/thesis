@@ -50,7 +50,7 @@ export interface SystemUser {
   name: string;
   email: string;
   password?: string;
-  role: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident';
+  role: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'nurse' | 'resident';
   status: 'Active' | 'Inactive' | 'Archived';
   barangay?: string;
   phone?: string;

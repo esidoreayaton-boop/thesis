@@ -147,6 +147,10 @@ export default function HealthCenterPortal() {
           navigate('/bhw');
           return;
         }
+        if (parsed.role === 'nurse') {
+          navigate('/nurse');
+          return;
+        }
         setUser(parsed);
         setIsVerified(parsed.verification_status === 'Verified');
         loadData(parsed);
@@ -195,10 +199,10 @@ export default function HealthCenterPortal() {
         id: a.id,
         service_type: a.service_type,
         date: a.preferred_date,
-        time: a.preferred_time,
+        time: a.preferred_time || a.scheduled_time || 'TBA',
         status: a.status === 'Approved' ? 'Upcoming' : a.status === 'Completed' ? 'Completed' : 'Pending',
-        provider: a.approved_by || 'BHW Health Center Team',
-        instructions: a.admin_response || 'Please arrive 15 minutes before your scheduled slot. Bring your valid ID and PhilHealth card.',
+        provider: a.attending_bhw || 'BHW Health Center Team',
+        instructions: a.bhw_notes || 'Please arrive 15 minutes before your scheduled slot. Bring your valid ID and PhilHealth card.',
         notes: a.resident_notes
       });
     });
