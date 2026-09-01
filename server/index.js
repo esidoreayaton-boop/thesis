@@ -134,11 +134,17 @@ async function migrateDatabase() {
 
     // Safe column additions and modifications
     try {
+      // CRITICAL: ensure role is VARCHAR(50) to allow 'nurse', 'bhw', etc.
       await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(50) NOT NULL DEFAULT 'resident'");
       await pool.query("ALTER TABLE users MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'Active'");
       await pool.query("ALTER TABLE users MODIFY COLUMN verification_status ENUM('Verified', 'Pending_Review', 'Rejected', 'Unverified', 'Pending') NOT NULL DEFAULT 'Pending_Review'");
       await pool.query("ALTER TABLE residents MODIFY COLUMN verification_status ENUM('Verified', 'Pending_Review', 'Rejected', 'Unverified', 'Pending') NOT NULL DEFAULT 'Pending_Review'");
       await pool.query("ALTER TABLE users MODIFY COLUMN password_hash VARCHAR(255) NOT NULL");
+    } catch {}
+
+    // Repair: if any users have empty role, set to 'staff' as a safe default
+    try {
+      await pool.query("UPDATE users SET role = 'staff' WHERE role IS NULL OR role = ''");
     } catch {}
 
     await safeAddColumn(pool, 'document_requests', 'email', "VARCHAR(100) DEFAULT ''");
@@ -3464,6 +3470,13 @@ app.listen(PORT, async () => {
   const statusRes = await testConnection();
   if (statusRes.connected) {
     console.log(`✅ [MySQL] Connected successfully to ${statusRes.host}:${statusRes.port}/${statusRes.database}`);
+    // Always run schema migration on startup to ensure columns are correct
+    try {
+      await migrateDatabase();
+      console.log('✅ [Migration] Database schema verified and up-to-date.');
+    } catch (migErr) {
+      console.warn('[Migration] Warning:', migErr.message);
+    }
   } else {
     console.log(`ℹ️ [MySQL Status] Attempting automatic migration & setup for database '${process.env.DB_NAME || 'smart_db'}'...`);
     const { runMigration } = await import('./migrate.js');
