@@ -233,6 +233,8 @@ export default function AdminDashboard() {
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editUserName, setEditUserName] = useState('');
   const [editUserEmail, setEditUserEmail] = useState('');
+  const [editUserPassword, setEditUserPassword] = useState('');
+  const [showEditUserPass, setShowEditUserPass] = useState(false);
   const [editUserRole, setEditUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'nurse' | 'resident'>('staff');
   const [editUserBarangay, setEditUserBarangay] = useState('Pianing');
   const [editUserPhone, setEditUserPhone] = useState('');
@@ -1138,11 +1140,21 @@ export default function AdminDashboard() {
       }
     }
 
+    if (!newUserPassword.trim()) {
+      toast.error('Account Password is required. Please enter a password for this user.');
+      return;
+    }
+
+    if (newUserPassword.trim().length < 4) {
+      toast.error('Password must be at least 4 characters long.');
+      return;
+    }
+
     try {
       const created = await apiService.createUser({
         name: fullName,
         email: newUserEmail.trim(),
-        password: newUserPassword || '123',
+        password: newUserPassword.trim(),
         role: newUserRole === 'resident' ? 'staff' : newUserRole,
         status: 'Active',
         barangay: assignedBarangay,
@@ -1155,7 +1167,7 @@ export default function AdminDashboard() {
       setNewUserMiddleName('');
       setNewUserLastName('');
       setNewUserEmail('');
-      setNewUserPassword('123');
+      setNewUserPassword('');
       setNewUserPhone('');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to add user account');
@@ -1260,6 +1272,8 @@ export default function AdminDashboard() {
     setEditingUser(u);
     setEditUserName(u.name);
     setEditUserEmail(u.email);
+    setEditUserPassword('');
+    setShowEditUserPass(false);
     setEditUserRole(u.role);
     setEditUserBarangay(u.barangay || 'Pianing');
     setEditUserPhone(u.phone || '');
@@ -1302,7 +1316,8 @@ export default function AdminDashboard() {
         role: editUserRole,
         barangay: editUserBarangay,
         phone: cleanEditPhone,
-        status: editUserStatus
+        status: editUserStatus,
+        password: editUserPassword.trim() ? editUserPassword.trim() : undefined
       });
       setUsers(users.map(u => u.id === editingUser.id ? {
         ...u,
@@ -1316,6 +1331,7 @@ export default function AdminDashboard() {
       toast.success('User details updated successfully');
       setIsEditUserOpen(false);
       setEditingUser(null);
+      setEditUserPassword('');
     } catch {
       toast.error('Failed to update user details');
     }
@@ -3316,7 +3332,20 @@ export default function AdminDashboard() {
                   {(isSuperAdmin || user?.role === 'admin') && (
                     <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
                       <DialogTrigger asChild>
-                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 gap-1.5 shadow-xs cursor-pointer">
+                        <Button
+                          onClick={() => {
+                            setNewUserFirstName('');
+                            setNewUserMiddleName('');
+                            setNewUserLastName('');
+                            setNewUserEmail('');
+                            setNewUserPassword('');
+                            setNewUserPhone('');
+                            setShowNewUserPass(false);
+                            setNewUserRole('staff');
+                            setIsAddUserOpen(true);
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 gap-1.5 shadow-xs cursor-pointer"
+                        >
                           <UserPlus size={14} />
                           {isSuperAdmin ? 'Add User Account' : `Add Staff (${user?.barangay || 'Pianing'})`}
                         </Button>
@@ -3328,7 +3357,7 @@ export default function AdminDashboard() {
                             {isSuperAdmin ? 'Add System User Account' : `Add Staff for Barangay ${user?.barangay || 'Pianing'}`}
                           </DialogTitle>
                           <DialogDescription className="text-xs text-slate-500">
-                            {isSuperAdmin ? 'Register a new barangay administrator, staff, or health worker account. All fields marked with ' : 'Register a new barangay staff or health worker account. All fields marked with '}
+                            {isSuperAdmin ? 'Register a new barangay administrator, staff, nurse, or health worker account. All fields marked with ' : 'Register a new barangay staff, nurse, or health worker account. All fields marked with '}
                             <span className="text-red-500">*</span> are required.
                           </DialogDescription>
                         </DialogHeader>
@@ -3387,20 +3416,23 @@ export default function AdminDashboard() {
                                   type={showNewUserPass ? "text" : "password"}
                                   value={newUserPassword}
                                   onChange={e => setNewUserPassword(e.target.value)}
-                                  placeholder="Set account password"
+                                  placeholder="Type account password"
                                   autoComplete="new-password"
                                   required
-                                  className="h-9 text-xs font-mono pr-8"
+                                  minLength={4}
+                                  className="h-9 text-xs font-mono pr-8 bg-white"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => setShowNewUserPass(!showNewUserPass)}
                                   className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
                                   tabIndex={-1}
+                                  title={showNewUserPass ? "Hide password" : "Show password"}
                                 >
                                   {showNewUserPass ? <EyeOff size={15} /> : <Eye size={15} />}
                                 </button>
                               </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5">Password used to log in</p>
                             </div>
                             <div>
                               <Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label>
@@ -3826,6 +3858,29 @@ export default function AdminDashboard() {
                           className="h-9 text-xs font-mono"
                         />
                       </div>
+                    </div>
+
+                    {/* Optional Change Password in Edit Modal */}
+                    <div>
+                      <Label className="text-xs font-semibold">Change Password (Optional)</Label>
+                      <div className="relative mt-1">
+                        <Input
+                          type={showEditUserPass ? "text" : "password"}
+                          value={editUserPassword}
+                          onChange={e => setEditUserPassword(e.target.value)}
+                          placeholder="Leave blank to keep current password"
+                          className="h-9 text-xs font-mono pr-8 bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowEditUserPass(!showEditUserPass)}
+                          className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          tabIndex={-1}
+                        >
+                          {showEditUserPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Enter a new password if you want to change it directly</p>
                     </div>
 
                     <DialogFooter className="pt-3">
