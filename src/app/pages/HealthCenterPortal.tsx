@@ -53,7 +53,7 @@ const HEALTH_SERVICES = [
   { name: 'Child Immunization', icon: Baby, desc: 'DOH infant and child vaccination series (BCG, DPT, Hepatitis B, MMR, Polio).' },
   { name: 'Family Planning & Counseling', icon: Users, desc: 'Reproductive health, contraceptives, and responsible parenthood.' },
   { name: 'General Medical Consultation', icon: Stethoscope, desc: 'Non-emergency health consultation and vital signs check.' },
-  { name: 'Dental Check-up & Hygiene', icon: Sparkles, desc: 'Oral health screening and preventive fluoride application.' },
+  { name: 'BHW Home Visit', icon: Sparkles, desc: 'Barangay Health Worker home visit for wellness monitoring and health referrals.' },
 ];
 
 function getUpcomingDatesForSchedule(scheduleDay: string, count = 4): { dateStr: string; label: string }[] {

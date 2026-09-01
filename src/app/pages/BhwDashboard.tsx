@@ -968,7 +968,7 @@ export default function BhwDashboard() {
                       <SelectItem value="Child Immunization">Child Immunization</SelectItem>
                       <SelectItem value="Family Planning &amp; Counseling">Family Planning</SelectItem>
                       <SelectItem value="General Medical Consultation">General Consultation</SelectItem>
-                      <SelectItem value="Dental Check-up &amp; Hygiene">Dental Check-up</SelectItem>
+                      <SelectItem value="BHW Home Visit">BHW Home Visit</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -1326,7 +1326,7 @@ export default function BhwDashboard() {
                           <SelectItem value="Child Immunization">Child Immunization</SelectItem>
                           <SelectItem value="Family Planning &amp; Counseling">Family Planning &amp; Counseling</SelectItem>
                           <SelectItem value="General Medical Consultation">General Medical Consultation</SelectItem>
-                          <SelectItem value="Dental Check-up &amp; Hygiene">Dental Check-up &amp; Hygiene</SelectItem>
+                          <SelectItem value="BHW Home Visit">BHW Home Visit</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

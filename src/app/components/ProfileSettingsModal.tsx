@@ -61,9 +61,12 @@ export default function ProfileSettingsModal({
     }
   };
 
-  // Reload fields from user object whenever modal opens
+  // Track previous open state so we only reset fields when modal transitions closed → open
+  const wasOpenRef = React.useRef(false);
+
+  // Reload fields from user object only when the modal opens (not on every user prop update)
   useEffect(() => {
-    if (user && isOpen) {
+    if (isOpen && !wasOpenRef.current && user) {
       const uFirst = user.first_name || (user.name ? user.name.split(' ')[0] : '') || '';
       const uLast = user.last_name || (user.name ? user.name.split(' ').slice(1).join(' ') : '') || '';
       const uMiddle = user.middle_name || '';
@@ -79,7 +82,8 @@ export default function ProfileSettingsModal({
       setNewPassword('');
       setConfirmPassword('');
     }
-  }, [user, isOpen]);
+    wasOpenRef.current = isOpen;
+  }, [isOpen, user]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,11 +97,15 @@ export default function ProfileSettingsModal({
       return;
     }
 
-    // Validate phone format (PH numbers)
+    // Validate phone format — strictly 09XXXXXXXXX (11 digits)
     const cleanPhone = phone.replace(/\s+/g, '');
-    if (cleanPhone && !/^(09|\+639)\d{9}$/.test(cleanPhone)) {
-      toast.error('Invalid mobile number', {
-        description: 'Please use format: 09171234567 or +639171234567'
+    if (!cleanPhone) {
+      toast.error('Mobile phone number is required.');
+      return;
+    }
+    if (!/^09\d{9}$/.test(cleanPhone)) {
+      toast.error('Invalid mobile number format', {
+        description: 'Must be exactly 11 digits starting with 09 (e.g. 09171234567)'
       });
       return;
     }
@@ -338,13 +346,19 @@ export default function ProfileSettingsModal({
             </Label>
             <Input
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="e.g. 09171234567"
-              className="h-9 text-xs"
-              maxLength={13}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
+                setPhone(digits);
+              }}
+              placeholder="09XXXXXXXXX (11 digits)"
+              className="h-9 text-xs font-mono"
+              maxLength={11}
+              inputMode="numeric"
+              pattern="09[0-9]{9}"
+              title="Must be an 11-digit PH mobile number starting with 09"
               required
             />
-            <p className="text-[10px] text-slate-400">Format: 09XXXXXXXXX or +639XXXXXXXXX. Used for SMS alerts.</p>
+            <p className="text-[10px] text-slate-400">PH format: 09XXXXXXXXX (11 digits). Used for SMS alerts.</p>
           </div>
 
           {/* Editable: Address */}

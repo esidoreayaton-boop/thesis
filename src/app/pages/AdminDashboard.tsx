@@ -215,9 +215,9 @@ export default function AdminDashboard() {
   const [newUserMiddleName, setNewUserMiddleName] = useState('');
   const [newUserLastName, setNewUserLastName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('123');
+  const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident'>('staff');
-  const [newUserBarangay, setNewUserBarangay] = useState('Pianing');
+  const [newUserBarangay, setNewUserBarangay] = useState('');
   const [newUserPhone, setNewUserPhone] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -3337,10 +3337,10 @@ export default function AdminDashboard() {
                             <div>
                               <Label className="text-xs font-semibold">Default Password</Label>
                               <Input
-                                type="text"
+                                type="password"
                                 value={newUserPassword}
                                 onChange={e => setNewUserPassword(e.target.value)}
-                                placeholder="Default: 123"
+                                placeholder="Set account password"
                                 className="h-9 text-xs font-mono mt-1"
                               />
                             </div>
@@ -3348,7 +3348,10 @@ export default function AdminDashboard() {
                               <Label className="text-xs font-semibold">Mobile Phone Number <span className="text-red-500">*</span></Label>
                               <Input
                                 value={newUserPhone}
-                                onChange={e => setNewUserPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                                onChange={e => {
+                                  const v = e.target.value.replace(/\D/g, '').slice(0, 11);
+                                  setNewUserPhone(v);
+                                }}
                                 placeholder="09XXXXXXXXX (11 digits)"
                                 maxLength={11}
                                 required
@@ -3369,6 +3372,7 @@ export default function AdminDashboard() {
                               >
                                 <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                                 <SelectContent>
+                                  {/* Barangay Admin can also add another Admin (1-per-barangay rule enforced on submit) */}
                                   <SelectItem value="admin">Barangay Admin</SelectItem>
                                   <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
                                   <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
@@ -3394,13 +3398,15 @@ export default function AdminDashboard() {
                                   </datalist>
                                 </>
                               ) : (
-                                <Input
-                                  value={newUserBarangay || user?.barangay || 'Pianing'}
-                                  onChange={e => setNewUserBarangay(e.target.value)}
-                                  placeholder="e.g. Pianing"
-                                  required
-                                  className="h-9 text-xs mt-1 bg-white"
-                                />
+                                <>
+                                  <Input
+                                    value={user?.barangay || 'Pianing'}
+                                    readOnly
+                                    disabled
+                                    className="h-9 text-xs mt-1 bg-slate-100 cursor-not-allowed"
+                                  />
+                                  <p className="text-[10px] text-slate-400 mt-0.5">Auto-assigned to your barangay</p>
+                                </>
                               )}
                             </div>
                           </div>
@@ -4785,7 +4791,7 @@ export default function AdminDashboard() {
                           <SelectItem value="Child Immunization">Child Immunization</SelectItem>
                           <SelectItem value="Family Planning &amp; Counseling">Family Planning &amp; Counseling</SelectItem>
                           <SelectItem value="General Medical Consultation">General Medical Consultation</SelectItem>
-                          <SelectItem value="Dental Check-up &amp; Hygiene">Dental Check-up &amp; Hygiene</SelectItem>
+                          <SelectItem value="BHW Home Visit">BHW Home Visit</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

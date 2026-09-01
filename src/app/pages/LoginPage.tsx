@@ -65,8 +65,8 @@ export default function LoginPage() {
   }, [location.search]);
 
   // Login State
-  const [email, setEmail] = useState('admin@barangay.gov');
-  const [password, setPassword] = useState('123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showLoginPass, setShowLoginPass] = useState(false);
   const [loading, setLoading] = useState(false);
 
