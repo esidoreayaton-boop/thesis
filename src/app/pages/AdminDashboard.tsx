@@ -3007,11 +3007,11 @@ export default function AdminDashboard() {
                           <Input value={newResPurok} onChange={e => setNewResPurok(e.target.value)} placeholder="e.g. Purok 1" className="text-xs" />
                         </div>
                         <div>
-                          <Label className="text-xs font-semibold">Mobile Phone Number</Label>
+                          <Label className="text-xs font-semibold">Contact Number</Label>
                           <Input
                             value={newResPhone}
                             onChange={e => setNewResPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                            placeholder="09171234567"
+                            placeholder="09XXXXXXXXX (11 digits)"
                             className="text-xs font-mono"
                             maxLength={11}
                             inputMode="numeric"
@@ -3291,10 +3291,11 @@ export default function AdminDashboard() {
                             {isSuperAdmin ? 'Add System User Account' : `Add Staff for Barangay ${user?.barangay || 'Pianing'}`}
                           </DialogTitle>
                           <DialogDescription className="text-xs text-slate-500">
-                            Register a new barangay staff, health worker, or resident account. All fields marked with <span className="text-red-500">*</span> are required.
+                            {isSuperAdmin ? 'Register a new barangay administrator, staff, or health worker account. All fields marked with ' : 'Register a new barangay staff or health worker account. All fields marked with '}
+                            <span className="text-red-500">*</span> are required.
                           </DialogDescription>
                         </DialogHeader>
-                        <form onSubmit={handleCreateUser} className="space-y-3 py-2">
+                        <form onSubmit={handleCreateUser} className="space-y-3 py-2" autoComplete="off">
                           {/* First, Middle, and Last Name */}
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             <div>
@@ -3335,6 +3336,7 @@ export default function AdminDashboard() {
                               value={newUserEmail}
                               onChange={e => setNewUserEmail(e.target.value)}
                               placeholder="e.g. maria.santos@barangay.gov.ph"
+                              autoComplete="off"
                               required
                               className="h-9 text-xs mt-1"
                             />
@@ -3349,6 +3351,7 @@ export default function AdminDashboard() {
                                   value={newUserPassword}
                                   onChange={e => setNewUserPassword(e.target.value)}
                                   placeholder="Set account password"
+                                  autoComplete="new-password"
                                   required
                                   className="h-9 text-xs font-mono pr-8"
                                 />
@@ -3363,7 +3366,7 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                             <div>
-                              <Label className="text-xs font-semibold">Mobile Phone Number <span className="text-red-500">*</span></Label>
+                              <Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label>
                               <Input
                                 value={newUserPhone}
                                 onChange={e => {
@@ -3376,6 +3379,7 @@ export default function AdminDashboard() {
                                 pattern="09[0-9]{9}"
                                 title="Must be an 11-digit Philippine mobile number starting with 09 (e.g. 09171234567)"
                                 inputMode="numeric"
+                                autoComplete="off"
                                 className="h-9 text-xs font-mono mt-1"
                               />
                             </div>
@@ -3769,7 +3773,7 @@ export default function AdminDashboard() {
                         )}
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold">Mobile Phone Number <span className="text-red-500">*</span></Label>
+                        <Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label>
                         <Input
                           value={editUserPhone}
                           onChange={e => setEditUserPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
