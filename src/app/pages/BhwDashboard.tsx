@@ -1177,9 +1177,9 @@ export default function BhwDashboard() {
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                               {sch.service_type}
                             </span>
-                            <span className="text-[10px] font-mono text-emerald-700 font-bold">
-                              {sch.slots_available} Slots
-                            </span>
+                            <Badge className="bg-emerald-600 text-white text-[10px] font-medium">
+                              Active Hours
+                            </Badge>
                           </div>
                           <h4 className="font-bold text-xs text-slate-900 mt-1">{sch.title}</h4>
                           <div className="space-y-1 mt-2 text-[11px] text-slate-600">
@@ -1343,37 +1343,25 @@ export default function BhwDashboard() {
                         />
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold">Time Window <span className="text-red-500">*</span></Label>
+                        <Label className="text-xs font-semibold">Operating Time Block <span className="text-red-500">*</span></Label>
                         <Input
                           value={newScheduleTime}
                           onChange={e => setNewScheduleTime(e.target.value)}
-                          placeholder="e.g. 8:30 AM - 11:30 AM"
+                          placeholder="e.g. 10:00 AM - 12:00 PM"
                           required
-                          className="mt-1 h-9 text-xs"
+                          className="mt-1 h-9 text-xs font-mono"
                         />
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <Label className="text-xs font-semibold">Available Slots</Label>
-                        <Input
-                          type="number"
-                          value={newScheduleSlots}
-                          onChange={e => setNewScheduleSlots(e.target.value)}
-                          placeholder="20"
-                          className="mt-1 h-9 text-xs"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs font-semibold">BHW In-Charge</Label>
-                        <Input
-                          value={newScheduleBhw}
-                          onChange={e => setNewScheduleBhw(e.target.value)}
-                          placeholder="Nurse Maria Santos"
-                          className="mt-1 h-9 text-xs"
-                        />
-                      </div>
+                    <div>
+                      <Label className="text-xs font-semibold">BHW In-Charge</Label>
+                      <Input
+                        value={newScheduleBhw}
+                        onChange={e => setNewScheduleBhw(e.target.value)}
+                        placeholder="Nurse Maria Santos / Duty BHW"
+                        className="mt-1 h-9 text-xs"
+                      />
                     </div>
 
                     <div>

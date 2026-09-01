@@ -863,463 +863,110 @@ export default function HealthCenterPortal() {
         )}
 
         {/* ═══════════════════════════════════════════════════════════════ */}
-        {/* VIEW 2: HEALTH APPOINTMENTS & CLINIC SCHEDULES */}
+        {/* VIEW 2: HEALTH CENTER OPERATING HOURS & SCHEDULES (VIEW-ONLY) */}
         {/* ═══════════════════════════════════════════════════════════════ */}
         {activeSubTab === 'appointments' && (
           <div className="space-y-6">
-            {/* Header with Book Appointment button */}
+            {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <CalendarCheck size={22} className="text-emerald-600" />
-                  <h2 className="text-2xl font-extrabold text-slate-900">Health Center Appointments &amp; Schedules</h2>
+                  <h2 className="text-2xl font-extrabold text-slate-900">Health Center Operating Hours &amp; Schedules</h2>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Book an appointment for <strong>Pre-Marriage Counseling (PMC)</strong>, Prenatal Care, Child Immunization, and general consultations.
+                  Official operating time blocks posted by Barangay Health Workers (BHW) for maternal care, immunization, counseling, and public health services in Barangay {user?.barangay || 'Pianing'}.
                 </p>
               </div>
-
-              {/* Book Appointment Modal Trigger */}
-              <Dialog open={isBookApptOpen} onOpenChange={setIsBookApptOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    disabled={!isVerified}
-                    className={`text-xs gap-1.5 shadow-sm ${!isVerified ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
-                  >
-                    {!isVerified ? <Lock size={14} /> : <Calendar size={15} />}
-                    Book Health Appointment
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="bg-white max-w-lg max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-slate-900">
-                      <CalendarCheck size={18} className="text-emerald-600" />
-                      Book Health Center Appointment
-                    </DialogTitle>
-                    <DialogDescription className="text-xs">
-                      Submit your preferred appointment schedule. The Barangay Health Worker (BHW) will review and confirm your slot via SMS &amp; Email.
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  <form onSubmit={handleAppointmentSubmit} className="space-y-3.5 py-2 text-xs">
-                    {/* Service Type Selection */}
-                    <div>
-                      <Label className="text-xs font-semibold text-slate-700">Select Health Service / Program <span className="text-red-500">*</span></Label>
-                      <Select
-                        value={apptServiceType}
-                        onValueChange={(val) => {
-                          setApptServiceType(val);
-                          const matched = clinicSchedules.find(s =>
-                            s.service_type === val ||
-                            val.toLowerCase().includes(s.service_type.toLowerCase()) ||
-                            s.service_type.toLowerCase().includes(val.toLowerCase())
-                          );
-                          if (matched) {
-                            setApptPreferredTime(matched.time_slot);
-                            const upcoming = getUpcomingDatesForSchedule(matched.day_of_week, 1);
-                            if (upcoming.length > 0) {
-                              setApptPreferredDate(upcoming[0].dateStr);
-                            }
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="mt-1 h-9 text-xs">
-                          <SelectValue placeholder="Select health program..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {HEALTH_SERVICES.map(s => (
-                            <SelectItem key={s.name} value={s.name} className="text-xs">
-                              {s.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-[10px] text-slate-500 mt-1">
-                        {HEALTH_SERVICES.find(s => s.name === apptServiceType)?.desc}
-                      </p>
-                    </div>
-
-                    {/* Pre-Marriage Special Notice */}
-                    {apptServiceType.includes('Pre-Marriage') && (
-                      <div className="p-3 bg-pink-50 border border-pink-200 rounded-xl text-pink-900 text-xs space-y-1">
-                        <span className="font-bold flex items-center gap-1.5 text-pink-950">
-                          💍 Pre-Marriage Counseling (PMC) Requirement Note:
-                        </span>
-                        <p className="text-[11px] leading-relaxed text-pink-800">
-                          Both couple applicants are required to attend the seminar. Please bring: (1) Valid IDs of both parties, (2) Barangay Residency Certificate, and (3) CENOMAR from PSA.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Available Official Schedules Picker (Posted by Staff / BHW) */}
-                    {(() => {
-                      const matchingSchedules = clinicSchedules.filter(s =>
-                        s.service_type === apptServiceType ||
-                        apptServiceType.toLowerCase().includes(s.service_type.toLowerCase()) ||
-                        s.service_type.toLowerCase().includes(apptServiceType.toLowerCase())
-                      );
-                      const activeSchedule = matchingSchedules[0] || null;
-
-                      const selectedDateObj = apptPreferredDate ? new Date(apptPreferredDate + 'T00:00:00') : null;
-                      const selectedDayName = selectedDateObj && !isNaN(selectedDateObj.getTime())
-                        ? selectedDateObj.toLocaleDateString('en-US', { weekday: 'long' })
-                        : '';
-                      const isDayValid = !activeSchedule || activeSchedule.day_of_week.toLowerCase().includes(selectedDayName.toLowerCase());
-                      const isTimeValid = !activeSchedule || matchingSchedules.some(s => s.time_slot.toLowerCase().trim() === apptPreferredTime.toLowerCase().trim());
-                      const upcomingDates = activeSchedule ? getUpcomingDatesForSchedule(activeSchedule.day_of_week, 4) : [];
-
-                      return (
-                        <>
-                          <div className="space-y-2 pt-1">
-                            <Label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                              <span className="flex items-center gap-1.5 text-emerald-800 font-bold">
-                                <CalendarCheck size={14} className="text-emerald-600" />
-                                Official Clinic Schedule (Strict Rules)
-                              </span>
-                              {activeSchedule && (
-                                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-full">
-                                  🔒 {activeSchedule.day_of_week} • {activeSchedule.time_slot}
-                                </span>
-                              )}
-                            </Label>
-
-                            {matchingSchedules.length > 0 ? (
-                              <div className="space-y-1.5">
-                                {matchingSchedules.map(sch => (
-                                  <div
-                                    key={sch.id}
-                                    onClick={() => {
-                                      setApptPreferredTime(sch.time_slot);
-                                      const upcoming = getUpcomingDatesForSchedule(sch.day_of_week, 1);
-                                      if (upcoming.length > 0) {
-                                        setApptPreferredDate(upcoming[0].dateStr);
-                                      }
-                                      toast.info(`Schedule Locked: ${sch.day_of_week}`, {
-                                        description: `Time: ${sch.time_slot} | ${sch.location}`
-                                      });
-                                    }}
-                                    className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2 text-xs ${
-                                      apptPreferredTime === sch.time_slot
-                                        ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200 shadow-xs'
-                                        : 'bg-slate-50 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40'
-                                    }`}
-                                  >
-                                    <div className="space-y-0.5">
-                                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                                        <span>📅 {sch.day_of_week}</span>
-                                        <span className="font-mono text-[11px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-bold">
-                                          ⏰ {sch.time_slot}
-                                        </span>
-                                      </div>
-                                      <div className="text-[10px] text-slate-500 flex items-center gap-2">
-                                        <span>📍 {sch.location}</span>
-                                        <span>• In-charge: {sch.bhw_in_charge}</span>
-                                      </div>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                      <Badge className="bg-emerald-600 text-white text-[10px]">
-                                        {sch.slots_available} Slots
-                                      </Badge>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-500">
-                                ℹ️ No fixed weekly schedule posted for this service yet. You may propose your preferred date and time below.
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Date & Time with Strict Rule Indicators */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-xs font-semibold text-slate-700">Preferred Date <span className="text-red-500">*</span></Label>
-                                {selectedDayName && (
-                                  <span className={`text-[10px] font-bold ${isDayValid ? 'text-emerald-600' : 'text-red-600'}`}>
-                                    {selectedDayName} {isDayValid ? '✓' : '✗ Invalid'}
-                                  </span>
-                                )}
-                              </div>
-                              <Input
-                                type="date"
-                                value={apptPreferredDate}
-                                onChange={e => setApptPreferredDate(e.target.value)}
-                                min={new Date().toISOString().split('T')[0]}
-                                required
-                                className={`text-xs h-9 ${!isDayValid ? 'border-red-400 bg-red-50 text-red-900 focus:ring-red-400' : 'border-emerald-300'}`}
-                              />
-                            </div>
-
-                            <div className="space-y-1">
-                              <Label className="text-xs font-semibold text-slate-700">Official Time Window <span className="text-red-500">*</span></Label>
-                              {matchingSchedules.length > 0 ? (
-                                <Select value={apptPreferredTime} onValueChange={setApptPreferredTime}>
-                                  <SelectTrigger className="text-xs h-9 border-emerald-300 bg-white font-semibold text-emerald-950">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {matchingSchedules.map(s => (
-                                      <SelectItem key={s.id} value={s.time_slot} className="text-xs font-medium">
-                                        ⏰ {s.time_slot} ({s.day_of_week})
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              ) : (
-                                <Select value={apptPreferredTime} onValueChange={setApptPreferredTime}>
-                                  <SelectTrigger className="text-xs h-9 bg-white">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="Morning (8:00 AM - 11:30 AM)">Morning (8:00 AM - 11:30 AM)</SelectItem>
-                                    <SelectItem value="Afternoon (1:00 PM - 4:30 PM)">Afternoon (1:00 PM - 4:30 PM)</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Strict Day Rule Warning & Valid Date Shortcuts */}
-                          {activeSchedule && !isDayValid && apptPreferredDate && (
-                            <div className="p-3 bg-red-50 border border-red-200 rounded-xl space-y-2 text-xs">
-                              <div className="flex items-start gap-2 text-red-800 font-semibold text-[11px]">
-                                <AlertTriangle size={15} className="text-red-600 shrink-0 mt-0.5" />
-                                <div>
-                                  <span>Strict Schedule Rule: </span>
-                                  <strong>{apptServiceType}</strong> is strictly conducted on <strong>{activeSchedule.day_of_week}</strong> only.
-                                  <div className="font-normal text-red-700 text-[10px] mt-0.5">
-                                    You selected <strong>{selectedDayName} ({apptPreferredDate})</strong>, which is not permitted.
-                                  </div>
-                                </div>
-                              </div>
-
-                              {upcomingDates.length > 0 && (
-                                <div className="space-y-1">
-                                  <span className="text-[10px] font-bold text-red-900 block">Click a valid {activeSchedule.day_of_week.replace(/every\s*/i, '')} below to select:</span>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {upcomingDates.map(d => (
-                                      <button
-                                        key={d.dateStr}
-                                        type="button"
-                                        onClick={() => {
-                                          setApptPreferredDate(d.dateStr);
-                                          toast.success(`Date updated to ${d.label}`);
-                                        }}
-                                        className="text-[10px] bg-red-100 hover:bg-emerald-600 hover:text-white text-red-900 font-bold px-2.5 py-1 rounded-lg border border-red-300 transition-all cursor-pointer shadow-2xs"
-                                      >
-                                        📅 {d.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Quick upcoming date shortcut buttons for convenience */}
-                          {activeSchedule && isDayValid && upcomingDates.length > 0 && (
-                            <div className="space-y-1 pt-0.5">
-                              <span className="text-[10px] text-slate-500 font-medium">Quick Select Available {activeSchedule.day_of_week.replace(/every\s*/i, '')} Dates:</span>
-                              <div className="flex flex-wrap gap-1.5">
-                                {upcomingDates.map(d => (
-                                  <button
-                                    key={d.dateStr}
-                                    type="button"
-                                    onClick={() => setApptPreferredDate(d.dateStr)}
-                                    className={`text-[10px] px-2.5 py-0.5 rounded-lg border transition-all cursor-pointer ${
-                                      apptPreferredDate === d.dateStr
-                                        ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-2xs'
-                                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
-                                    }`}
-                                  >
-                                    {d.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-
-                    {/* Contact Number for SMS */}
-                    <div>
-                      <Label className="text-xs font-semibold text-slate-700">Contact Number for SMS Confirmation</Label>
-                      <Input
-                        type="tel"
-                        value={apptPhone}
-                        onChange={e => setApptPhone(e.target.value)}
-                        placeholder={user?.phone || '09171234567'}
-                        className="mt-1 text-xs h-9"
-                      />
-                      <p className="text-[10px] text-slate-400 mt-0.5">We will send real-time SMS updates to this mobile number.</p>
-                    </div>
-
-                    {/* Purpose / Resident Notes */}
-                    <div>
-                      <Label className="text-xs font-semibold text-slate-700">Purpose / Details for BHW</Label>
-                      <textarea
-                        value={apptNotes}
-                        onChange={e => setApptNotes(e.target.value)}
-                        rows={2}
-                        placeholder="e.g. Partner: Maria Santos. Applying for marriage license next month. Need official PMC Certificate."
-                        className="w-full mt-1 px-3 py-2 text-xs rounded-md border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
-                      />
-                    </div>
-
-                    <DialogFooter className="gap-2 pt-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setIsBookApptOpen(false)} className="text-xs">
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        size="sm"
-                        disabled={apptSubmitting}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 shadow-sm cursor-pointer"
-                      >
-                        <CalendarCheck size={14} />
-                        {apptSubmitting ? 'Booking...' : 'Confirm Appointment Request'}
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
             </div>
 
-            {/* My Booked Appointments Card */}
-            <Card className="border-slate-200 bg-white">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <CalendarCheck className="text-emerald-600" size={18} />
-                  My Scheduled &amp; Requested Appointments
-                  <Badge variant="outline" className="ml-auto text-[10px]">{appointments.length} Total</Badge>
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Review the status of your health center appointments and confirmed time slots.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-slate-50">
-                      <TableHead className="text-xs">Ref Code</TableHead>
-                      <TableHead className="text-xs">Service Program</TableHead>
-                      <TableHead className="text-xs">Preferred Date</TableHead>
-                      <TableHead className="text-xs">Confirmed Schedule</TableHead>
-                      <TableHead className="text-xs">Status</TableHead>
-                      <TableHead className="text-xs">BHW Instructions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {appointments.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center text-xs py-10 text-slate-400">
-                          <Calendar className="mx-auto mb-2 text-slate-300" size={28} />
-                          No health appointments booked yet. Click <strong>"Book Health Appointment"</strong> above.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      appointments.map(apt => (
-                        <TableRow key={apt.id} className="text-xs">
-                          <TableCell className="font-mono font-bold text-emerald-700">{apt.appointment_code}</TableCell>
-                          <TableCell className="font-semibold text-slate-900">
-                            <div>{apt.service_type}</div>
-                            {apt.attending_bhw && (
-                              <div className="text-[10px] text-slate-400">Attending: {apt.attending_bhw}</div>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-slate-500">
-                            <div>{apt.preferred_date}</div>
-                            <div className="text-[10px] text-slate-400">{apt.preferred_time}</div>
-                          </TableCell>
-                          <TableCell>
-                            {apt.scheduled_date ? (
-                              <div className="font-semibold text-emerald-800">
-                                <div>📅 {apt.scheduled_date}</div>
-                                <div className="text-[10px] text-emerald-600 font-mono">⏰ {apt.scheduled_time || 'Morning Session'}</div>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-[11px] italic">Awaiting BHW Confirmation</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={
-                              apt.status === 'Approved' ? 'bg-emerald-600 text-white' :
-                              apt.status === 'Completed' ? 'bg-blue-600 text-white' :
-                              apt.status === 'Cancelled' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'
-                            }>
-                              {apt.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-slate-600 max-w-xs text-[11px]">
-                            {apt.bhw_notes || <span className="text-slate-400 italic">No notes</span>}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
             {/* Official Health Center Regular Clinic Schedules Board */}
-            <Card className="border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30">
+            <Card className="border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30 shadow-xs">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-bold text-emerald-950 flex items-center gap-2">
                   <Calendar className="text-emerald-600" size={18} />
-                  Official Health Center Clinic Schedule Board
+                  Active Service Operating Hours &amp; Clinic Schedule Board
+                  <Badge variant="outline" className="ml-auto text-[10px] bg-emerald-50 text-emerald-800 border-emerald-300">
+                    {clinicSchedules.length} Active Services
+                  </Badge>
                 </CardTitle>
-                <CardDescription className="text-xs">
-                  Regular schedules posted by Barangay Health Workers and the City Health Office for Barangay Pianing.
+                <CardDescription className="text-xs text-slate-600">
+                  Residents may visit the Barangay Health Center during the operating time windows listed below. Walk-ins are welcomed during active operating hours.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {clinicSchedules.map(sch => (
-                    <div key={sch.id} className="p-3.5 rounded-2xl bg-white border border-emerald-100 shadow-xs flex flex-col justify-between space-y-2">
-                      <div>
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            {sch.service_type}
-                          </span>
-                          <span className="text-[10px] font-mono text-emerald-700 font-bold">
-                            {sch.slots_available} Slots
-                          </span>
+                {clinicSchedules.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400 text-xs">
+                    <Calendar className="mx-auto mb-2 text-slate-300" size={32} />
+                    <p className="font-semibold text-slate-600">No scheduled operating hours posted yet.</p>
+                    <p className="text-[11px] text-slate-400 mt-1">Please check back later or visit the Barangay Health Center during standard office hours (Mon-Fri, 8:00 AM - 5:00 PM).</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {clinicSchedules.map(sch => (
+                      <div key={sch.id} className="p-4 rounded-2xl bg-white border border-emerald-100 shadow-xs flex flex-col justify-between space-y-3 hover:shadow-md transition-shadow">
+                        <div>
+                          <div className="flex items-center justify-between gap-1 mb-2">
+                            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              {sch.service_type}
+                            </span>
+                            <Badge className="bg-emerald-600 text-white text-[10px] font-medium">
+                              Open for Walk-in
+                            </Badge>
+                          </div>
+                          <h4 className="font-bold text-sm text-slate-900 leading-snug">{sch.title}</h4>
+                          <div className="space-y-2 mt-3 text-xs text-slate-600">
+                            <div className="flex items-center gap-2 font-bold text-emerald-900 bg-emerald-50/80 p-2 rounded-xl border border-emerald-200/60">
+                              <Clock size={15} className="text-emerald-700 shrink-0" />
+                              <span className="font-mono">{sch.day_of_week} • {sch.time_slot}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-slate-600 text-[11px]">
+                              <MapPin size={13} className="text-slate-400 shrink-0" />
+                              <span>{sch.location || 'Barangay Health Center'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-slate-600 text-[11px]">
+                              <Users size={13} className="text-slate-400 shrink-0" />
+                              <span>Attending Staff: <strong>{sch.bhw_in_charge || 'Duty BHW'}</strong></span>
+                            </div>
+                          </div>
                         </div>
-                        <h4 className="font-bold text-xs text-slate-900 mt-1">{sch.title}</h4>
-                        <div className="space-y-1 mt-2 text-[11px] text-slate-600">
-                          <div className="flex items-center gap-1.5 font-medium text-emerald-900">
-                            <Clock size={12} className="text-emerald-600 shrink-0" />
-                            <span>{sch.day_of_week} ({sch.time_slot})</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-slate-500">
-                            <MapPin size={12} className="text-slate-400 shrink-0" />
-                            <span>{sch.location}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-slate-500">
-                            <Users size={12} className="text-slate-400 shrink-0" />
-                            <span>In-charge: <strong>{sch.bhw_in_charge}</strong></span>
-                          </div>
+
+                        <div className="pt-2 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
+                          <span>Status: Active Regular Program</span>
+                          <span className="text-emerald-600 font-semibold">✓ Open for Consultation</span>
                         </div>
                       </div>
-
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setApptServiceType(sch.service_type);
-                          setIsBookApptOpen(true);
-                        }}
-                        className="w-full h-8 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold"
-                      >
-                        Book for this Program
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
+
+            {/* Health Center Information Guide */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2">
+                <h4 className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                  <CheckCircle2 size={15} className="text-emerald-600" />
+                  What to Bring When Visiting
+                </h4>
+                <ul className="text-[11px] text-slate-600 space-y-1 list-disc list-inside">
+                  <li>Valid Government ID or Barangay ID</li>
+                  <li>Child Immunization Card (for Infant / Child Vaccinations)</li>
+                  <li>Mother's Pink Book / Prenatal Record (for Maternal Checkups)</li>
+                  <li>CENOMAR &amp; Residency Certificate (for Pre-Marriage Counseling)</li>
+                </ul>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2">
+                <h4 className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                  <Phone size={15} className="text-emerald-600" />
+                  Barangay Health Center Assistance
+                </h4>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  For urgent health inquiries or home visit requests for elderly and bedridden residents, please contact your designated Purok BHW or visit the Barangay Health Center during duty hours.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 

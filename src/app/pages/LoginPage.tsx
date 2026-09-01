@@ -199,10 +199,10 @@ export default function LoginPage() {
       return;
     }
 
-    const cleanPhone = regPhone.replace(/\s+/g, '');
-    if (!/^(09|\+639)\d{9}$/.test(cleanPhone)) {
+    const cleanPhone = regPhone.replace(/\D/g, '');
+    if (!/^09\d{9}$/.test(cleanPhone)) {
       toast.error('Invalid Mobile Number Format', {
-        description: 'Please enter a valid format: 09171234567 or +639171234567 (11 digits).'
+        description: 'Must be exactly 11 digits starting with 09 (e.g. 09171234567).'
       });
       return;
     }
@@ -318,7 +318,7 @@ export default function LoginPage() {
 
               {/* TAB 1: LOGIN */}
               <TabsContent value="login">
-                <form onSubmit={handleLogin} className="space-y-3.5">
+                <form onSubmit={handleLogin} className="space-y-3.5" autoComplete="off">
                   <div className="space-y-1">
                     <Label className="text-xs font-semibold text-slate-700">
                       Email Address <RequiredBadge />
@@ -331,6 +331,7 @@ export default function LoginPage() {
                         onChange={(e) => setEmail(e.target.value)}
                         className="pl-10 h-10 bg-slate-50 border-slate-200 text-xs"
                         placeholder="Enter email address"
+                        autoComplete="off"
                         required
                       />
                     </div>
@@ -348,6 +349,7 @@ export default function LoginPage() {
                         onChange={(e) => setPassword(e.target.value)}
                         className="pl-10 pr-10 h-10 bg-slate-50 border-slate-200 text-xs"
                         placeholder="Enter password"
+                        autoComplete="new-password"
                         required
                       />
                       <button
@@ -469,8 +471,10 @@ export default function LoginPage() {
                       <Input
                         value={regPhone}
                         onChange={e => setRegPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                        placeholder="09171234567"
+                        placeholder="09XXXXXXXXX (11 digits)"
                         maxLength={11}
+                        pattern="09[0-9]{9}"
+                        title="Must be an 11-digit Philippine mobile number starting with 09"
                         inputMode="numeric"
                         required
                         className="h-9 text-xs font-mono"

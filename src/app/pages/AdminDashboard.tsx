@@ -216,6 +216,7 @@ export default function AdminDashboard() {
   const [newUserLastName, setNewUserLastName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
+  const [showNewUserPass, setShowNewUserPass] = useState(false);
   const [newUserRole, setNewUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'resident'>('staff');
   const [newUserBarangay, setNewUserBarangay] = useState('');
   const [newUserPhone, setNewUserPhone] = useState('');
@@ -1080,6 +1081,12 @@ export default function AdminDashboard() {
     const fullName = `${cleanFirst} ${cleanMiddle ? cleanMiddle + ' ' : ''}${cleanLast}`.trim();
     const assignedBarangay = user?.role === 'superadmin' ? (newUserBarangay || 'Pianing') : (user?.barangay || 'Pianing');
 
+    // Role Access Rule: Only Super Admin can create Barangay Admin accounts
+    if (newUserRole === 'admin' && !isSuperAdmin) {
+      toast.error('Access Restricted: Only Super Admin can create Barangay Administrator accounts. You may create Staff and BHW accounts.');
+      return;
+    }
+
     // 1 Admin per Barangay rule check
     if (newUserRole === 'admin') {
       const existingAdmin = users.find(u =>
@@ -1539,8 +1546,8 @@ export default function AdminDashboard() {
       </header>
 
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Sidebar Navigation */}
-        <aside className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex flex-col py-4 shrink-0`}>
+        {/* Sticky Sidebar Navigation */}
+        <aside className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex flex-col py-4 shrink-0 sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto`}>
           <nav className="flex-1 px-3 space-y-1.5">
             {menuItems.map((item) => (
               <button
@@ -3335,14 +3342,25 @@ export default function AdminDashboard() {
 
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <Label className="text-xs font-semibold">Default Password</Label>
-                              <Input
-                                type="password"
-                                value={newUserPassword}
-                                onChange={e => setNewUserPassword(e.target.value)}
-                                placeholder="Set account password"
-                                className="h-9 text-xs font-mono mt-1"
-                              />
+                              <Label className="text-xs font-semibold">Account Password <span className="text-red-500">*</span></Label>
+                              <div className="relative mt-1">
+                                <Input
+                                  type={showNewUserPass ? "text" : "password"}
+                                  value={newUserPassword}
+                                  onChange={e => setNewUserPassword(e.target.value)}
+                                  placeholder="Set account password"
+                                  required
+                                  className="h-9 text-xs font-mono pr-8"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowNewUserPass(!showNewUserPass)}
+                                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                  tabIndex={-1}
+                                >
+                                  {showNewUserPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                                </button>
+                              </div>
                             </div>
                             <div>
                               <Label className="text-xs font-semibold">Mobile Phone Number <span className="text-red-500">*</span></Label>
@@ -3367,13 +3385,13 @@ export default function AdminDashboard() {
                             <div>
                               <Label className="text-xs font-semibold">System Role <span className="text-red-500">*</span></Label>
                               <Select
-                                value={newUserRole === 'resident' ? 'staff' : newUserRole}
+                                value={newUserRole === 'resident' || (!isSuperAdmin && newUserRole === 'admin') ? 'staff' : newUserRole}
                                 onValueChange={(val: 'admin' | 'staff' | 'bhw') => setNewUserRole(val)}
                               >
                                 <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                  {/* Barangay Admin can also add another Admin (1-per-barangay rule enforced on submit) */}
-                                  <SelectItem value="admin">Barangay Admin</SelectItem>
+                                  {/* Only Super Admin can create Admin accounts; Admin can only add Staff & BHW */}
+                                  {isSuperAdmin && <SelectItem value="admin">Barangay Admin</SelectItem>}
                                   <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
                                   <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
                                 </SelectContent>
@@ -4662,8 +4680,8 @@ export default function AdminDashboard() {
                               <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-bold">
                                 {sch.service_type}
                               </Badge>
-                              <span className="text-[10px] font-mono text-emerald-700 bg-white border border-emerald-200 px-2 py-0.5 rounded-full font-bold">
-                                {sch.slots_available} Slots Available
+                              <span className="text-[10px] font-medium text-emerald-700 bg-white border border-emerald-200 px-2 py-0.5 rounded-full">
+                                Active Operating Block
                               </span>
                             </div>
                             <h4 className="font-bold text-xs text-slate-900 dark:text-white leading-snug">{sch.title}</h4>
@@ -4808,37 +4826,25 @@ export default function AdminDashboard() {
                         />
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold">Time Window <span className="text-red-500">*</span></Label>
+                        <Label className="text-xs font-semibold">Operating Time Block <span className="text-red-500">*</span></Label>
                         <Input
                           value={newScheduleTime}
                           onChange={e => setNewScheduleTime(e.target.value)}
-                          placeholder="e.g. 8:30 AM - 11:30 AM"
+                          placeholder="e.g. 10:00 AM - 12:00 PM"
                           required
-                          className="mt-1 h-9 text-xs"
+                          className="mt-1 h-9 text-xs font-mono"
                         />
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <Label className="text-xs font-semibold">Available Slots</Label>
-                        <Input
-                          type="number"
-                          value={newScheduleSlots}
-                          onChange={e => setNewScheduleSlots(e.target.value)}
-                          placeholder="20"
-                          className="mt-1 h-9 text-xs"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs font-semibold">Staff / BHW In-Charge</Label>
-                        <Input
-                          value={newScheduleBhw}
-                          onChange={e => setNewScheduleBhw(e.target.value)}
-                          placeholder="Nurse Maria Santos"
-                          className="mt-1 h-9 text-xs"
-                        />
-                      </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Staff / BHW In-Charge</Label>
+                      <Input
+                        value={newScheduleBhw}
+                        onChange={e => setNewScheduleBhw(e.target.value)}
+                        placeholder="Nurse Maria Santos / Duty Personnel"
+                        className="mt-1 h-9 text-xs"
+                      />
                     </div>
 
                     <div>

@@ -99,27 +99,9 @@ export default function LandingPage() {
           A modern online portal connecting residents with fast, convenient access to barangay clearances, health services, and community announcements — anytime, anywhere.
         </p>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-          <Button
-            size="lg"
-            onClick={() => navigate('/login?tab=register')}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-8 h-12 shadow-lg shadow-blue-500/20 w-full sm:w-auto"
-          >
-            Sign Up / Create Account
-            <ArrowRight size={18} className="ml-2" />
-          </Button>
-          <Button
-            size="lg"
-            variant="outline"
-            onClick={() => navigate('/login?tab=login')}
-            className="border-slate-300 text-slate-800 hover:bg-slate-100 font-semibold text-sm px-8 h-12 w-full sm:w-auto"
-          >
-            Resident / Staff Log In
-          </Button>
-        </div>
-        <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 mt-4">
-          <MapPin size={13} />
-          <span>Barangay Pianing, Butuan City</span>
+        <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 mt-2">
+          <MapPin size={14} className="text-blue-600" />
+          <span className="font-medium">Barangay Pianing, Butuan City, Agusan del Norte</span>
         </div>
       </section>
 
@@ -161,34 +143,23 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CTA Banner */}
+      {/* Office Hours & Community Information Banner */}
       <section className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 my-8">
-        <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-8 sm:p-12 shadow-xl flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="space-y-3 text-center md:text-left">
-            <Badge className="bg-blue-500 text-white text-[11px]">Serving Barangay Pianing</Badge>
-            <h3 className="text-2xl font-bold">Ready to Get Started?</h3>
+        <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-8 sm:p-10 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="space-y-2 text-center md:text-left">
+            <Badge className="bg-blue-500 text-white text-[11px]">Official Barangay Portal</Badge>
+            <h3 className="text-2xl font-bold">Barangay Pianing Hall & Health Center</h3>
             <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-              New residents can register for an online account in minutes. Registered residents and barangay personnel can sign in directly to access their services.
+              Serving the community with streamlined document processing, maternal and child healthcare, and transparent local governance.
             </p>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <Clock size={13} />
-              <span>Office Hours: Mon – Fri, 8:00 AM – 5:00 PM</span>
-            </div>
           </div>
-          <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
-            <Button
-              onClick={() => navigate('/login?tab=register')}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs h-11 px-5 shadow-md w-full sm:w-auto"
-            >
-              Create Account
-              <ArrowRight size={14} className="ml-1.5" />
-            </Button>
-            <Button
-              onClick={() => navigate('/login?tab=login')}
-              className="bg-white text-slate-900 hover:bg-slate-100 font-bold text-xs h-11 px-5 shadow-md w-full sm:w-auto"
-            >
-              Sign In
-            </Button>
+          <div className="flex flex-col gap-2 text-xs text-slate-200 bg-white/10 p-4 rounded-xl backdrop-blur-sm border border-white/10 shrink-0">
+            <div className="flex items-center gap-2 font-semibold text-white">
+              <Clock size={15} className="text-blue-400" />
+              <span>Office &amp; Health Center Hours</span>
+            </div>
+            <p className="text-slate-300 text-[11px]">Monday to Friday: 8:00 AM – 5:00 PM</p>
+            <p className="text-slate-400 text-[10px]">Emergency Hotline: Contact Barangay Peacekeeping Officers</p>
           </div>
         </div>
       </section>
