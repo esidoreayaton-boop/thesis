@@ -947,7 +947,7 @@ export default function BarangayPortal() {
             </div>
             <div>
               <h3 className="font-bold text-sm text-emerald-900">Need Health Center Services?</h3>
-              <p className="text-xs text-emerald-700">Request medical certificates, immunization records, or maternal health documents.</p>
+              <p className="text-xs text-emerald-700">Check clinic schedules, book appointments, and view your upcoming maternal &amp; immunization revisits.</p>
             </div>
           </div>
           <Button
