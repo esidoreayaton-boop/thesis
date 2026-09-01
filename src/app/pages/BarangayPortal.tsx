@@ -83,6 +83,33 @@ export default function BarangayPortal() {
   const [isResubmitModalOpen, setIsResubmitModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
+  const [readNotifKeys, setReadNotifKeys] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('brgy_read_notifs');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
+
+  const markNotifRead = (key: string) => {
+    setReadNotifKeys(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      localStorage.setItem('brgy_read_notifs', JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const markAllNotifsRead = () => {
+    const allKeys: string[] = [];
+    if (user?.verification_status === 'Rejected') allKeys.push('acct-rejected');
+    documents.forEach(d => allKeys.push(`doc-${d.id || d.request_code}`));
+    setReadNotifKeys(prev => {
+      const next = new Set(prev);
+      allKeys.forEach(k => next.add(k));
+      localStorage.setItem('brgy_read_notifs', JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   // Dynamic extra fields per document type
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
@@ -368,17 +395,32 @@ export default function BarangayPortal() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setIsNotificationsOpen(true)}
+                onClick={() => { setIsNotificationsOpen(true); }}
                 className="relative flex items-center gap-1.5 text-xs border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer"
                 title="View Document Status & Verification Notifications"
               >
-                <Bell size={14} className={documents.some(d => d.status === 'Completed' || d.status === 'Rejected') || user?.verification_status === 'Rejected' ? "text-indigo-600" : ""} />
+                <Bell
+                  size={14}
+                  className={(() => {
+                    const unreadCount = [
+                      ...(user?.verification_status === 'Rejected' && !readNotifKeys.has('acct-rejected') ? ['acct-rejected'] : []),
+                      ...documents.filter(d => ['Completed','Ready for Pickup','Rejected'].includes(d.status) && !readNotifKeys.has(`doc-${d.id || d.request_code}`))
+                    ].length;
+                    return unreadCount > 0 ? 'text-indigo-600' : 'text-slate-500';
+                  })()}
+                />
                 <span className="hidden sm:inline">Notifications</span>
-                {(documents.filter(d => d.status === 'Completed' || d.status === 'Rejected').length + (user?.verification_status === 'Rejected' ? 1 : 0)) > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-xs animate-pulse">
-                    {documents.filter(d => d.status === 'Completed' || d.status === 'Rejected').length + (user?.verification_status === 'Rejected' ? 1 : 0)}
-                  </span>
-                )}
+                {(() => {
+                  const unreadCount = [
+                    ...(user?.verification_status === 'Rejected' && !readNotifKeys.has('acct-rejected') ? [1] : []),
+                    ...documents.filter(d => ['Completed','Ready for Pickup','Rejected'].includes(d.status) && !readNotifKeys.has(`doc-${d.id || d.request_code}`))
+                  ].length;
+                  return unreadCount > 0 ? (
+                    <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-xs animate-pulse">
+                      {unreadCount}
+                    </span>
+                  ) : null;
+                })()}
               </Button>
             )}
 
@@ -921,137 +963,228 @@ export default function BarangayPortal() {
 
       {/* Resident Notifications Center Modal */}
       <Dialog open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
-        <DialogContent className="bg-white dark:bg-slate-900 max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="bg-white dark:bg-slate-900 max-w-lg max-h-[88vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white">
-              <Bell className="text-indigo-600" size={18} />
-              Resident Notifications &amp; Status Alerts
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              Live updates regarding your document requests, clearance approvals, and account verification status.
-            </DialogDescription>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <DialogTitle className="text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                  <Bell className="text-indigo-600" size={18} />
+                  Resident Notifications &amp; Status Updates
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500 mt-0.5">
+                  Live updates for your document requests, clearance approvals, and account status.
+                </DialogDescription>
+              </div>
+              <button
+                onClick={markAllNotifsRead}
+                className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold whitespace-nowrap hover:underline mt-1 cursor-pointer"
+                title="Mark all notifications as read"
+              >
+                ✓ Mark All Read
+              </button>
+            </div>
           </DialogHeader>
 
-          <div className="space-y-3 py-2 text-xs">
+          <div className="space-y-2.5 py-2 text-xs">
             {/* 1. Account Rejection Notice (if rejected) */}
-            {user?.verification_status === 'Rejected' && (
-              <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-red-900 dark:text-red-300 flex items-center gap-1.5">
-                    <XCircle size={14} /> Account Registration Rejected
-                  </span>
-                  <Badge className="bg-red-600 text-white text-[10px]">Action Needed</Badge>
+            {user?.verification_status === 'Rejected' && (() => {
+              const notifKey = 'acct-rejected';
+              const isRead = readNotifKeys.has(notifKey);
+              return (
+                <div
+                  className={`p-3.5 rounded-xl border space-y-1.5 cursor-pointer transition-all ${
+                    isRead
+                      ? 'bg-red-50/50 dark:bg-red-950/20 border-red-200/60 opacity-70'
+                      : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700 shadow-sm'
+                  }`}
+                  onClick={() => markNotifRead(notifKey)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-red-900 dark:text-red-300 flex items-center gap-1.5">
+                      {!isRead && <span className="w-2 h-2 bg-red-500 rounded-full inline-block" />}
+                      <XCircle size={14} /> Account Registration Rejected
+                    </span>
+                    <Badge className="bg-red-600 text-white text-[10px]">Action Needed</Badge>
+                  </div>
+                  <p className="text-red-800 dark:text-red-200 text-xs">
+                    <strong>Cause of Rejection:</strong> {user?.rejection_reason || 'Submitted Government ID photo is unclear or information does not match.'}
+                  </p>
+                  <div className="pt-1">
+                    <Button
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); markNotifRead(notifKey); setIsNotificationsOpen(false); setIsProfileModalOpen(true); }}
+                      className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white gap-1 cursor-pointer"
+                    >
+                      <Settings size={12} /> Re-submit ID / Update Details
+                    </Button>
+                  </div>
                 </div>
-                <p className="text-red-800 dark:text-red-200 text-xs">
-                  <strong>Cause of Rejection:</strong> {user?.rejection_reason || 'Submitted Government ID photo is unclear or information does not match.'}
-                </p>
-                <div className="pt-1">
-                  <Button
-                    size="sm"
-                    onClick={() => { setIsNotificationsOpen(false); setIsProfileModalOpen(true); }}
-                    className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white gap-1 cursor-pointer"
-                  >
-                    <Settings size={12} /> Re-submit ID / Update Details
-                  </Button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* 2. Ready for Pickup Documents */}
-            {documents.filter(d => d.status === 'Ready for Pickup').map((doc, idx) => (
-              <div key={`notif-ready-${doc.id || doc.request_code || idx}-${idx}`} className="p-3.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
-                    <CheckCircle2 size={14} className="text-indigo-600" /> 🎉 Ready for Pick-Up: {doc.document_type}
-                  </span>
-                  <Badge className="bg-indigo-600 text-white text-[10px]">Ready for Pickup</Badge>
+            {documents.filter(d => d.status === 'Ready for Pickup').map((doc, idx) => {
+              const notifKey = `doc-${doc.id || doc.request_code}`;
+              const isRead = readNotifKeys.has(notifKey);
+              return (
+                <div
+                  key={`notif-ready-${doc.id || idx}`}
+                  className={`p-3.5 rounded-xl border space-y-1 cursor-pointer transition-all ${
+                    isRead
+                      ? 'bg-indigo-50/40 border-indigo-200/50 opacity-70'
+                      : 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 shadow-sm'
+                  }`}
+                  onClick={() => markNotifRead(notifKey)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`flex items-center gap-1.5 ${isRead ? 'font-semibold text-indigo-700' : 'font-bold text-indigo-900 dark:text-indigo-300'}`}>
+                      {!isRead && <span className="w-2 h-2 bg-indigo-500 rounded-full inline-block shrink-0" />}
+                      <CheckCircle2 size={14} className="text-indigo-600" /> 🎉 Ready for Pick-Up: {doc.document_type}
+                    </span>
+                    <Badge className="bg-indigo-600 text-white text-[10px]">Ready for Pickup</Badge>
+                  </div>
+                  <p className="text-indigo-800 dark:text-indigo-200 text-xs">
+                    Your document (<strong>{doc.request_code}</strong>) is approved and signed. Claim at the Barangay Hall during office hours.
+                  </p>
+                  <p className="text-[10px] text-indigo-600 font-mono">
+                    Ref: {doc.request_code} • By: {doc.processed_by || 'Barangay Staff'}
+                  </p>
                 </div>
-                <p className="text-indigo-800 dark:text-indigo-200 text-xs">
-                  Your document request (<strong>{doc.request_code}</strong>) has been approved and signed by the Punong Barangay. You can now claim your physical copy at the Barangay Hall during office hours.
-                </p>
-                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">
-                  Ref Code: {doc.request_code} • Prepared by: {doc.processed_by || 'Barangay Staff'}
-                </p>
-              </div>
-            ))}
+              );
+            })}
 
             {/* 3. Claimed / Completed Documents */}
-            {documents.filter(d => d.status === 'Completed').map((doc, idx) => (
-              <div key={`notif-done-${doc.id || doc.request_code || idx}-${idx}`} className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
-                    <CheckCircle2 size={14} className="text-emerald-600" /> Issued &amp; Claimed: {doc.document_type}
-                  </span>
-                  <Badge className="bg-emerald-600 text-white text-[10px]">Completed</Badge>
+            {documents.filter(d => d.status === 'Completed').map((doc, idx) => {
+              const notifKey = `doc-${doc.id || doc.request_code}`;
+              const isRead = readNotifKeys.has(notifKey);
+              return (
+                <div
+                  key={`notif-done-${doc.id || idx}`}
+                  className={`p-3.5 rounded-xl border space-y-1 cursor-pointer transition-all ${
+                    isRead
+                      ? 'bg-emerald-50/40 border-emerald-200/50 opacity-70'
+                      : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 shadow-sm'
+                  }`}
+                  onClick={() => markNotifRead(notifKey)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`flex items-center gap-1.5 ${isRead ? 'font-semibold text-emerald-700' : 'font-bold text-emerald-900 dark:text-emerald-300'}`}>
+                      {!isRead && <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block shrink-0" />}
+                      <CheckCircle2 size={14} className="text-emerald-600" /> Issued &amp; Claimed: {doc.document_type}
+                    </span>
+                    <Badge className="bg-emerald-600 text-white text-[10px]">Completed</Badge>
+                  </div>
+                  <p className="text-emerald-800 dark:text-emerald-200 text-xs">
+                    Your request (<strong>{doc.request_code}</strong>) was successfully issued and received.
+                  </p>
+                  <p className="text-[10px] text-emerald-600 font-mono">
+                    Ref: {doc.request_code} • Released by: {doc.processed_by || 'Barangay Staff'}
+                  </p>
                 </div>
-                <p className="text-emerald-800 dark:text-emerald-200 text-xs">
-                  Your document request (<strong>{doc.request_code}</strong>) was successfully issued and received.
-                </p>
-                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
-                  Ref Code: {doc.request_code} • Released by: {doc.processed_by || 'Barangay Staff'}
-                </p>
-              </div>
-            ))}
+              );
+            })}
 
             {/* 4. Processing Documents */}
-            {documents.filter(d => d.status === 'Processing').map((doc, idx) => (
-              <div key={`notif-proc-${doc.id || doc.request_code || idx}-${idx}`} className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl space-y-0.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
-                    <Clock size={13} className="text-amber-600" /> In Preparation: {doc.document_type}
-                  </span>
-                  <Badge className="bg-amber-500 text-white text-[10px]">Processing</Badge>
+            {documents.filter(d => d.status === 'Processing').map((doc, idx) => {
+              const notifKey = `doc-${doc.id || doc.request_code}`;
+              const isRead = readNotifKeys.has(notifKey);
+              return (
+                <div
+                  key={`notif-proc-${doc.id || idx}`}
+                  className={`p-3 rounded-xl border space-y-0.5 cursor-pointer transition-all ${
+                    isRead
+                      ? 'bg-amber-50/40 border-amber-200/50 opacity-60'
+                      : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200'
+                  }`}
+                  onClick={() => markNotifRead(notifKey)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+                      {!isRead && <span className="w-2 h-2 bg-amber-500 rounded-full inline-block shrink-0" />}
+                      <Clock size={13} className="text-amber-600" /> In Preparation: {doc.document_type}
+                    </span>
+                    <Badge className="bg-amber-500 text-white text-[10px]">Processing</Badge>
+                  </div>
+                  <p className="text-amber-800 dark:text-amber-200 text-xs">
+                    <strong>{doc.request_code}</strong> is being prepared by the Barangay Office.
+                  </p>
                 </div>
-                <p className="text-amber-800 dark:text-amber-200 text-xs">
-                  Request Code: <strong>{doc.request_code}</strong> is currently being prepared and verified by the Barangay Office.
-                </p>
-              </div>
-            ))}
+              );
+            })}
 
             {/* 5. Pending Documents */}
-            {documents.filter(d => d.status === 'Pending').map((doc, idx) => (
-              <div key={`notif-pend-${doc.id || doc.request_code || idx}-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl space-y-0.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <Clock size={13} className="text-slate-500" /> Queued: {doc.document_type}
-                  </span>
-                  <Badge className="bg-slate-500 text-white text-[10px]">Pending</Badge>
+            {documents.filter(d => d.status === 'Pending').map((doc, idx) => {
+              const notifKey = `doc-${doc.id || doc.request_code}`;
+              const isRead = readNotifKeys.has(notifKey);
+              return (
+                <div
+                  key={`notif-pend-${doc.id || idx}`}
+                  className={`p-3 rounded-xl border space-y-0.5 cursor-pointer transition-all ${
+                    isRead
+                      ? 'bg-slate-50/40 border-slate-200/50 opacity-60'
+                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200'
+                  }`}
+                  onClick={() => markNotifRead(notifKey)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      {!isRead && <span className="w-2 h-2 bg-slate-400 rounded-full inline-block shrink-0" />}
+                      <Clock size={13} className="text-slate-500" /> Queued: {doc.document_type}
+                    </span>
+                    <Badge className="bg-slate-500 text-white text-[10px]">Pending</Badge>
+                  </div>
+                  <p className="text-slate-600 dark:text-slate-400 text-xs">
+                    <strong>{doc.request_code}</strong> is in the verification queue.
+                  </p>
                 </div>
-                <p className="text-slate-600 dark:text-slate-400 text-xs">
-                  Request Code: <strong>{doc.request_code}</strong> has been submitted and is in the verification queue.
-                </p>
-              </div>
-            ))}
+              );
+            })}
 
             {/* 6. Rejected Document Requests */}
-            {documents.filter(d => d.status === 'Rejected').map((doc, idx) => (
-              <div key={`notif-rej-${doc.id || doc.request_code || idx}-${idx}`} className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-red-900 dark:text-red-300 flex items-center gap-1.5">
-                    <XCircle size={14} className="text-red-600" /> Document Request Rejected
-                  </span>
-                  <Badge className="bg-red-600 text-white text-[10px]">Rejected</Badge>
+            {documents.filter(d => d.status === 'Rejected').map((doc, idx) => {
+              const notifKey = `doc-${doc.id || doc.request_code}`;
+              const isRead = readNotifKeys.has(notifKey);
+              return (
+                <div
+                  key={`notif-rej-${doc.id || idx}`}
+                  className={`p-3.5 rounded-xl border space-y-1 cursor-pointer transition-all ${
+                    isRead
+                      ? 'bg-red-50/40 border-red-200/50 opacity-60'
+                      : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700 shadow-sm'
+                  }`}
+                  onClick={() => markNotifRead(notifKey)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`flex items-center gap-1.5 ${isRead ? 'font-semibold text-red-700' : 'font-bold text-red-900 dark:text-red-300'}`}>
+                      {!isRead && <span className="w-2 h-2 bg-red-500 rounded-full inline-block shrink-0" />}
+                      <XCircle size={14} className="text-red-600" /> Document Request Rejected
+                    </span>
+                    <Badge className="bg-red-600 text-white text-[10px]">Rejected</Badge>
+                  </div>
+                  <p className="text-red-800 dark:text-red-200 text-xs">
+                    Request for <strong>{doc.document_type}</strong> ({doc.request_code}) was rejected.
+                  </p>
+                  <p className="text-xs text-red-700 bg-red-100/70 p-2 rounded-md">
+                    <strong>Cause:</strong> {doc.purpose || 'Document requirements incomplete or unverified.'}
+                  </p>
                 </div>
-                <p className="text-red-800 dark:text-red-200 text-xs">
-                  Your request for <strong>{doc.document_type}</strong> ({doc.request_code}) was rejected.
-                </p>
-                <p className="text-xs text-red-700 bg-red-100/70 p-2 rounded-md">
-                  <strong>Cause / Remarks:</strong> {doc.purpose || 'Document requirements incomplete or unverified.'}
-                </p>
-              </div>
-            ))}
+              );
+            })}
 
             {/* Empty State */}
             {documents.length === 0 && user?.verification_status !== 'Rejected' && (
-              <div className="text-center py-8 text-slate-400">
-                <Bell size={28} className="mx-auto mb-2 opacity-40" />
-                <p className="text-xs">No notifications right now.</p>
-                <p className="text-[11px] text-slate-400">When your document requests are ready or need revision, they will appear here.</p>
+              <div className="text-center py-10 text-slate-400">
+                <Bell size={32} className="mx-auto mb-3 opacity-30" />
+                <p className="text-sm font-medium text-slate-500">No notifications yet</p>
+                <p className="text-[11px] text-slate-400 mt-1">When your document requests are updated or need attention, they'll appear here.</p>
               </div>
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2">
+            <Button size="sm" variant="outline" onClick={markAllNotifsRead} className="text-xs gap-1.5">
+              ✓ Mark All as Read
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setIsNotificationsOpen(false)} className="text-xs">
               Close
             </Button>

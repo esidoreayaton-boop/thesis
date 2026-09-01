@@ -410,6 +410,15 @@ export const apiService = {
     return await res.json();
   },
 
+  async unverifyResident(id: number, status: 'Unverified' | 'Pending_Review' = 'Unverified', reason?: string) {
+    const res = await fetch(`${API_BASE}/residents/${id}/unverify`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, reason })
+    });
+    return await res.json();
+  },
+
   async resubmitVerification(data: { email: string; id?: number; submitted_id: string; first_name?: string; middle_name?: string; last_name?: string; address?: string; phone?: string }) {
     const res = await fetch(`${API_BASE}/residents/resubmit`, {
       method: 'PUT',

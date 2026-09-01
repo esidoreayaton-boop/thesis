@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
-import { User, Phone, Lock, MapPin, Mail, Eye, EyeOff, KeyRound, CheckCircle2, AlertCircle, Calendar } from 'lucide-react';
+import { User, Phone, Lock, MapPin, Mail, Eye, EyeOff, KeyRound, CheckCircle2, AlertCircle, Calendar, Upload, FileText, ImageIcon } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { toast } from 'sonner';
 
@@ -36,6 +36,11 @@ export default function ProfileSettingsModal({
   const [civilStatus, setCivilStatus] = useState<'Single' | 'Married' | 'Widowed' | 'Separated'>('Single');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [residencyYears, setResidencyYears] = useState('');
+  const [submittedId, setSubmittedId] = useState<string | null>(null);
+  const [newIdPreview, setNewIdPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -78,12 +83,36 @@ export default function ProfileSettingsModal({
       setCivilStatus((user.civil_status || user.civilStatus || 'Single') as 'Single' | 'Married' | 'Widowed' | 'Separated');
       setPhone(user.phone || '');
       setAddress(user.address || '');
+      setResidencyYears(user.years_of_residency || user.residency_years || '');
+      setSubmittedId(user.submitted_id || null);
+      setNewIdPreview(null);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     }
     wasOpenRef.current = isOpen;
   }, [isOpen, user]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file (JPG, PNG, or PDF scan).');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size exceeds 5MB limit. Please upload a smaller image.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setNewIdPreview(base64);
+      setSubmittedId(base64);
+      toast.success('ID photo selected! Save your profile to submit it for re-verification.');
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,11 +129,11 @@ export default function ProfileSettingsModal({
     // Validate phone format — strictly 09XXXXXXXXX (11 digits)
     const cleanPhone = phone.replace(/\s+/g, '');
     if (!cleanPhone) {
-      toast.error('Mobile phone number is required.');
+      toast.error('Contact Number is required.');
       return;
     }
     if (!/^09\d{9}$/.test(cleanPhone)) {
-      toast.error('Invalid mobile number format', {
+      toast.error('Invalid contact number format', {
         description: 'Must be exactly 11 digits starting with 09 (e.g. 09171234567)'
       });
       return;
@@ -160,6 +189,24 @@ export default function ProfileSettingsModal({
         }
       }
 
+      // If a new ID is uploaded or updated, also send resubmit verification
+      if (newIdPreview) {
+        try {
+          await apiService.resubmitVerification({
+            email: user?.email,
+            id: user?.id,
+            submitted_id: newIdPreview,
+            first_name: cleanFirst,
+            middle_name: cleanMiddle,
+            last_name: cleanLast,
+            address: address.trim(),
+            phone: cleanPhone
+          });
+        } catch (resubmitErr) {
+          console.warn('Resubmit ID error:', resubmitErr);
+        }
+      }
+
       await apiService.updateProfile({
         id: user?.id,
         email: user?.email,
@@ -187,6 +234,9 @@ export default function ProfileSettingsModal({
         age: calculatedNumericAge !== undefined ? calculatedNumericAge : user?.age,
         phone: cleanPhone,
         address: address.trim(),
+        submitted_id: submittedId || user?.submitted_id,
+        years_of_residency: residencyYears.trim(),
+        verification_status: newIdPreview ? 'Pending_Review' : user?.verification_status
       };
 
       localStorage.setItem('barangay_user', JSON.stringify(updatedUser));
@@ -195,7 +245,11 @@ export default function ProfileSettingsModal({
       }
 
       toast.success('Profile updated successfully!', {
-        description: newPassword ? 'Name, birthday, contact, address, and password saved.' : 'Name, birthday, contact number, and address saved.'
+        description: newIdPreview
+          ? 'Details saved and updated Government ID submitted for Barangay verification.'
+          : newPassword
+          ? 'Name, birthday, contact, address, and password saved.'
+          : 'Name, birthday, contact number, and address saved.'
       });
       onClose();
     } catch (err) {
@@ -342,7 +396,7 @@ export default function ProfileSettingsModal({
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <Phone size={13} className="text-teal-600" />
-              Mobile Phone Number <RequiredStar />
+              Contact Number <RequiredStar />
             </Label>
             <Input
               value={phone}
@@ -358,7 +412,7 @@ export default function ProfileSettingsModal({
               title="Must be an 11-digit PH mobile number starting with 09"
               required
             />
-            <p className="text-[10px] text-slate-400">PH format: 09XXXXXXXXX (11 digits). Used for SMS alerts.</p>
+            <p className="text-[10px] text-slate-400">PH format: 09XXXXXXXXX (11 digits). Used for SMS alerts &amp; official updates.</p>
           </div>
 
           {/* Editable: Address */}
@@ -370,10 +424,81 @@ export default function ProfileSettingsModal({
             <Input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="e.g. Purok 1, Barangay Anticala, Butuan City"
+              placeholder="e.g. Purok 1, Barangay Pianing, Butuan City"
               className="h-9 text-xs"
               required
             />
+          </div>
+
+          {/* Editable: Years of Residency in Barangay */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <MapPin size={13} className="text-teal-600" />
+              Years of Residency in Barangay
+              <span className="font-normal text-[10px] text-slate-400">(for Certificate of Residency)</span>
+            </Label>
+            <Input
+              value={residencyYears}
+              onChange={(e) => setResidencyYears(e.target.value)}
+              placeholder="e.g. 5 years   or   since 2019"
+              className="h-9 text-xs"
+            />
+          </div>
+
+          {/* Identification Document & Verification Upload Section */}
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                <FileText size={14} className="text-teal-600" />
+                Government ID / Verification Document
+              </Label>
+              {user?.verification_status === 'Verified' ? (
+                <Badge className="bg-emerald-100 text-emerald-800 text-[10px] font-semibold">Verified</Badge>
+              ) : (
+                <Badge className="bg-amber-100 text-amber-800 text-[10px] font-semibold">Review Needed</Badge>
+              )}
+            </div>
+            
+            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Upload or update your valid Philippine Government ID (PhilID National ID, Passport, Driver's License, Postal ID, PRC, or Cedula) for Barangay Administrator approval.
+              </p>
+
+              {/* Current / New Preview */}
+              {(newIdPreview || submittedId) && (
+                <div className="relative border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden max-h-44 bg-slate-900 flex items-center justify-center p-1">
+                  <img
+                    src={newIdPreview || submittedId || ''}
+                    alt="Submitted Government ID"
+                    className="max-h-40 object-contain rounded"
+                  />
+                  {newIdPreview && (
+                    <span className="absolute top-2 right-2 bg-teal-600 text-white text-[10px] px-2 py-0.5 rounded shadow-sm font-semibold">
+                      New Upload Selected
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                className="hidden"
+              />
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full text-xs h-8 gap-1.5 border-dashed border-teal-500 text-teal-700 hover:bg-teal-50 dark:hover:bg-teal-950/30"
+              >
+                <Upload size={13} />
+                {submittedId || newIdPreview ? 'Change / Upload New ID Photo' : 'Upload Valid Government ID'}
+              </Button>
+            </div>
           </div>
 
           {/* Divider: Password Change */}

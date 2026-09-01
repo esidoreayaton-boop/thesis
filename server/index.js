@@ -1036,6 +1036,44 @@ app.put('/api/residents/:id/approve', async (req, res) => {
   res.json({ success: true, message: 'Resident account approved and verified successfully.' });
 });
 
+// Unverify resident registration (Set to Unverified or Pending_Review without deleting)
+app.put('/api/residents/:id/unverify', async (req, res) => {
+  const { id } = req.params;
+  const { status = 'Unverified', reason } = req.body || {};
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      let targetEmail = null;
+      const [rRows] = await pool.query("SELECT email FROM residents WHERE id = ?", [id]);
+      if (rRows.length > 0) {
+        targetEmail = rRows[0].email;
+        await pool.query("UPDATE residents SET verification_status = ?, rejection_reason = ? WHERE id = ?", [status, reason || null, id]);
+      } else {
+        const [uRows] = await pool.query("SELECT email FROM users WHERE id = ?", [id]);
+        if (uRows.length > 0) targetEmail = uRows[0].email;
+      }
+      if (targetEmail) {
+        await pool.query("UPDATE users SET verification_status = ?, rejection_reason = ? WHERE LOWER(email) = LOWER(?)", [status, reason || null, targetEmail]);
+        await pool.query("UPDATE residents SET verification_status = ?, rejection_reason = ? WHERE LOWER(email) = LOWER(?)", [status, reason || null, targetEmail]);
+      }
+      return res.json({ success: true, message: `Resident verification status set to ${status}.` });
+    } catch (err) {
+      console.warn('MySQL unverify error:', err.message);
+    }
+  }
+  const r = mockData.residents.find(r => String(r.id) === String(id));
+  if (r) {
+    r.verification_status = status;
+    r.rejection_reason = reason || null;
+    const u = mockData.users.find(u => u.email.toLowerCase() === (r.email || '').toLowerCase());
+    if (u) {
+      u.verification_status = status;
+      u.rejection_reason = reason || null;
+    }
+  }
+  res.json({ success: true, message: `Resident verification status set to ${status}.` });
+});
+
 // Reject / Request Correction for resident registration (Wrong ID / Correction needed)
 app.put('/api/residents/:id/reject', async (req, res) => {
   const { id } = req.params;

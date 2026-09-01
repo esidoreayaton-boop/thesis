@@ -837,24 +837,24 @@ export default function DocumentPrintModal({ isOpen, onClose, document: docItem 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-5">
-        <DialogHeader className="flex flex-row justify-between items-center border-b pb-3 bg-white dark:bg-slate-900 -mx-5 -mt-5 px-4 pt-3 pb-3 rounded-t-lg shadow-xs sticky top-0 z-10">
+      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-5">
+        <DialogHeader className="flex flex-row justify-between items-center border-b pb-3 bg-white dark:bg-slate-900 -mx-5 -mt-5 px-5 pt-3 pb-3 rounded-t-lg shadow-xs sticky top-0 z-10">
           <div className="flex items-center gap-2">
-            <Shield className="text-indigo-600" size={18} />
+            <Shield className="text-indigo-600" size={20} />
             <div>
-              <DialogTitle className="text-sm font-bold">Official Barangay Document</DialogTitle>
-              <DialogDescription className="text-[10px] text-slate-500">
-                Office of the Punong Barangay — Pianing, Butuan City
+              <DialogTitle className="text-sm font-bold">Official Barangay Document Preview &amp; Print</DialogTitle>
+              <DialogDescription className="text-[11px] text-slate-500">
+                Office of the Punong Barangay — Pianing, Butuan City &bull; {docItem.document_type}
               </DialogDescription>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button onClick={handlePrint} size="sm" className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 shadow-sm cursor-pointer h-8">
-              <Printer size={13} /> Print
+            <Button onClick={handlePrint} size="sm" className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 shadow-sm cursor-pointer h-9">
+              <Printer size={15} /> Print Document
             </Button>
             <button
               onClick={onClose}
-              className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 transition-colors"
+              className="rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
               title="Close"
             >
               <X size={18} />
@@ -863,26 +863,24 @@ export default function DocumentPrintModal({ isOpen, onClose, document: docItem 
         </DialogHeader>
 
         {/* Clean Print Reminder Banner */}
-        <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 px-3 py-2 rounded-lg text-[10px] flex items-center gap-2 mt-2">
+        <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 px-3.5 py-2 rounded-lg text-xs flex items-center gap-2 mt-2">
           <span>
-            💡 <strong>Print Tip:</strong> In the browser print dialog, expand <em>"More settings"</em> and <strong>uncheck "Headers and footers"</strong> to remove the date, URL, and page numbers.
+            💡 <strong>Print Tip:</strong> In the browser print dialog, expand <em>"More settings"</em> and <strong>uncheck "Headers and footers"</strong> for a clean official printout.
           </span>
         </div>
 
-        {/* Letter preview — scaled down to fit screen */}
+        {/* Full-width complete letter preview — no clipping, full pagination support */}
         <div
-          className="bg-white text-black shadow-md border border-slate-300 mx-auto my-3 rounded-sm overflow-hidden"
+          className="bg-white text-black shadow-lg border border-slate-300 mx-auto my-4 rounded-sm"
           style={{
             width: '100%',
-            maxWidth: '680px',
-            minHeight: '960px',
-            padding: '40px 52px',
+            maxWidth: '792px',
+            minHeight: '1024px',
+            padding: '52px 64px',
             boxSizing: 'border-box',
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '10pt',
-            transform: 'scale(0.9)',
-            transformOrigin: 'top center',
-            marginBottom: '-80px'
+            fontSize: '11pt',
+            lineHeight: '1.65'
           }}
         >
           <CertificatePreview doc={docItem} />

@@ -51,7 +51,8 @@ import {
   History,
   CalendarCheck,
   CalendarPlus,
-  Sparkles
+  Sparkles,
+  ShieldAlert
 } from 'lucide-react';
 import { apiService, DocumentRequest, Resident, SystemUser, PendingResident, ActivityLog, ClinicSchedule, HealthAppointment } from '../../services/api';
 import SystemMessenger from '../components/SystemMessenger';
@@ -995,6 +996,23 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleToggleResidentVerification = async (res: Resident) => {
+    const isCurrentlyVerified = res.verification_status === 'Verified';
+    const nextStatus = isCurrentlyVerified ? 'Unverified' : 'Verified';
+    try {
+      if (isCurrentlyVerified) {
+        await apiService.unverifyResident(res.id, 'Unverified');
+        toast.warning(`${res.first_name} ${res.last_name} is now UNVERIFIED. (Account remains intact in database)`);
+      } else {
+        await apiService.approveResident(res.id, user?.name);
+        toast.success(`${res.first_name} ${res.last_name} has been VERIFIED.`);
+      }
+      loadData();
+    } catch {
+      toast.error('Failed to update verification status.');
+    }
+  };
+
   const handlePurgeResident = async (id: number) => {
     if (!confirm('Are you sure you want to permanently delete this account registration? This action cannot be undone.')) return;
     try {
@@ -1455,7 +1473,6 @@ export default function AdminDashboard() {
     ...(!isStaff ? [{ id: 'users', label: isSuperAdmin ? 'User Directory' : 'User Accounts', icon: Users }] : []),
     { id: 'reports', label: 'System Reports', icon: BarChart },
     ...(!isStaff ? [{ id: 'logs', label: isSuperAdmin ? 'System Audit & History Logs' : 'Activity History Logs', icon: History }] : []),
-    { id: 'schedules', label: 'Available Schedules', icon: CalendarCheck },
     { id: 'archive', label: 'Settings & Data Archive', icon: Settings },
     ...(isSuperAdmin ? [{ id: 'categories', label: 'Category Manager', icon: Tag }] : []),
   ];
@@ -3084,24 +3101,66 @@ export default function AdminDashboard() {
                         <TableHead className="text-xs">Full Name</TableHead>
                         <TableHead className="text-xs">Gender</TableHead>
                         <TableHead className="text-xs">Address</TableHead>
-                        <TableHead className="text-xs">Phone</TableHead>
+                        <TableHead className="text-xs">Contact Number</TableHead>
+                        <TableHead className="text-xs">Verification</TableHead>
+                        <TableHead className="text-xs text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredResidents.map((res, idx) => (
-                        <TableRow key={`res-rec-${res.id}-${idx}`} className="text-xs">
-                          <TableCell className="font-mono text-slate-500">{res.id}</TableCell>
+                        <TableRow key={`res-rec-${res.id}-${idx}`} className="text-xs hover:bg-slate-50/80">
+                          <TableCell className="font-mono text-slate-500 font-semibold">#{res.id}</TableCell>
                           <TableCell>
                             <button
                               onClick={() => openResidentProfile(res.id)}
-                              className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline transition-colors"
+                              className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline transition-colors text-left block"
                             >
                               {res.first_name} {res.last_name}
                             </button>
+                            {res.email && <span className="text-[10px] text-slate-400 font-mono block">{res.email}</span>}
                           </TableCell>
                           <TableCell>{res.gender}</TableCell>
                           <TableCell className="text-slate-600">{res.address}</TableCell>
                           <TableCell className="font-mono text-slate-500">{res.phone || '-'}</TableCell>
+                          <TableCell>
+                            <Badge className={
+                              res.verification_status === 'Verified' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                              res.verification_status === 'Rejected' ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                              'bg-amber-100 text-amber-800 border-amber-300'
+                            }>
+                              {res.verification_status === 'Verified' ? 'Verified' : res.verification_status === 'Rejected' ? 'Rejected / Need Fix' : 'Unverified / Pending'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openResidentProfile(res.id)}
+                                className="h-7 text-xs text-indigo-600 hover:bg-indigo-50 gap-1"
+                                title="View Full Profile"
+                              >
+                                <Eye size={12} /> Profile
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleToggleResidentVerification(res)}
+                                className={`h-7 text-[11px] gap-1 font-semibold cursor-pointer ${
+                                  res.verification_status === 'Verified'
+                                    ? 'text-amber-700 border-amber-300 hover:bg-amber-50'
+                                    : 'text-emerald-700 border-emerald-300 hover:bg-emerald-50 bg-emerald-50/50'
+                                }`}
+                                title={res.verification_status === 'Verified' ? 'Click to unverify resident' : 'Click to verify resident'}
+                              >
+                                {res.verification_status === 'Verified' ? (
+                                  <><ShieldAlert size={12} /> Unverify</>
+                                ) : (
+                                  <><Check size={12} /> Verify</>
+                                )}
+                              </Button>
+                            </div>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -4626,256 +4685,7 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* ─── AVAILABLE SERVICE & CLINIC SCHEDULES TAB ─── */}
-          {activeTab === 'schedules' && (
-            <div className="space-y-6">
-              {/* Header */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md border bg-emerald-100 text-emerald-800 border-emerald-300">
-                      PUBLIC APPOINTMENT SLOTS
-                    </span>
-                    <span className="text-xs text-slate-500 font-mono">Barangay Pianing Health Center &amp; Services</span>
-                  </div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white mt-1">Available Service &amp; Clinic Schedules</h2>
-                  <p className="text-xs text-slate-500">
-                    Set available time slots and capacity for Pre-Marriage Counseling (PMC), Prenatal Care, Immunization, and Consultations so residents can choose their preferred schedule.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    onClick={() => setIsPostScheduleModalOpen(true)}
-                    size="sm"
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <PlusCircle size={14} /> Add Available Schedule
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => { loadData(); loadOverdueData(); }} className="gap-1.5 text-xs cursor-pointer">
-                    <RefreshCcw size={13} /> Refresh
-                  </Button>
-                </div>
-              </div>
 
-              {/* ═══════════════════════════════════════════════════════════════ */}
-              {/* AVAILABLE SCHEDULES BOARD */}
-              {/* ═══════════════════════════════════════════════════════════════ */}
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                    <CalendarCheck size={16} className="text-emerald-600" />
-                    Active Available Schedules ({clinicSchedules.length})
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    These schedules are visible in the resident portal. Residents select these slots when booking appointments.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {clinicSchedules.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400 text-xs">
-                      <CalendarCheck size={28} className="mx-auto mb-2 text-slate-300" />
-                      No available schedules set yet. Click <strong>"Add Available Schedule"</strong> to publish a time slot.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                      {clinicSchedules.map((sch) => (
-                        <div key={sch.id} className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-3">
-                          <div>
-                            <div className="flex items-center justify-between gap-1 mb-1.5">
-                              <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-bold">
-                                {sch.service_type}
-                              </Badge>
-                              <span className="text-[10px] font-medium text-emerald-700 bg-white border border-emerald-200 px-2 py-0.5 rounded-full">
-                                Active Operating Block
-                              </span>
-                            </div>
-                            <h4 className="font-bold text-xs text-slate-900 dark:text-white leading-snug">{sch.title}</h4>
-                            <div className="space-y-1.5 mt-2.5 text-[11px] text-slate-600 dark:text-slate-400">
-                              <div className="flex items-center gap-1.5 font-semibold text-emerald-800 dark:text-emerald-300">
-                                <Clock size={12} className="text-emerald-600 shrink-0" />
-                                <span>{sch.day_of_week} • {sch.time_slot}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-slate-500">
-                                <MapPin size={12} className="text-slate-400 shrink-0" />
-                                <span>{sch.location}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDeleteSchedule(sch.id)}
-                            className="w-full h-7 text-[10px] text-red-600 hover:bg-red-50 hover:text-red-700 cursor-pointer"
-                          >
-                            <Trash2 size={11} className="mr-1" /> Remove Schedule
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* ═══════════════════════════════════════════════════════════════ */}
-              {/* RESIDENT APPOINTMENT BOOKINGS OVERVIEW */}
-              {/* ═══════════════════════════════════════════════════════════════ */}
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                    <Users size={16} className="text-blue-600" />
-                    Resident Appointment Requests ({appointments.length})
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Overview of appointments submitted by residents for health center services.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="rounded-md border border-slate-200 dark:border-slate-800 overflow-x-auto">
-                    <Table>
-                      <TableHeader className="bg-slate-50 dark:bg-slate-900">
-                        <TableRow>
-                          <TableHead className="text-xs">Ref Code</TableHead>
-                          <TableHead className="text-xs">Resident Name</TableHead>
-                          <TableHead className="text-xs">Service</TableHead>
-                          <TableHead className="text-xs">Preferred Date &amp; Slot</TableHead>
-                          <TableHead className="text-xs">Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {appointments.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={5} className="text-center text-xs py-8 text-slate-400">
-                              No appointment requests yet.
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          appointments.slice(0, 10).map((apt) => (
-                            <TableRow key={apt.id} className="text-xs">
-                              <TableCell className="font-mono font-bold text-slate-800">{apt.appointment_code}</TableCell>
-                              <TableCell className="font-semibold text-slate-900">{apt.resident_name}</TableCell>
-                              <TableCell>{apt.service_type}</TableCell>
-                              <TableCell className="text-slate-600">
-                                📅 {apt.scheduled_date || apt.preferred_date} ({apt.scheduled_time || apt.preferred_time})
-                              </TableCell>
-                              <TableCell>
-                                <Badge className={
-                                  apt.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
-                                  apt.status === 'Completed' ? 'bg-blue-100 text-blue-800' :
-                                  apt.status === 'Pending' ? 'bg-amber-100 text-amber-800' :
-                                  'bg-slate-100 text-slate-700'
-                                }>
-                                  {apt.status}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Add Available Schedule Modal */}
-              <Dialog open={isPostScheduleModalOpen} onOpenChange={setIsPostScheduleModalOpen}>
-                <DialogContent className="bg-white max-w-md">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-slate-900">
-                      <CalendarPlus size={18} className="text-emerald-600" />
-                      Set Available Service / Clinic Schedule
-                    </DialogTitle>
-                    <DialogDescription className="text-xs">
-                      Publish a new schedule slot for residents in Barangay {userBarangay}. Residents will see and choose this slot when requesting appointments.
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  <form onSubmit={handleCreateSchedule} className="space-y-3 py-2 text-xs">
-                    <div>
-                      <Label className="text-xs font-semibold">Schedule Title <span className="text-red-500">*</span></Label>
-                      <Input
-                        value={newScheduleTitle}
-                        onChange={e => setNewScheduleTitle(e.target.value)}
-                        placeholder="e.g. Pre-Marriage Counseling (PMC) Weekly Seminar"
-                        required
-                        className="mt-1 h-9 text-xs"
-                      />
-                    </div>
-
-                    <div>
-                      <Label className="text-xs font-semibold">Service / Program Type</Label>
-                      <Select value={newScheduleServiceType} onValueChange={setNewScheduleServiceType}>
-                        <SelectTrigger className="mt-1 h-9 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Pre-Marriage Counseling (PMC)">Pre-Marriage Counseling (PMC)</SelectItem>
-                          <SelectItem value="Prenatal Check-up">Prenatal Check-up</SelectItem>
-                          <SelectItem value="Child Immunization">Child Immunization</SelectItem>
-                          <SelectItem value="Family Planning &amp; Counseling">Family Planning &amp; Counseling</SelectItem>
-                          <SelectItem value="General Medical Consultation">General Medical Consultation</SelectItem>
-                          <SelectItem value="BHW Home Visit">BHW Home Visit</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <Label className="text-xs font-semibold">Day of Week / Schedule <span className="text-red-500">*</span></Label>
-                        <Input
-                          value={newScheduleDay}
-                          onChange={e => setNewScheduleDay(e.target.value)}
-                          placeholder="e.g. Every Wednesday"
-                          required
-                          className="mt-1 h-9 text-xs"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs font-semibold">Operating Time Block <span className="text-red-500">*</span></Label>
-                        <Input
-                          value={newScheduleTime}
-                          onChange={e => setNewScheduleTime(e.target.value)}
-                          placeholder="e.g. 10:00 AM - 12:00 PM"
-                          required
-                          className="mt-1 h-9 text-xs font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="text-xs font-semibold">Staff / BHW In-Charge</Label>
-                      <Input
-                        value={newScheduleBhw}
-                        onChange={e => setNewScheduleBhw(e.target.value)}
-                        placeholder="Nurse Maria Santos / Duty Personnel"
-                        className="mt-1 h-9 text-xs"
-                      />
-                    </div>
-
-                    <div>
-                      <Label className="text-xs font-semibold">Location / Room</Label>
-                      <Input
-                        value={newScheduleLocation}
-                        onChange={e => setNewScheduleLocation(e.target.value)}
-                        placeholder="Barangay Pianing Health Center - Room 1"
-                        className="mt-1 h-9 text-xs"
-                      />
-                    </div>
-
-                    <DialogFooter className="gap-2 pt-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setIsPostScheduleModalOpen(false)} className="text-xs">
-                        Cancel
-                      </Button>
-                      <Button type="submit" size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 shadow-sm">
-                        <PlusCircle size={14} />
-                        Publish Schedule
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-          )}
 
         </main>
       </div>

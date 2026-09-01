@@ -450,11 +450,10 @@ export default function BhwDashboard() {
 
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: Home },
-    { id: 'requests', label: 'Health Document Requests', icon: FileText },
     { id: 'appointments', label: 'Appointments & Schedules', icon: CalendarCheck },
     { id: 'immunization', label: 'Immunization Tracking', icon: Syringe },
     { id: 'maternal', label: 'Maternal Health', icon: Heart },
-    { id: 'notifications', label: 'SMS Notifications', icon: Bell },
+    { id: 'notifications', label: 'SMS & Health Alerts', icon: Bell },
     { id: 'reports', label: 'Health Reports', icon: BarChart },
   ];
 
@@ -730,161 +729,6 @@ export default function BhwDashboard() {
                   </CardContent>
                 </Card>
               )}
-            </div>
-          )}
-
-          {/* TAB: HEALTH DOCUMENT REQUESTS */}
-          {activeTab === 'requests' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Health Center Document Requests</h2>
-                  <p className="text-xs text-slate-500">Medical certificates, health clearances, immunization cards, and maternal records submitted by residents.</p>
-                </div>
-              </div>
-
-              {/* Filter and Export Toolbar */}
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
-                <div className="relative flex-1 max-w-md w-full">
-                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                  <Input
-                    placeholder="Search by request code, resident name, or type..."
-                    value={docSearch}
-                    onChange={e => setDocSearch(e.target.value)}
-                    className="pl-9 h-9 text-xs"
-                  />
-                </div>
-                <Button
-                  onClick={() => {
-                    printOfficialReport({
-                      title: 'Health Center Document Requests',
-                      subtitle: `Medical certificates & health clearances — ${new Date().toLocaleDateString()}`,
-                      preparedBy: user?.name || 'BHW Health Worker',
-                      preparedByTitle: 'Barangay Health Worker',
-                      department: 'Barangay Health Center',
-                      stats: [{ label: 'Total Requests', value: documents.length, color: '#059669' }],
-                      tables: [{
-                        title: 'Health Document Requests',
-                        headers: ['Code', 'Resident', 'Type', 'Purpose', 'Status', 'Date'],
-                        rows: documents.map(d => [d.request_code ?? '', d.resident_name ?? '', d.document_type ?? '', d.purpose ?? '', d.status ?? '', d.requested_at ?? 'Recent'])
-                      }]
-                    });
-                    toast.success('Health document requests opened as PDF');
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
-                >
-                  <Download size={14} /> Export PDF
-                </Button>
-              </div>
-
-              {/* Document Requests Table */}
-              <Card className="border-slate-200 bg-white shadow-xs">
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs font-bold">Request Code</TableHead>
-                        <TableHead className="text-xs font-bold">Resident Name</TableHead>
-                        <TableHead className="text-xs font-bold">Document Type</TableHead>
-                        <TableHead className="text-xs font-bold">Purpose / Details</TableHead>
-                        <TableHead className="text-xs font-bold">Status</TableHead>
-                        <TableHead className="text-xs font-bold">Requested At</TableHead>
-                        <TableHead className="text-xs font-bold text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {documents.filter(d =>
-                        d.request_code.toLowerCase().includes(docSearch.toLowerCase()) ||
-                        d.resident_name.toLowerCase().includes(docSearch.toLowerCase()) ||
-                        d.document_type.toLowerCase().includes(docSearch.toLowerCase())
-                      ).length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center text-xs py-8 text-slate-400">
-                            No document requests found.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        documents.filter(d =>
-                          d.request_code.toLowerCase().includes(docSearch.toLowerCase()) ||
-                          d.resident_name.toLowerCase().includes(docSearch.toLowerCase()) ||
-                          d.document_type.toLowerCase().includes(docSearch.toLowerCase())
-                        ).map(doc => (
-                          <TableRow key={doc.id} className="text-xs hover:bg-slate-50/80 transition-colors">
-                            <TableCell>
-                              <button
-                                onClick={() => openDocInfo(doc)}
-                                className="font-mono font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer flex items-center gap-1"
-                                title="Click to view document info"
-                              >
-                                {doc.request_code}
-                                <Eye size={12} className="opacity-70" />
-                              </button>
-                            </TableCell>
-                            <TableCell>
-                              <button
-                                onClick={() => openResidentProfile(doc.resident_id || 1)}
-                                className="font-semibold text-slate-900 hover:text-blue-600 hover:underline transition-colors"
-                              >
-                                {doc.resident_name}
-                              </button>
-                            </TableCell>
-                            <TableCell>
-                              <span className="font-medium text-slate-800">{doc.document_type}</span>
-                            </TableCell>
-                            <TableCell className="text-slate-500 max-w-[150px] truncate" title={doc.purpose}>
-                              {doc.purpose || '-'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={
-                                doc.status === 'Completed' ? 'bg-emerald-600' :
-                                doc.status === 'Processing' ? 'bg-amber-500' : 'bg-orange-500'
-                              }>
-                                {doc.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-slate-500 text-[11px] font-mono">
-                              {doc.requested_at || 'Recent'}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-1.5">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openDocInfo(doc)}
-                                  className="h-7 text-[11px] gap-1 text-slate-700 border-slate-300 hover:bg-slate-50"
-                                >
-                                  <Eye size={13} /> Details
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openPrintModal(doc)}
-                                  className="h-7 text-[11px] gap-1 text-blue-700 border-blue-200 hover:bg-blue-50"
-                                >
-                                  <Printer size={13} /> Print
-                                </Button>
-                                {doc.status !== 'Completed' && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleUpdateDocStatus(doc.id, doc.status)}
-                                    className="h-7 text-[11px] gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
-                                  >
-                                    <Check size={12} />
-                                    {doc.status === 'Pending' ? 'Process' : 'Approve'}
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
             </div>
           )}
 
