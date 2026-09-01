@@ -145,11 +145,13 @@ async function migrateDatabase() {
     await safeAddColumn(pool, 'users', 'barangay', "VARCHAR(100) DEFAULT 'Pianing'");
     await safeAddColumn(pool, 'users', 'phone', "VARCHAR(50) DEFAULT ''");
     await safeAddColumn(pool, 'users', 'address', "VARCHAR(255) DEFAULT ''");
+    await safeAddColumn(pool, 'users', 'civil_status', "ENUM('Single', 'Married', 'Widowed', 'Separated') DEFAULT 'Single'");
     await safeAddColumn(pool, 'users', 'last_login', "DATETIME NULL");
     await safeAddColumn(pool, 'residents', 'barangay', "VARCHAR(100) DEFAULT 'Pianing'");
     await safeAddColumn(pool, 'residents', 'first_name', "VARCHAR(50) NOT NULL DEFAULT ''");
     await safeAddColumn(pool, 'residents', 'middle_name', "VARCHAR(50) DEFAULT ''");
     await safeAddColumn(pool, 'residents', 'last_name', "VARCHAR(50) NOT NULL DEFAULT ''");
+    await safeAddColumn(pool, 'residents', 'civil_status', "ENUM('Single', 'Married', 'Widowed', 'Separated') DEFAULT 'Single'");
     await safeAddColumn(pool, 'residents', 'years_of_residency', "VARCHAR(50) DEFAULT NULL");
 
     // Messages table schema migration

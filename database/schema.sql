@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS `users` (
   `role` ENUM('superadmin', 'admin', 'staff', 'bhw', 'resident') NOT NULL DEFAULT 'resident',
   `status` ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
   `verification_status` ENUM('Verified', 'Unverified', 'Pending_Review', 'Rejected') NOT NULL DEFAULT 'Verified',
+  `civil_status` ENUM('Single', 'Married', 'Widowed', 'Separated') DEFAULT 'Single',
+  `phone` VARCHAR(20) DEFAULT '',
+  `address` VARCHAR(255) DEFAULT '',
+  `barangay` VARCHAR(100) DEFAULT 'Pianing',
   `last_login` DATETIME NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
