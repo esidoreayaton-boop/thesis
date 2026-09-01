@@ -837,7 +837,7 @@ app.get('/api/residents/pending', async (req, res) => {
           COALESCE(r.phone, u.phone) AS phone,
           COALESCE(r.address, CONCAT('Barangay ', COALESCE(u.barangay, 'Pianing'))) AS address,
           COALESCE(r.barangay, u.barangay, 'Pianing') AS barangay,
-          r.household_id,
+          NULL AS household_id,
           r.submitted_id,
           COALESCE(r.submitted_at, u.created_at) AS submitted_at,
           COALESCE(r.verification_status, u.verification_status, 'Pending_Review') AS verification_status,

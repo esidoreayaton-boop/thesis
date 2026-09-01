@@ -2850,8 +2850,8 @@ export default function AdminDashboard() {
                           </TableCell>
                         </TableRow>
                       ) : (
-                        filteredArchivedDocs.map(doc => (
-                          <TableRow key={doc.id} className="text-xs hover:bg-emerald-50/30">
+                        filteredArchivedDocs.map((doc, idx) => (
+                          <TableRow key={`archived-doc-${doc.id}-${idx}`} className="text-xs hover:bg-emerald-50/30">
                             <TableCell>
                               <button
                                 onClick={() => openDocInfo(doc)}

@@ -161,12 +161,15 @@ export default function LoginPage() {
           : 'BHW Health Center Portal';
         toast.success(`Welcome back, ${user.name}!`, { description: `Opening ${portalLabel}...` });
 
-        if (user.role === 'superadmin' || user.role === 'admin' || user.role === 'staff') {
+        const normalizedRole = (user.role || '').toLowerCase().trim();
+        if (normalizedRole === 'superadmin' || normalizedRole === 'admin' || normalizedRole === 'staff') {
           navigate('/admin');
-        } else if (user.role === 'nurse') {
+        } else if (normalizedRole === 'nurse') {
           navigate('/nurse');
-        } else if (user.role === 'bhw') {
+        } else if (normalizedRole === 'bhw') {
           navigate('/bhw');
+        } else {
+          navigate('/resident');
         }
       }
     } catch (err) {
