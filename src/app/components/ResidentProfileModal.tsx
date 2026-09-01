@@ -193,7 +193,7 @@ export default function ResidentProfileModal({ residentId, isOpen, onClose }: Re
                 Linked Child Immunization Records ({immunizations.length})
               </h4>
               {immunizations.length === 0 ? (
-                <p className="text-xs text-slate-400 py-6 text-center bg-slate-50 rounded-lg">No infant immunization records linked to this household.</p>
+                <p className="text-xs text-slate-400 py-6 text-center bg-slate-50 rounded-lg">No infant immunization records linked to this resident.</p>
               ) : (
                 immunizations.map(i => (
                   <div key={i.id} className="p-3 bg-white border border-slate-200 rounded-xl flex justify-between items-center text-xs">

@@ -17,7 +17,7 @@ export default function LandingPage() {
     {
       icon: Users,
       color: 'bg-indigo-100 text-indigo-600',
-      title: 'Resident Household Registry',
+      title: 'Resident Demographic Registry',
       description: 'Comprehensive resident records management for accurate information retrieval and official reporting.'
     },
     {

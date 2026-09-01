@@ -38,7 +38,6 @@ export interface Resident {
   purok?: string;
   barangay?: string;
   address: string;
-  household_id?: string;
   phone?: string;
   email?: string;
   submitted_id?: string;

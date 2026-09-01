@@ -49,7 +49,6 @@ CREATE TABLE IF NOT EXISTS `residents` (
   `email` VARCHAR(100) DEFAULT '',
   `submitted_id` LONGTEXT NULL,
   `submitted_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-  `voter_status` BOOLEAN DEFAULT TRUE,
   `years_of_residency` VARCHAR(50) DEFAULT NULL COMMENT 'How many years resident has lived in barangay',
   `verification_status` ENUM('Verified', 'Unverified', 'Pending_Review', 'Rejected') DEFAULT 'Pending_Review',
   `rejection_reason` TEXT DEFAULT NULL,

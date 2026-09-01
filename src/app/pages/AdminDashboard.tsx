@@ -1430,8 +1430,9 @@ export default function AdminDashboard() {
   const barangayResidents = residents.filter(res => belongsToMyBarangay(res.address || (res as any).barangay));
   const filteredResidents = barangayResidents.filter(res =>
     `${res.first_name} ${res.last_name}`.toLowerCase().includes(residentSearch.toLowerCase()) ||
-    (res.household_id || '').toLowerCase().includes(residentSearch.toLowerCase()) ||
-    (res.address || '').toLowerCase().includes(residentSearch.toLowerCase())
+    (res.address || '').toLowerCase().includes(residentSearch.toLowerCase()) ||
+    (res.email || '').toLowerCase().includes(residentSearch.toLowerCase()) ||
+    (res.phone || '').toLowerCase().includes(residentSearch.toLowerCase())
   );
 
   // Pending resident approvals — strictly isolated by barangay
@@ -2947,7 +2948,7 @@ export default function AdminDashboard() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                   <h2 className="text-xl font-bold text-slate-900 dark:text-white">Barangay Resident Registry</h2>
-                  <p className="text-xs text-slate-500">Demographic profiles and household registration linked to MySQL database.</p>
+                  <p className="text-xs text-slate-500">Demographic profiles and resident records linked to MySQL database.</p>
                 </div>
 
                 <Dialog open={isAddResidentOpen} onOpenChange={setIsAddResidentOpen}>

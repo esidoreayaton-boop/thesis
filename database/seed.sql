@@ -27,13 +27,13 @@ INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `role`, `status`, `
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `email` = VALUES(`email`), `role` = VALUES(`role`), `verification_status` = VALUES(`verification_status`);
 
 -- Seed Residents
-INSERT INTO `residents` (`id`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `civil_status`, `address`, `household_id`, `phone`, `email`, `verification_status`, `submitted_id`) VALUES
-(1, 'Juan', 'Perez', 'Dela Cruz', '1988-04-12', 'Male', 'Married', 'Purok 1, Barangay Pianing, Butuan City', 'HH-001', '09171234567', 'juan.resident@gmail.com', 'Verified', NULL),
-(2, 'Maria', 'Clara', 'Santos', '1992-08-25', 'Female', 'Single', 'Purok 2, Barangay Pianing, Butuan City', 'HH-002', '09182345678', 'maria.santos@gmail.com', 'Verified', NULL),
-(3, 'Pedro', 'Alcantara', 'Garcia', '1985-11-03', 'Male', 'Married', 'Purok 3, Barangay Pianing, Butuan City', 'HH-003', '09193456789', 'pedro.garcia@gmail.com', 'Verified', NULL),
-(4, 'Ana', 'Bautista', 'Reyes', '1995-02-14', 'Female', 'Single', 'Purok 4, Barangay Pianing, Butuan City', 'HH-004', '09204567890', 'ana.reyes@gmail.com', 'Verified', NULL),
-(5, 'Teresa', 'Luna', 'Ramos', '1994-06-18', 'Female', 'Married', 'Purok 5, Barangay Pianing, Butuan City', 'HH-005', '09215678901', 'teresa.ramos@gmail.com', 'Verified', NULL),
-(6, 'Josefina', '', 'Villanueva', '1996-09-10', 'Female', 'Single', 'Purok 1, Barangay Pianing, Butuan City', 'HH-006', '09311234567', 'josefina.resident@gmail.com', 'Pending_Review', 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400')
+INSERT INTO `residents` (`id`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `civil_status`, `address`, `phone`, `email`, `verification_status`, `submitted_id`) VALUES
+(1, 'Juan', 'Perez', 'Dela Cruz', '1988-04-12', 'Male', 'Married', 'Purok 1, Barangay Pianing, Butuan City', '09171234567', 'juan.resident@gmail.com', 'Verified', NULL),
+(2, 'Maria', 'Clara', 'Santos', '1992-08-25', 'Female', 'Single', 'Purok 2, Barangay Pianing, Butuan City', '09182345678', 'maria.santos@gmail.com', 'Verified', NULL),
+(3, 'Pedro', 'Alcantara', 'Garcia', '1985-11-03', 'Male', 'Married', 'Purok 3, Barangay Pianing, Butuan City', '09193456789', 'pedro.garcia@gmail.com', 'Verified', NULL),
+(4, 'Ana', 'Bautista', 'Reyes', '1995-02-14', 'Female', 'Single', 'Purok 4, Barangay Pianing, Butuan City', '09204567890', 'ana.reyes@gmail.com', 'Verified', NULL),
+(5, 'Teresa', 'Luna', 'Ramos', '1994-06-18', 'Female', 'Married', 'Purok 5, Barangay Pianing, Butuan City', '09215678901', 'teresa.ramos@gmail.com', 'Verified', NULL),
+(6, 'Josefina', '', 'Villanueva', '1996-09-10', 'Female', 'Single', 'Purok 1, Barangay Pianing, Butuan City', '09311234567', 'josefina.resident@gmail.com', 'Pending_Review', 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400')
 ON DUPLICATE KEY UPDATE `first_name` = VALUES(`first_name`), `verification_status` = VALUES(`verification_status`);
 
 -- Seed Document Requests
