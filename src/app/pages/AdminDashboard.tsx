@@ -1653,7 +1653,10 @@ export default function AdminDashboard() {
       {/* Super Admin Unified Ecosystem Switcher */}
       <SuperAdminNavigationDock
         currentRole={user?.role}
+        onSelectUsersTab={user?.role === 'superadmin' ? () => setActiveTab('users') : undefined}
         onSelectCategoryTab={user?.role === 'superadmin' ? () => setActiveTab('categories') : undefined}
+        onSelectLogsTab={user?.role === 'superadmin' ? () => setActiveTab('logs') : undefined}
+        onLogout={handleLogout}
       />
 
       {/* Top Navbar matching clean branding on pure white background (#FFFFFF) */}
@@ -1746,6 +1749,16 @@ export default function AdminDashboard() {
                   <span className="text-[10px] text-blue-600 font-medium">Administrator</span>
                 </div>
                 <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-700 ml-1" />
+              </button>
+
+              {/* Dedicated Top Navbar Log Out Button */}
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer ml-1 shadow-xs"
+                title="Log out of account"
+              >
+                <LogOut size={14} className="text-rose-500" />
+                <span className="hidden sm:inline">Log Out</span>
               </button>
             </div>
           </div>
@@ -1863,6 +1876,52 @@ export default function AdminDashboard() {
                       <p className="text-xs text-indigo-200/80 max-w-2xl">
                         Comprehensive administrative oversight across all system users, account permissions, activity tracking, and system audit logs.
                       </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setActiveTab('users');
+                          setNewUserFirstName('');
+                          setNewUserMiddleName('');
+                          setNewUserLastName('');
+                          setNewUserEmail('');
+                          setNewUserPassword('');
+                          setNewUserPhone('');
+                          setShowNewUserPass(false);
+                          setNewUserRole('staff');
+                          setIsAddUserOpen(true);
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-md cursor-pointer border border-emerald-400/40"
+                      >
+                        <UserPlus size={14} />
+                        Add User Account
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setActiveTab('users')}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-md cursor-pointer border border-indigo-400/40"
+                      >
+                        <Users size={14} />
+                        User Directory
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setActiveTab('categories')}
+                        className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-md cursor-pointer border border-purple-400/40"
+                      >
+                        <Tag size={14} />
+                        Categories
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleLogout}
+                        className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-md cursor-pointer border border-rose-400/40"
+                      >
+                        <LogOut size={14} />
+                        Log Out
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -5163,23 +5222,35 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            <DialogFooter className="gap-2">
+            <DialogFooter className="gap-2 flex-wrap sm:justify-between items-center">
               <Button
                 type="button"
-                variant="outline"
+                variant="destructive"
                 size="sm"
-                onClick={() => setIsAdminProfileOpen(false)}
-                className="text-xs cursor-pointer"
+                onClick={handleLogout}
+                className="text-xs bg-rose-600 hover:bg-rose-700 text-white mr-auto gap-1.5 cursor-pointer shadow-xs"
               >
-                Cancel
+                <LogOut size={13} />
+                Sign Out
               </Button>
-              <Button
-                type="submit"
-                size="sm"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs cursor-pointer"
-              >
-                Save Profile Changes
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAdminProfileOpen(false)}
+                  className="text-xs cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs cursor-pointer"
+                >
+                  Save Profile Changes
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         </DialogContent>
