@@ -4,7 +4,7 @@ import {
   Stethoscope, Heart, Baby, Activity, CalendarCheck, Clock,
   CheckCircle2, PlusCircle, RefreshCcw, LogOut, MapPin, Pill,
   Syringe, Calendar, Check, X, Menu, Phone, Edit2, Trash2, Bell,
-  AlertTriangle, Send, Package, ClipboardList, UserPlus, Save, Archive, Eye
+  AlertTriangle, Send, Package, ClipboardList, UserPlus, Save, Archive, Eye, User
 } from 'lucide-react';
 import {
   apiService, ImmunizationRecord, MaternalRecord,
@@ -232,8 +232,23 @@ export default function NurseDashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const apts = await apiService.getAppointments({ barangay: nurseBarangay }).catch(() => []);
+      const [apts, schedules] = await Promise.all([
+        apiService.getAppointments({ barangay: nurseBarangay }).catch(() => []),
+        apiService.getClinicSchedules(nurseBarangay).catch(() => [])
+      ]);
       setAppointments(apts);
+      if (schedules && schedules.length > 0) {
+        setWeeklySchedules(schedules.map((s: any) => ({
+          id: s.id,
+          title: s.title,
+          service_type: s.service_type,
+          day: s.day_of_week || s.day,
+          time_slot: s.time_slot,
+          location: s.location || `Barangay ${nurseBarangay} Health Center`,
+          assigned_to: s.bhw_in_charge || s.assigned_to || nurseName,
+          posted_date: s.posted_date || new Date().toISOString().split('T')[0]
+        })));
+      }
     } catch { toast.error('Failed to refresh records'); } finally { setLoading(false); }
   };
   useEffect(() => { loadData(); }, []);
@@ -286,6 +301,24 @@ export default function NurseDashboard() {
       immunizations: patientImmun
     });
     setIsPatientModalOpen(true);
+  };
+
+  const handleLogReturnVisitFromModal = (pData: PatientRecordData) => {
+    setCName(pData.name);
+    setCPhone(pData.contact_number || '');
+    setCAge(pData.age ? String(pData.age) : '');
+    setCGender((pData.gender as any) || 'Female');
+    setCService('General Consultation');
+    setCBp(pData.bp || '120/80');
+    setCTemp(pData.temp || '36.5');
+    setCWeight(pData.weight ? String(pData.weight) : '');
+    setCHR('78');
+    setCComplaint('Follow-up Checkup / Return Visit');
+    setCDiagnosis('');
+    setCTreatment('');
+    setIsPatientModalOpen(false);
+    setIsNewConsultOpen(true);
+    toast.info(`Pre-filled return visit consultation for ${pData.name}`);
   };
 
   // Handlers
@@ -423,30 +456,66 @@ export default function NurseDashboard() {
     toast.success('Item removed from inventory');
   };
 
-  const handleAddSchedule = (e: React.FormEvent) => {
+  const handleAddSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!sTitle.trim()) { toast.error('Schedule title is required'); return; }
-    setWeeklySchedules(prev => [{
+    const newSch: WeeklySchedule = {
       id: Date.now(), title: sTitle.trim(), service_type: sService,
       day: sDay, time_slot: sTime, location: sLocation,
       assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0]
-    }, ...prev]);
+    };
+    setWeeklySchedules(prev => [newSch, ...prev]);
+    try {
+      const created = await apiService.createClinicSchedule({
+        title: sTitle.trim(),
+        service_type: sService,
+        day_of_week: sDay,
+        time_slot: sTime,
+        location: sLocation,
+        bhw_in_charge: nurseName,
+        barangay: nurseBarangay,
+        created_by: nurseName
+      });
+      if (created && created.id) {
+        setWeeklySchedules(prev => prev.map(s => s.id === newSch.id ? { ...s, id: created.id } : s));
+      }
+    } catch {
+      // Local state is already updated as fallback
+    }
     toast.success('Weekly clinic schedule posted!');
     setIsScheduleOpen(false);
     setSTitle(''); setSService('Prenatal Care'); setSDay('Every Monday');
     setSTime('8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM');
   };
 
-  const handleUpdateSchedule = (e: React.FormEvent) => {
+  const handleUpdateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSchedule) return;
     setWeeklySchedules(prev => prev.map(s => s.id === editingSchedule.id ? editingSchedule : s));
+    try {
+      if (typeof editingSchedule.id === 'number') {
+        await apiService.updateClinicSchedule(editingSchedule.id, {
+          title: editingSchedule.title,
+          service_type: editingSchedule.service_type,
+          day_of_week: editingSchedule.day,
+          time_slot: editingSchedule.time_slot,
+          location: editingSchedule.location,
+          bhw_in_charge: editingSchedule.assigned_to,
+          barangay: nurseBarangay
+        });
+      }
+    } catch {}
     toast.success('Schedule updated!');
     setIsEditScheduleOpen(false); setEditingSchedule(null);
   };
 
-  const handleDeleteSchedule = (id: number | string) => {
+  const handleDeleteSchedule = async (id: number | string) => {
     setWeeklySchedules(prev => prev.filter(s => s.id !== id));
+    try {
+      if (typeof id === 'number') {
+        await apiService.deleteClinicSchedule(id);
+      }
+    } catch {}
     toast.success('Schedule removed');
   };
 
@@ -528,12 +597,6 @@ export default function NurseDashboard() {
           </div>
 
           <div className="flex items-center gap-2">
-            {totalAlerts > 0 && (
-              <button onClick={() => setActiveTab('sms')} className="relative flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-xs font-semibold hover:bg-red-100 cursor-pointer">
-                <Bell size={13} className="animate-pulse" />
-                {totalAlerts} Due Alert{totalAlerts > 1 ? 's' : ''}
-              </button>
-            )}
             <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 text-teal-800 border border-teal-200 rounded-full text-xs font-semibold">
               <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
               {nurseName}
@@ -550,22 +613,77 @@ export default function NurseDashboard() {
       </header>
 
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Sidebar */}
-        <aside className={`${sidebarOpen ? 'w-60' : 'w-14'} bg-white border-r border-slate-200 transition-all duration-300 flex flex-col py-4 shrink-0 sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto`}>
-          <nav className="flex-1 px-2 space-y-1">
-            {menuItems.map(item => (
-              <button key={item.id} onClick={() => setActiveTab(item.id as any)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${activeTab === item.id ? 'bg-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'}`}>
-                <div className="flex items-center gap-3">
-                  <item.icon size={17} className="shrink-0" />
-                  {sidebarOpen && <span>{item.label}</span>}
-                </div>
-                {sidebarOpen && item.id === 'sms' && totalAlerts > 0 && (
-                  <Badge className="bg-red-500 text-white text-[9px] px-1.5 py-0 h-4 border-0 font-bold">{totalAlerts}</Badge>
-                )}
-              </button>
-            ))}
+        {/* Mobile Drawer Backdrop */}
+        {sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Responsive Drawer & Desktop Sidebar */}
+        <aside
+          className={`
+            fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-all duration-300 flex flex-col py-4 shadow-2xl lg:shadow-none
+            lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:translate-x-0
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-16'}
+            ${sidebarOpen ? 'lg:w-60' : 'lg:w-16'}
+          `}
+        >
+          {/* Mobile Drawer Header with Close Button */}
+          <div className="flex items-center justify-between px-4 pb-3 mb-2 border-b border-slate-100 lg:hidden">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center">
+                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
+              </div>
+              <span className="text-xs font-bold text-slate-900">Clinical Navigation</span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              title="Close menu"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto">
+            {menuItems.map(item => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    if (window.innerWidth < 1024) setSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-[#EBF5FF] text-[#2563EB] shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <item.icon size={17} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
+                    {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && <span>{item.label}</span>}
+                  </div>
+                </button>
+              );
+            })}
           </nav>
+
+          {/* Fixed Bottom Logout */}
+          <div className="mt-auto pt-3 px-3 border-t border-slate-200/90">
+            <button
+              onClick={() => { localStorage.removeItem('barangay_user'); navigate('/login'); }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-all cursor-pointer group"
+              title="Sign out of account"
+            >
+              <LogOut size={18} className="shrink-0 text-rose-500 group-hover:text-rose-700" />
+              {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && <span>Logout</span>}
+            </button>
+          </div>
         </aside>
 
         {/* Main Content */}
@@ -1353,6 +1471,15 @@ export default function NurseDashboard() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 360 Patient Detail Modal */}
+      <PatientDetailModal
+        isOpen={isPatientModalOpen}
+        onClose={() => setIsPatientModalOpen(false)}
+        patient={selectedPatientModal}
+        onSendSmsSuccess={() => toast.success('SMS notification sent to patient')}
+        onLogReturnVisit={handleLogReturnVisitFromModal}
+      />
 
     </div>
   );

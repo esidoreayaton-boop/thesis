@@ -30,6 +30,10 @@ export const router = createBrowserRouter([
     Component: AdminDashboard,
   },
   {
+    path: "/dashboard",
+    Component: AdminDashboard,
+  },
+  {
     path: "/resident",
     Component: ResidentPortal,
   },

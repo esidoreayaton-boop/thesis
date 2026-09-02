@@ -17,6 +17,7 @@ import {
   Bell,
   Info,
   XCircle,
+  X,
   MessageSquare,
   RefreshCw
 } from 'lucide-react';
@@ -33,6 +34,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { FloatingInput, FloatingSelect, FloatingTextarea } from '../components/ui/floating-input';
+import { notificationStore, PersistentNotification } from '../../services/notificationStore';
+import { dispatchResidentNotification } from '../../services/emailJsService';
 import { toast } from 'sonner';
 
 const BARANGAY_DOCS = [
@@ -82,40 +86,37 @@ export default function BarangayPortal() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isResubmitModalOpen, setIsResubmitModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isRejectionBannerDismissed, setIsRejectionBannerDismissed] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
-  const [readNotifKeys, setReadNotifKeys] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('brgy_read_notifs');
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch { return new Set(); }
-  });
+  const [notifications, setNotifications] = useState<PersistentNotification[]>([]);
 
   const markNotifRead = (key: string) => {
-    setReadNotifKeys(prev => {
-      const next = new Set(prev);
-      next.add(key);
-      localStorage.setItem('brgy_read_notifs', JSON.stringify([...next]));
-      return next;
-    });
+    if (user?.email) {
+      notificationStore.markAsRead(user.email, key);
+      setNotifications(notificationStore.getNotifications(user.email));
+    }
   };
 
   const markAllNotifsRead = () => {
-    const allKeys: string[] = [];
-    if (user?.verification_status === 'Rejected') allKeys.push('acct-rejected');
-    documents.forEach(d => allKeys.push(`doc-${d.id || d.request_code}`));
-    setReadNotifKeys(prev => {
-      const next = new Set(prev);
-      allKeys.forEach(k => next.add(k));
-      localStorage.setItem('brgy_read_notifs', JSON.stringify([...next]));
-      return next;
-    });
+    if (user?.email) {
+      notificationStore.markAllAsRead(user.email);
+      setNotifications(notificationStore.getNotifications(user.email));
+      toast.success('All notifications marked as read');
+    }
   };
 
   // Dynamic extra fields per document type
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
   const setField = (key: string, val: string) => setExtraFields(prev => ({ ...prev, [key]: val }));
 
-  const userBarangay = user?.barangay || (user?.address?.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing');
+  const userBarangay = user?.barangay || (() => {
+    if (user?.address) {
+      const match = user.address.match(/Barangay\s+([^,]+)/i);
+      if (match) return match[1].trim();
+      if (user.address.toLowerCase().includes('anticala')) return 'Anticala';
+    }
+    return 'Pianing';
+  })();
 
   const isCategoryActive = (docName: string) => {
     if (!categories || categories.length === 0) return true;
@@ -123,8 +124,9 @@ export default function BarangayPortal() {
     return cat ? cat.status === 'Active' : true;
   };
 
-  // Extract purok from user address (e.g. "Purok 1, Barangay Pianing, Butuan City" → "Purok 1")
+  // Extract purok from user address or user object
   const extractPurok = (address?: string): string => {
+    if (user?.purok) return user.purok;
     if (!address) return '';
     const match = address.match(/^([^,]+)/); // take everything before the first comma
     return match ? match[1].trim() : address.trim();
@@ -184,36 +186,112 @@ export default function BarangayPortal() {
 
   const loadData = async (currentUser?: any) => {
     try {
+      const loggedInUser = currentUser || user;
+      const uEmail = (loggedInUser?.email || '').toLowerCase().trim();
+      const uId = loggedInUser?.id ? Number(loggedInUser.id) : undefined;
+      const uName = (loggedInUser?.name || `${loggedInUser?.first_name || ''} ${loggedInUser?.last_name || ''}`).toLowerCase().trim();
+
       const [data, cats] = await Promise.all([
-        apiService.getDocuments(),
+        apiService.getDocuments(uEmail ? { email: uEmail, resident_id: uId } : undefined),
         apiService.getCategories().catch(() => [])
       ]);
       if (cats && cats.length > 0) setCategories(cats);
-      const brgyData = data.filter(d => BARANGAY_DOCS.includes(d.document_type));
-      const loggedInUser = currentUser || user;
-      if (loggedInUser?.email || loggedInUser?.id) {
-        const uEmail = (loggedInUser.email || '').toLowerCase().trim();
-        const uId = loggedInUser.id;
-        const myDocs = brgyData.filter(d => {
-          const dEmail = ((d as any).email || '').toLowerCase().trim();
-          if (uEmail && dEmail && dEmail === uEmail) return true;
-          if (uId && d.resident_id && d.resident_id === uId) return true;
-          return false;
-        });
-        // Deduplicate to ensure no duplicate documents exist in state
-        const uniqueDocsMap = new Map();
-        for (const doc of myDocs) {
-          const key = doc.id ? `id-${doc.id}` : (doc.request_code ? `code-${doc.request_code}` : JSON.stringify(doc));
-          if (!uniqueDocsMap.has(key)) {
-            uniqueDocsMap.set(key, doc);
-          }
+
+      let myDocs: DocumentRequest[] = [];
+      if (Array.isArray(data)) {
+        if (uEmail || uId || uName) {
+          myDocs = data.filter(d => {
+            const dEmail = ((d as any).email || '').toLowerCase().trim();
+            if (uEmail && dEmail && dEmail === uEmail) return true;
+            if (uId && d.resident_id && Number(d.resident_id) === uId) return true;
+            const dName = (d.resident_name || '').toLowerCase().trim();
+            if (uName && dName && (dName === uName || dName.includes(uName) || uName.includes(dName))) return true;
+            return false;
+          });
+        } else {
+          myDocs = data;
         }
-        setDocuments(Array.from(uniqueDocsMap.values()));
-      } else {
-        setDocuments([]);
+      }
+
+      // Deduplicate to ensure no duplicate documents exist in state
+      const uniqueDocsMap = new Map();
+      for (const doc of myDocs) {
+        const key = doc.id ? `id-${doc.id}` : (doc.request_code ? `code-${doc.request_code}` : JSON.stringify(doc));
+        if (!uniqueDocsMap.has(key)) {
+          uniqueDocsMap.set(key, doc);
+        }
+      }
+      const finalDocs = Array.from(uniqueDocsMap.values());
+      setDocuments(finalDocs);
+
+      // Offline-first cache
+      if (uEmail) {
+        localStorage.setItem(`brgy_cached_docs_${uEmail}`, JSON.stringify(finalDocs));
+
+        // Sync every document status permanently into notificationStore
+        finalDocs.forEach(d => {
+          let badgeColor: 'blue' | 'indigo' | 'emerald' | 'amber' | 'red' = 'indigo';
+          let title = `Document Request: ${d.document_type}`;
+          let message = `Tracking Code: ${d.request_code}. Current Status: ${d.status}.`;
+          if (d.status === 'Ready for Pickup') {
+            badgeColor = 'indigo';
+            title = `🎉 Ready for Pick-Up: ${d.document_type}`;
+            message = `Your document (${d.request_code}) is approved and signed. Claim at the Barangay Hall.`;
+          } else if (d.status === 'Completed') {
+            badgeColor = 'emerald';
+            title = `Issued & Claimed: ${d.document_type}`;
+            message = `Your request (${d.request_code}) was successfully issued and received.`;
+          } else if (d.status === 'Processing') {
+            badgeColor = 'amber';
+            title = `In Preparation: ${d.document_type}`;
+            message = `${d.request_code} is currently being prepared by the Barangay Office.`;
+          } else if (d.status === 'Pending') {
+            badgeColor = 'blue';
+            title = `Queued: ${d.document_type}`;
+            message = `${d.request_code} is in the verification queue.`;
+          } else if (d.status === 'Rejected') {
+            badgeColor = 'red';
+            title = `Request Rejected: ${d.document_type}`;
+            message = `Request for ${d.document_type} (${d.request_code}) was rejected. Reason: ${d.purpose || 'Incomplete details'}`;
+          }
+
+          notificationStore.addNotification(uEmail, {
+            id: `doc-${d.id || d.request_code}`,
+            type: 'document',
+            title,
+            message,
+            ref_code: d.request_code,
+            status_badge: d.status,
+            badge_color: badgeColor,
+            timestamp: (d as any).requested_at || (d as any).processed_at || new Date().toISOString()
+          });
+        });
+
+        // Sync Account rejection if rejected
+        if (loggedInUser?.verification_status === 'Rejected') {
+          notificationStore.addNotification(uEmail, {
+            id: 'acct-rejected',
+            type: 'account',
+            title: 'Account Registration Rejected',
+            message: loggedInUser?.rejection_reason || 'Submitted Government ID photo is unclear or information does not match.',
+            status_badge: 'Action Needed',
+            badge_color: 'red',
+            action_type: 'resubmit_id'
+          });
+        }
+
+        setNotifications(notificationStore.getNotifications(uEmail));
       }
     } catch {
-      toast.error('Failed to load document requests');
+      const loggedInUser = currentUser || user;
+      const uEmail = (loggedInUser?.email || '').toLowerCase().trim();
+      if (uEmail) {
+        try {
+          const cached = localStorage.getItem(`brgy_cached_docs_${uEmail}`);
+          if (cached) setDocuments(JSON.parse(cached));
+          setNotifications(notificationStore.getNotifications(uEmail));
+        } catch {}
+      }
     }
   };
 
@@ -351,16 +429,35 @@ export default function BarangayPortal() {
       const defaultDocPurpose = docType === 'Certificate of Land Occupancy'
         ? 'Official Land Actual Occupancy Certification'
         : (docType === 'Certificate of Employment' ? 'Official Employment Certification' : (purpose.trim() || 'Personal Requirement'));
+
       const created = await apiService.createDocument({
+        resident_name: user?.name || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || 'Resident',
         resident_id: user?.id,
-        resident_name: user?.name || 'Resident',
-        email: user?.email,
-        barangay: user?.barangay || (user?.address?.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing'),
+        email: user?.email || '',
         document_type: docType,
         purpose: defaultDocPurpose,
+        barangay: user?.barangay || userBarangay || 'Pianing',
         extra_fields: JSON.stringify(autoExtraFields),
-      } as any);
-      setDocuments([created, ...documents]);
+      });
+
+      const nextDocs = [created, ...documents];
+      setDocuments(nextDocs);
+      if (user?.email) {
+        localStorage.setItem(`brgy_cached_docs_${user.email.toLowerCase().trim()}`, JSON.stringify(nextDocs));
+        dispatchResidentNotification({
+          residentEmail: user.email,
+          residentName: user?.name || 'Resident',
+          type: 'document',
+          title: `Queued: ${created.document_type}`,
+          message: `Request ${created.request_code} has been submitted to the Barangay Office and is queued for verification.`,
+          statusBadge: 'Pending',
+          badgeColor: 'blue',
+          refCode: created.request_code,
+          barangay: user?.barangay || userBarangay || 'Pianing'
+        }).then(() => {
+          setNotifications(notificationStore.getNotifications(user.email));
+        }).catch(() => {});
+      }
       toast.success('Request submitted!', { description: `Request Code: ${created.request_code}` });
       handleDialogOpenChange(false);
     } catch {
@@ -384,7 +481,7 @@ export default function BarangayPortal() {
               <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-900 leading-tight">Barangay Pianing</h1>
+              <h1 className="text-sm font-bold text-slate-900 leading-tight">Barangay {userBarangay}</h1>
               <span className="text-xs text-indigo-600 font-semibold">Resident Portal</span>
             </div>
           </div>
@@ -401,26 +498,14 @@ export default function BarangayPortal() {
               >
                 <Bell
                   size={14}
-                  className={(() => {
-                    const unreadCount = [
-                      ...(user?.verification_status === 'Rejected' && !readNotifKeys.has('acct-rejected') ? ['acct-rejected'] : []),
-                      ...documents.filter(d => ['Completed','Ready for Pickup','Rejected'].includes(d.status) && !readNotifKeys.has(`doc-${d.id || d.request_code}`))
-                    ].length;
-                    return unreadCount > 0 ? 'text-indigo-600' : 'text-slate-500';
-                  })()}
+                  className={notifications.filter(n => !n.is_read).length > 0 ? 'text-indigo-600' : 'text-slate-500'}
                 />
                 <span className="hidden sm:inline">Notifications</span>
-                {(() => {
-                  const unreadCount = [
-                    ...(user?.verification_status === 'Rejected' && !readNotifKeys.has('acct-rejected') ? [1] : []),
-                    ...documents.filter(d => ['Completed','Ready for Pickup','Rejected'].includes(d.status) && !readNotifKeys.has(`doc-${d.id || d.request_code}`))
-                  ].length;
-                  return unreadCount > 0 ? (
-                    <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-xs animate-pulse">
-                      {unreadCount}
-                    </span>
-                  ) : null;
-                })()}
+                {notifications.filter(n => !n.is_read).length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-xs animate-pulse">
+                    {notifications.filter(n => !n.is_read).length}
+                  </span>
+                )}
               </Button>
             )}
 
@@ -479,9 +564,18 @@ export default function BarangayPortal() {
               Sign In / Register
             </Button>
           </div>
-        ) : user?.verification_status === 'Rejected' ? (
+        ) : user?.verification_status === 'Rejected' && !isRejectionBannerDismissed ? (
           /* Prominent Rejection Banner with Cause */
-          <div className="bg-red-50 dark:bg-red-950/40 border-2 border-red-300 dark:border-red-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+          <div className="relative bg-red-50 dark:bg-red-950/40 border-2 border-red-300 dark:border-red-800 rounded-2xl p-4 sm:p-5 pr-12 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+            <button
+              type="button"
+              onClick={() => setIsRejectionBannerDismissed(true)}
+              className="absolute top-3 right-3 text-red-400 hover:text-red-700 dark:hover:text-red-200 p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors cursor-pointer"
+              title="Dismiss Notice (will reappear on refresh)"
+              aria-label="Dismiss Notice"
+            >
+              <X size={18} />
+            </button>
             <div className="flex items-start gap-3 flex-1">
               <div className="w-10 h-10 rounded-xl bg-red-100 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
                 <XCircle size={22} />
@@ -494,7 +588,7 @@ export default function BarangayPortal() {
                 <div className="bg-white/90 dark:bg-slate-900/90 p-3 rounded-xl border border-red-200 dark:border-red-800 text-xs">
                   <span className="font-bold text-red-900 dark:text-red-300 block mb-0.5">Barangay Admin Notice:</span>
                   <p className="text-red-800 dark:text-red-200 font-medium">
-                    {user?.rejection_reason || 'Submitted Government ID photo is unclear or information requires correction. Please re-upload a clear photo of your valid ID.'}
+                    {user?.rejection_reason || 'Submitted Government ID photo is blurry or illegible. Please retake the photo in good lighting and ensure the ID details are clearly readable.'}
                   </p>
                 </div>
               </div>
@@ -645,102 +739,70 @@ export default function BarangayPortal() {
                       </div>
                       <div>
                         <p className="text-[10px] text-slate-400">Purok</p>
-                        <p className="text-xs font-semibold text-slate-800">{extractPurok(user?.address) || '—'}</p>
+                        <p className="text-xs font-semibold text-slate-800">{user?.purok || extractPurok(user?.address) || '—'}</p>
                       </div>
                       <div className="col-span-2 sm:col-span-4">
                         <p className="text-[10px] text-slate-400">Address</p>
-                        <p className="text-xs font-semibold text-slate-800">{user?.address || `Barangay ${userBarangay}, Butuan City`}</p>
+                        <p className="text-xs font-semibold text-slate-800">{user?.address || `${user?.purok ? user.purok + ', ' : ''}Barangay ${userBarangay}, ${user?.city || 'Butuan City'}`}</p>
                       </div>
                     </div>
                   </div>
 
                   {/* Residency Duration Field for Certificate of Residency */}
                   {docType === 'Certificate of Residency' && (
-                    <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-slate-700">
-                        Years of Residency / Living in Barangay
-                      </Label>
-                      <Input
-                        value={extraFields['Duration of Residence'] ?? (user as any)?.years_of_residency ?? ''}
-                        onChange={(e) => setField('Duration of Residence', e.target.value)}
-                        placeholder="e.g. 5 years (or since 2019)"
-                        className="h-9 text-xs"
-                      />
-                      <p className="text-[10px] text-slate-400">Specify how many years or since what year you have been residing in the barangay.</p>
-                    </div>
+                    <FloatingInput
+                      label="Years of Residency / Living in Barangay"
+                      value={extraFields['Duration of Residence'] ?? (user as any)?.years_of_residency ?? ''}
+                      onChange={(e) => setField('Duration of Residence', e.target.value)}
+                      placeholder="e.g. 5 years (or since 2019)"
+                    />
                   )}
 
                   {/* Custom Fields for Business Clearance / Business Permit */}
                   {(docType === 'Business Clearance' || docType === 'Business Permit' || docType === 'Business Certificate') && (
-                    <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-slate-700">
-                        Store / Business Name & Type <span className="text-red-500">*</span>
-                      </Label>
-                      <Input
-                        value={extraFields['Business Name'] || ''}
-                        onChange={(e) => setField('Business Name', e.target.value)}
-                        placeholder="e.g. Maria's Sari-Sari Store"
-                        required
-                        className="h-9 text-xs"
-                      />
-                      <p className="text-[10px] text-slate-400">Specify the name of the store or home-based business.</p>
-                    </div>
+                    <FloatingInput
+                      label="Store / Business Name & Type"
+                      value={extraFields['Business Name'] || ''}
+                      onChange={(e) => setField('Business Name', e.target.value)}
+                      placeholder="e.g. Maria's Sari-Sari Store"
+                      required
+                    />
                   )}
 
                   {/* Custom Fields for Certificate of Employment */}
                   {docType === 'Certificate of Employment' && (
                     <div className="space-y-2.5">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold text-slate-700">
-                            Job Position / Role <span className="text-red-500">*</span>
-                          </Label>
-                          <Input
-                            value={extraFields['Job Position'] || ''}
-                            onChange={(e) => setField('Job Position', e.target.value)}
-                            placeholder="e.g. Store Clerk / Barangay Worker"
-                            required
-                            className="h-9 text-xs"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold text-slate-700">
-                            Employer / Establishment Name <span className="text-red-500">*</span>
-                          </Label>
-                          <Input
-                            value={extraFields['Employer'] || ''}
-                            onChange={(e) => setField('Employer', e.target.value)}
-                            placeholder="e.g. Pianing Community Enterprise"
-                            required
-                            className="h-9 text-xs"
-                          />
-                        </div>
+                        <FloatingInput
+                          label="Job Position / Role"
+                          value={extraFields['Job Position'] || ''}
+                          onChange={(e) => setField('Job Position', e.target.value)}
+                          placeholder="e.g. Store Clerk"
+                          required
+                        />
+                        <FloatingInput
+                          label="Employer / Establishment Name"
+                          value={extraFields['Employer'] || ''}
+                          onChange={(e) => setField('Employer', e.target.value)}
+                          placeholder="e.g. Pianing Community Store"
+                          required
+                        />
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold text-slate-700">
-                            Start Date (From) <span className="text-red-500">*</span>
-                          </Label>
-                          <Input
-                            value={extraFields['Start Date'] || ''}
-                            onChange={(e) => setField('Start Date', e.target.value)}
-                            placeholder="e.g. January 2022 or 2021"
-                            required
-                            className="h-9 text-xs"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold text-slate-700">
-                            End Date (To) <span className="text-red-500">*</span>
-                          </Label>
-                          <Input
-                            value={extraFields['End Date'] || ''}
-                            onChange={(e) => setField('End Date', e.target.value)}
-                            placeholder="e.g. Present or December 2024"
-                            required
-                            className="h-9 text-xs"
-                          />
-                        </div>
+                        <FloatingInput
+                          label="Start Date (From)"
+                          value={extraFields['Start Date'] || ''}
+                          onChange={(e) => setField('Start Date', e.target.value)}
+                          placeholder="e.g. January 2022"
+                          required
+                        />
+                        <FloatingInput
+                          label="End Date (To)"
+                          value={extraFields['End Date'] || ''}
+                          onChange={(e) => setField('End Date', e.target.value)}
+                          placeholder="e.g. Present"
+                          required
+                        />
                       </div>
                     </div>
                   )}
@@ -748,83 +810,52 @@ export default function BarangayPortal() {
                   {/* Custom Fields for Certificate of Land Occupancy / Actual Occupancy */}
                   {(docType === 'Certificate of Land Occupancy' || docType === 'Land Occupancy' || docType === 'Actual Occupancy') && (
                     <div className="space-y-2.5">
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold text-slate-700">
-                          Parcel Land Area (in Words and Figures) <span className="text-red-500">*</span>
-                        </Label>
-                        <Input
-                          value={extraFields['Land Area'] || ''}
-                          onChange={(e) => setField('Land Area', e.target.value)}
-                          placeholder="e.g. Nine Hundred Thirty-One (931)"
-                          required
-                          className="h-9 text-xs"
-                        />
-                        <p className="text-[10px] text-slate-400">Enter words & figures in parentheses. e.g. <em>Nine Hundred Thirty-One (931)</em></p>
-                      </div>
+                      <FloatingInput
+                        label="Parcel Land Area (in Words and Figures)"
+                        value={extraFields['Land Area'] || ''}
+                        onChange={(e) => setField('Land Area', e.target.value)}
+                        placeholder="e.g. Nine Hundred Thirty-One (931)"
+                        required
+                      />
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold text-slate-700">
-                            Lot Number (Lot #) <span className="text-red-500">*</span>
-                          </Label>
-                          <Input
-                            value={extraFields['Lot Number'] || ''}
-                            onChange={(e) => setField('Lot Number', e.target.value)}
-                            placeholder="e.g. 1005"
-                            required
-                            className="h-9 text-xs"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold text-slate-700">
-                            Survey / Cadastral Info
-                          </Label>
-                          <Input
-                            value={extraFields['Survey Info'] || ''}
-                            onChange={(e) => setField('Survey Info', e.target.value)}
-                            placeholder="e.g. PLS-74"
-                            className="h-9 text-xs"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold text-slate-700">
-                          Year Started (Occupancy Period) <span className="text-red-500">*</span>
-                        </Label>
-                        <Input
-                          value={extraFields['Occupancy Since'] || ''}
-                          onChange={(e) => setField('Occupancy Since', e.target.value)}
-                          placeholder="e.g. 1970's (or 1995)"
+                        <FloatingInput
+                          label="Lot Number (Lot #)"
+                          value={extraFields['Lot Number'] || ''}
+                          onChange={(e) => setField('Lot Number', e.target.value)}
+                          placeholder="e.g. 1005"
                           required
-                          className="h-9 text-xs"
                         />
-                        <p className="text-[10px] text-slate-400">Starting year of actual occupancy (e.g. 1970's or 1995).</p>
+                        <FloatingInput
+                          label="Survey / Cadastral Info"
+                          value={extraFields['Survey Info'] || ''}
+                          onChange={(e) => setField('Survey Info', e.target.value)}
+                          placeholder="e.g. PLS-74"
+                        />
                       </div>
+                      <FloatingInput
+                        label="Year Started (Occupancy Period)"
+                        value={extraFields['Occupancy Since'] || ''}
+                        onChange={(e) => setField('Occupancy Since', e.target.value)}
+                        placeholder="e.g. 1970's (or 1995)"
+                        required
+                      />
                     </div>
                   )}
-
 
                   {/* Purpose — only for documents requiring a specific purpose */}
                   {docType !== 'Certificate of Employment' && docType !== 'Certificate of Land Occupancy' && docType !== 'Land Occupancy' && docType !== 'Actual Occupancy' && (
-                    <div>
-                      <Label className="text-xs font-semibold">
-                        {docType === 'Good Moral Clearance' ? 'Purpose / Application To Support' : 'State Purpose'} <span className="text-red-500">*</span>
-                      </Label>
-                      <textarea
-                        value={purpose}
-                        onChange={(e) => setPurpose(e.target.value)}
-                        placeholder={docType === 'Good Moral Clearance' 
-                          ? 'e.g. Board Examination for CELE (Certified Electrical Licensure Examination) / PRC Licensure / Employment Application' 
-                          : 'e.g. For employment, loan application, school enrollment, bank requirement...'}
-                        required
-                        rows={3}
-                        className="w-full mt-1 px-3 py-2 text-xs rounded-md border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none placeholder:text-slate-400"
-                      />
-                      <p className="text-[10px] text-slate-400 mt-0.5">This will appear on your official document. Be specific.</p>
-                    </div>
+                    <FloatingTextarea
+                      label={docType === 'Good Moral Clearance' ? 'Purpose / Application To Support' : 'Purpose of Request'}
+                      value={purpose}
+                      onChange={(e) => setPurpose(e.target.value)}
+                      placeholder="State specific purpose (e.g. Employment, Loan, School requirements)"
+                      required
+                      rows={2}
+                    />
                   )}
 
                   <DialogFooter>
-                    <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white w-full">Submit Request</Button>
+                    <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white w-full h-11 rounded-xl">Submit Request</Button>
                   </DialogFooter>
                 </form>
               )}
@@ -986,198 +1017,64 @@ export default function BarangayPortal() {
           </DialogHeader>
 
           <div className="space-y-2.5 py-2 text-xs">
-            {/* 1. Account Rejection Notice (if rejected) */}
-            {user?.verification_status === 'Rejected' && (() => {
-              const notifKey = 'acct-rejected';
-              const isRead = readNotifKeys.has(notifKey);
-              return (
-                <div
-                  className={`p-3.5 rounded-xl border space-y-1.5 cursor-pointer transition-all ${
-                    isRead
-                      ? 'bg-red-50/50 dark:bg-red-950/20 border-red-200/60 opacity-70'
-                      : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700 shadow-sm'
-                  }`}
-                  onClick={() => markNotifRead(notifKey)}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-red-900 dark:text-red-300 flex items-center gap-1.5">
-                      {!isRead && <span className="w-2 h-2 bg-red-500 rounded-full inline-block" />}
-                      <XCircle size={14} /> Account Registration Rejected
-                    </span>
-                    <Badge className="bg-red-600 text-white text-[10px]">Action Needed</Badge>
-                  </div>
-                  <p className="text-red-800 dark:text-red-200 text-xs">
-                    <strong>Cause of Rejection:</strong> {user?.rejection_reason || 'Submitted Government ID photo is unclear or information does not match.'}
-                  </p>
-                  <div className="pt-1">
-                    <Button
-                      size="sm"
-                      onClick={(e) => { e.stopPropagation(); markNotifRead(notifKey); setIsNotificationsOpen(false); setIsProfileModalOpen(true); }}
-                      className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white gap-1 cursor-pointer"
-                    >
-                      <Settings size={12} /> Re-submit ID / Update Details
-                    </Button>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* 2. Ready for Pickup Documents */}
-            {documents.filter(d => d.status === 'Ready for Pickup').map((doc, idx) => {
-              const notifKey = `doc-${doc.id || doc.request_code}`;
-              const isRead = readNotifKeys.has(notifKey);
-              return (
-                <div
-                  key={`notif-ready-${doc.id || idx}`}
-                  className={`p-3.5 rounded-xl border space-y-1 cursor-pointer transition-all ${
-                    isRead
-                      ? 'bg-indigo-50/40 border-indigo-200/50 opacity-70'
-                      : 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 shadow-sm'
-                  }`}
-                  onClick={() => markNotifRead(notifKey)}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`flex items-center gap-1.5 ${isRead ? 'font-semibold text-indigo-700' : 'font-bold text-indigo-900 dark:text-indigo-300'}`}>
-                      {!isRead && <span className="w-2 h-2 bg-indigo-500 rounded-full inline-block shrink-0" />}
-                      <CheckCircle2 size={14} className="text-indigo-600" /> 🎉 Ready for Pick-Up: {doc.document_type}
-                    </span>
-                    <Badge className="bg-indigo-600 text-white text-[10px]">Ready for Pickup</Badge>
-                  </div>
-                  <p className="text-indigo-800 dark:text-indigo-200 text-xs">
-                    Your document (<strong>{doc.request_code}</strong>) is approved and signed. Claim at the Barangay Hall during office hours.
-                  </p>
-                  <p className="text-[10px] text-indigo-600 font-mono">
-                    Ref: {doc.request_code} • By: {doc.processed_by || 'Barangay Staff'}
-                  </p>
-                </div>
-              );
-            })}
-
-            {/* 3. Claimed / Completed Documents */}
-            {documents.filter(d => d.status === 'Completed').map((doc, idx) => {
-              const notifKey = `doc-${doc.id || doc.request_code}`;
-              const isRead = readNotifKeys.has(notifKey);
-              return (
-                <div
-                  key={`notif-done-${doc.id || idx}`}
-                  className={`p-3.5 rounded-xl border space-y-1 cursor-pointer transition-all ${
-                    isRead
-                      ? 'bg-emerald-50/40 border-emerald-200/50 opacity-70'
-                      : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 shadow-sm'
-                  }`}
-                  onClick={() => markNotifRead(notifKey)}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`flex items-center gap-1.5 ${isRead ? 'font-semibold text-emerald-700' : 'font-bold text-emerald-900 dark:text-emerald-300'}`}>
-                      {!isRead && <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block shrink-0" />}
-                      <CheckCircle2 size={14} className="text-emerald-600" /> Issued &amp; Claimed: {doc.document_type}
-                    </span>
-                    <Badge className="bg-emerald-600 text-white text-[10px]">Completed</Badge>
-                  </div>
-                  <p className="text-emerald-800 dark:text-emerald-200 text-xs">
-                    Your request (<strong>{doc.request_code}</strong>) was successfully issued and received.
-                  </p>
-                  <p className="text-[10px] text-emerald-600 font-mono">
-                    Ref: {doc.request_code} • Released by: {doc.processed_by || 'Barangay Staff'}
-                  </p>
-                </div>
-              );
-            })}
-
-            {/* 4. Processing Documents */}
-            {documents.filter(d => d.status === 'Processing').map((doc, idx) => {
-              const notifKey = `doc-${doc.id || doc.request_code}`;
-              const isRead = readNotifKeys.has(notifKey);
-              return (
-                <div
-                  key={`notif-proc-${doc.id || idx}`}
-                  className={`p-3 rounded-xl border space-y-0.5 cursor-pointer transition-all ${
-                    isRead
-                      ? 'bg-amber-50/40 border-amber-200/50 opacity-60'
-                      : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200'
-                  }`}
-                  onClick={() => markNotifRead(notifKey)}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
-                      {!isRead && <span className="w-2 h-2 bg-amber-500 rounded-full inline-block shrink-0" />}
-                      <Clock size={13} className="text-amber-600" /> In Preparation: {doc.document_type}
-                    </span>
-                    <Badge className="bg-amber-500 text-white text-[10px]">Processing</Badge>
-                  </div>
-                  <p className="text-amber-800 dark:text-amber-200 text-xs">
-                    <strong>{doc.request_code}</strong> is being prepared by the Barangay Office.
-                  </p>
-                </div>
-              );
-            })}
-
-            {/* 5. Pending Documents */}
-            {documents.filter(d => d.status === 'Pending').map((doc, idx) => {
-              const notifKey = `doc-${doc.id || doc.request_code}`;
-              const isRead = readNotifKeys.has(notifKey);
-              return (
-                <div
-                  key={`notif-pend-${doc.id || idx}`}
-                  className={`p-3 rounded-xl border space-y-0.5 cursor-pointer transition-all ${
-                    isRead
-                      ? 'bg-slate-50/40 border-slate-200/50 opacity-60'
-                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200'
-                  }`}
-                  onClick={() => markNotifRead(notifKey)}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                      {!isRead && <span className="w-2 h-2 bg-slate-400 rounded-full inline-block shrink-0" />}
-                      <Clock size={13} className="text-slate-500" /> Queued: {doc.document_type}
-                    </span>
-                    <Badge className="bg-slate-500 text-white text-[10px]">Pending</Badge>
-                  </div>
-                  <p className="text-slate-600 dark:text-slate-400 text-xs">
-                    <strong>{doc.request_code}</strong> is in the verification queue.
-                  </p>
-                </div>
-              );
-            })}
-
-            {/* 6. Rejected Document Requests */}
-            {documents.filter(d => d.status === 'Rejected').map((doc, idx) => {
-              const notifKey = `doc-${doc.id || doc.request_code}`;
-              const isRead = readNotifKeys.has(notifKey);
-              return (
-                <div
-                  key={`notif-rej-${doc.id || idx}`}
-                  className={`p-3.5 rounded-xl border space-y-1 cursor-pointer transition-all ${
-                    isRead
-                      ? 'bg-red-50/40 border-red-200/50 opacity-60'
-                      : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700 shadow-sm'
-                  }`}
-                  onClick={() => markNotifRead(notifKey)}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`flex items-center gap-1.5 ${isRead ? 'font-semibold text-red-700' : 'font-bold text-red-900 dark:text-red-300'}`}>
-                      {!isRead && <span className="w-2 h-2 bg-red-500 rounded-full inline-block shrink-0" />}
-                      <XCircle size={14} className="text-red-600" /> Document Request Rejected
-                    </span>
-                    <Badge className="bg-red-600 text-white text-[10px]">Rejected</Badge>
-                  </div>
-                  <p className="text-red-800 dark:text-red-200 text-xs">
-                    Request for <strong>{doc.document_type}</strong> ({doc.request_code}) was rejected.
-                  </p>
-                  <p className="text-xs text-red-700 bg-red-100/70 p-2 rounded-md">
-                    <strong>Cause:</strong> {doc.purpose || 'Document requirements incomplete or unverified.'}
-                  </p>
-                </div>
-              );
-            })}
-
-            {/* Empty State */}
-            {documents.length === 0 && user?.verification_status !== 'Rejected' && (
+            {notifications.length === 0 ? (
               <div className="text-center py-10 text-slate-400">
                 <Bell size={32} className="mx-auto mb-3 opacity-30" />
                 <p className="text-sm font-medium text-slate-500">No notifications yet</p>
-                <p className="text-[11px] text-slate-400 mt-1">When your document requests are updated or need attention, they'll appear here.</p>
+                <p className="text-[11px] text-slate-400 mt-1">When your document requests are updated or need attention, they will appear here permanently.</p>
               </div>
+            ) : (
+              notifications.map((notif) => {
+                const isRead = notif.is_read;
+                return (
+                  <div
+                    key={notif.id}
+                    onClick={() => markNotifRead(notif.id)}
+                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer space-y-1.5 ${
+                      isRead
+                        ? 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-800 opacity-75'
+                        : 'bg-indigo-50/60 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`flex items-center gap-1.5 ${isRead ? 'font-medium text-slate-700 dark:text-slate-300' : 'font-bold text-slate-900 dark:text-white'}`}>
+                        {!isRead && <span className="w-2 h-2 bg-indigo-600 rounded-full shrink-0" />}
+                        {notif.status_badge === 'Completed' ? (
+                          <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                        ) : notif.status_badge === 'Action Needed' || notif.status_badge === 'Rejected' ? (
+                          <XCircle size={15} className="text-red-600 shrink-0" />
+                        ) : (
+                          <Clock size={15} className="text-indigo-600 shrink-0" />
+                        )}
+                        {notif.title}
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {notif.status_badge && (
+                          <Badge className={`text-[10px] ${
+                            notif.badge_color === 'emerald' ? 'bg-emerald-600 text-white' :
+                            notif.badge_color === 'red' ? 'bg-red-600 text-white' :
+                            notif.badge_color === 'amber' ? 'bg-amber-600 text-white' :
+                            'bg-indigo-600 text-white'
+                          }`}>
+                            {notif.status_badge}
+                          </Badge>
+                        )}
+                        <span className="text-[9px] text-slate-400 font-mono">
+                          {isRead ? 'Read' : 'New'}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                      {notif.message}
+                    </p>
+                    {notif.ref_code && (
+                      <p className="text-[10px] text-indigo-600 font-mono">
+                        Ref Code: {notif.ref_code}
+                      </p>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
 

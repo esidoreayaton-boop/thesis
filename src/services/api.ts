@@ -68,10 +68,12 @@ export interface PendingResident {
   email: string;
   phone?: string;
   address?: string;
+  barangay?: string;
   date_of_birth?: string;
   submitted_id?: string | null;
   submitted_at?: string;
   verification_status: 'Pending_Review' | 'Verified' | 'Rejected';
+  rejection_reason?: string;
 }
 
 export interface ServiceCategory {
@@ -129,6 +131,7 @@ export interface SmsNotification {
   message: string;
   status: 'Sent' | 'Failed' | 'Pending';
   sent_at?: string;
+  is_read?: boolean | number;
 }
 
 export interface HealthAppointment {
@@ -218,8 +221,18 @@ export const apiService = {
   },
 
   // Documents
-  async getDocuments(barangay?: string): Promise<DocumentRequest[]> {
-    const url = barangay ? `${API_BASE}/documents?barangay=${encodeURIComponent(barangay)}` : `${API_BASE}/documents`;
+  async getDocuments(params?: string | { barangay?: string; email?: string; resident_id?: number }): Promise<DocumentRequest[]> {
+    let url = `${API_BASE}/documents`;
+    if (typeof params === 'string') {
+      if (params) url += `?barangay=${encodeURIComponent(params)}`;
+    } else if (params) {
+      const q = new URLSearchParams();
+      if (params.barangay) q.append('barangay', params.barangay);
+      if (params.email) q.append('email', params.email);
+      if (params.resident_id) q.append('resident_id', String(params.resident_id));
+      const qs = q.toString();
+      if (qs) url += `?${qs}`;
+    }
     const res = await fetch(url);
     return await res.json();
   },
@@ -355,14 +368,38 @@ export const apiService = {
     return await res.json();
   },
 
+  async sendSmsNotification(data: Partial<SmsNotification>): Promise<SmsNotification> {
+    return this.sendNotification(data);
+  },
+
+  async markNotificationRead(id: number): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/notifications/${id}/read`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    return await res.json();
+  },
+
+  async markAllNotificationsRead(): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/notifications/mark-all-read`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    return await res.json();
+  },
+
   // Auth Registration
-  async register(data: { name?: string; first_name?: string; middle_name?: string; last_name?: string; date_of_birth?: string; gender?: string; civil_status?: string; email: string; password?: string; role?: string; address?: string; phone?: string; submitted_id?: string; years_of_residency?: string }) {
+  async register(data: { name?: string; first_name?: string; middle_name?: string; last_name?: string; date_of_birth?: string; gender?: string; civil_status?: string; email: string; password?: string; role?: string; address?: string; phone?: string; submitted_id?: string; years_of_residency?: string; barangay?: string }) {
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
-    return await res.json();
+    const json = await res.json();
+    if (!res.ok || json.success === false) {
+      throw new Error(json.message || 'Registration failed.');
+    }
+    return json;
   },
 
   // Update Profile (password, phone, name, address, date_of_birth)

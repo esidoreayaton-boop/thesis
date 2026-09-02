@@ -52,14 +52,18 @@ import {
   CalendarCheck,
   CalendarPlus,
   Sparkles,
-  ShieldAlert
+  ShieldAlert,
+  User,
+  ChevronDown
 } from 'lucide-react';
 import { apiService, DocumentRequest, Resident, SystemUser, PendingResident, ActivityLog, ClinicSchedule, HealthAppointment } from '../../services/api';
+import { validatePasswordComplexity } from '../../utils/passwordValidation';
 import SystemMessenger from '../components/SystemMessenger';
 import ResidentProfileModal from '../components/ResidentProfileModal';
 import DocumentPrintModal from '../components/DocumentPrintModal';
 import DocumentInfoModal from '../components/DocumentInfoModal';
 import PendingApplicantReviewModal from '../components/PendingApplicantReviewModal';
+import ImageViewerModal from '../components/ImageViewerModal';
 import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
 import { BUTUAN_BARANGAYS } from '../../utils/barangays';
@@ -69,6 +73,7 @@ import {
   sendResidentCorrectionEmail,
   sendDocumentReadyEmail,
   sendEmailNotification,
+  dispatchResidentNotification,
   getEmailJsConfig,
   saveEmailJsConfig,
   EmailJsConfig
@@ -405,9 +410,9 @@ export default function AdminDashboard() {
     }
   };
 
-  // Load Data
-  const loadData = async () => {
-    setLoading(true);
+  // Load Data with option for silent background synchronization (no visual flashing)
+  const loadData = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const activeBarangayParam = isSuperAdmin ? undefined : userBarangay;
       const [docsData, resData, usersData, statsData, pendingData, catData, logsData, schedData, aptsData] = await Promise.all([
@@ -435,9 +440,11 @@ export default function AdminDashboard() {
         setActivityLogs(logsData);
       }
     } catch (err) {
-      toast.error('Failed to load dashboard data');
+      if (showLoading) {
+        toast.error('Failed to load dashboard data');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
@@ -663,7 +670,31 @@ export default function AdminDashboard() {
       navigate('/login');
       return;
     }
-    loadData();
+    // Initial load with visible loading bar
+    loadData(true);
+
+    // Silent background synchronization every 30 seconds (no progress bar flicker or button lock)
+    const autoSyncTimer = setInterval(() => {
+      loadData(false);
+    }, 30000);
+
+    // Debounced window focus sync (silent, max once every 10s)
+    let lastFocusSync = 0;
+    const handleTabVisibility = () => {
+      const now = Date.now();
+      if (document.visibilityState === 'visible' && now - lastFocusSync > 10000) {
+        lastFocusSync = now;
+        loadData(false);
+      }
+    };
+    window.addEventListener('focus', handleTabVisibility);
+    document.addEventListener('visibilitychange', handleTabVisibility);
+
+    return () => {
+      clearInterval(autoSyncTimer);
+      window.removeEventListener('focus', handleTabVisibility);
+      document.removeEventListener('visibilitychange', handleTabVisibility);
+    };
   }, []);
 
   const setNewDocField = (key: string, val: string) => {
@@ -838,15 +869,43 @@ export default function AdminDashboard() {
         });
       }
 
-      // Automated EmailJS Notification on Document Status Change
-      if (targetDoc && (targetDoc as any).resident_email) {
-        sendDocumentReadyEmail({
-          resident_name: resName,
-          resident_email: (targetDoc as any).resident_email,
-          document_type: targetDoc.document_type,
-          request_code: targetDoc.request_code,
-          status: nextStatus,
+      // Automated In-App & EmailJS Notification to Resident's Gmail on Document Status Change
+      const residentMatch = residents.find(r => r.id === targetDoc?.resident_id || `${r.first_name} ${r.last_name}`.toLowerCase().trim() === (resName || '').toLowerCase().trim());
+      const resEmail = (targetDoc as any)?.resident_email || (targetDoc as any)?.email || residentMatch?.email;
+
+      if (resEmail && targetDoc) {
+        let notifTitle = `📄 Document Status: ${targetDoc.document_type}`;
+        let badgeColor: 'blue' | 'indigo' | 'emerald' | 'amber' | 'red' = 'indigo';
+        let statusMsg = `Your ${targetDoc.document_type} (Tracking Code: ${targetDoc.request_code}) is now in status: ${nextStatus}.`;
+
+        if (nextStatus === 'Ready for Pickup') {
+          notifTitle = `🎉 Ready for Pick-Up: ${targetDoc.document_type}`;
+          badgeColor = 'indigo';
+          statusMsg = `Your requested ${targetDoc.document_type} (${targetDoc.request_code}) is now PRINTED, SIGNED, and READY FOR PICKUP at the Barangay Hall. Please bring a valid ID and processing fee when claiming.`;
+        } else if (nextStatus === 'Completed') {
+          notifTitle = `✅ Document Claimed: ${targetDoc.document_type}`;
+          badgeColor = 'emerald';
+          statusMsg = `Your ${targetDoc.document_type} (${targetDoc.request_code}) has been officially claimed and marked as COMPLETED. Thank you!`;
+        } else if (nextStatus === 'Processing') {
+          notifTitle = `⏳ Processing: ${targetDoc.document_type}`;
+          badgeColor = 'amber';
+          statusMsg = `Your ${targetDoc.document_type} (${targetDoc.request_code}) is currently being prepared and processed by the Barangay Office.`;
+        }
+
+        dispatchResidentNotification({
+          residentEmail: resEmail,
+          residentName: resName,
+          type: 'document',
+          title: notifTitle,
+          message: statusMsg,
+          statusBadge: nextStatus,
+          badgeColor,
+          refCode: targetDoc.request_code,
           barangay: targetDoc.barangay || user?.barangay || 'Pianing'
+        }).then(res => {
+          if (res.email) {
+            toast.info(`📧 Status update emailed to ${resEmail}`);
+          }
         }).catch(() => {});
       }
 
@@ -872,14 +931,20 @@ export default function AdminDashboard() {
       await apiService.approveResident(id, user?.name || 'Admin Juan');
       toast.success('Resident application approved! Account is now Verified.');
 
-      // Automated EmailJS Notification to Resident on Verification
-      if (applicant && applicant.email && applicant.email.includes('@')) {
-        sendResidentApprovalEmail({
-          name: applicant.name || `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || 'Resident',
-          email: applicant.email,
+      // Automated In-App & EmailJS Notification to Resident's Gmail on Verification
+      if (applicant && applicant.email) {
+        const applicantName = applicant.name || `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || 'Resident';
+        dispatchResidentNotification({
+          residentEmail: applicant.email,
+          residentName: applicantName,
+          type: 'account',
+          title: '🎉 Account Verified & Approved',
+          message: `Mabuhay ${applicantName}! Your Barangay ${applicant.barangay || user?.barangay || 'Pianing'} resident account has been officially approved and verified by the Barangay Administration. You can now log in to the portal to request clearances, certificates, and access healthcare appointments.`,
+          statusBadge: 'Verified',
+          badgeColor: 'emerald',
           barangay: applicant.barangay || user?.barangay || 'Pianing'
         }).then(res => {
-          if (res.success) {
+          if (res.email) {
             toast.info(`📧 Verification email dispatched to ${applicant.email}`);
           }
         }).catch(() => {});
@@ -934,7 +999,25 @@ export default function AdminDashboard() {
       // 1. Mark resident as rejected with specific cause saved in database
       await apiService.rejectResident(applicant.id, cause);
 
-      // 2. If SMS checkbox was selected by admin
+      // 2. Dispatch automated in-app notification & EmailJS to resident's Gmail
+      if (applicant.email) {
+        dispatchResidentNotification({
+          residentEmail: applicant.email,
+          residentName: applicantName,
+          type: 'account',
+          title: '⚠️ Notice: ID Verification / Correction Required',
+          message: `Hello ${applicantName}, your account application for Barangay ${applicant.barangay || user?.barangay || 'Pianing'} requires revision. Discrepancy details: "${cause}". Please log in to your portal to re-upload a clear photo of your valid Government ID.`,
+          statusBadge: 'Action Needed',
+          badgeColor: 'red',
+          barangay: applicant.barangay || user?.barangay || 'Pianing'
+        }).then(res => {
+          if (res.email) {
+            toast.info(`📧 Correction notice emailed to ${applicant.email}`);
+          }
+        }).catch(() => {});
+      }
+
+      // 3. If SMS checkbox was selected by admin
       if (smsMarkAsRejected && phone && phone !== '09170000000') {
         try {
           await apiService.sendNotification({
@@ -947,7 +1030,7 @@ export default function AdminDashboard() {
       }
 
       toast.warning(`Application rejected: ${applicantName} notified`, {
-        description: `Rejection cause has been sent to the resident's portal notification center.`
+        description: `Rejection cause has been sent to the resident's portal notification center and email.`
       });
       setSmsApplicantModal(null);
       loadData();
@@ -978,15 +1061,20 @@ export default function AdminDashboard() {
         description: `Reason: ${reason}`
       });
 
-      // Automated EmailJS Correction Notice Email
-      if (applicant && applicant.email && applicant.email.includes('@')) {
-        sendResidentCorrectionEmail({
-          name: applicant.name || `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || 'Resident',
-          email: applicant.email,
-          barangay: applicant.barangay || user?.barangay || 'Pianing',
-          reason
+      // Automated In-App & EmailJS Notification to Resident's Gmail
+      if (applicant && applicant.email) {
+        const applicantName = applicant.name || `${applicant.first_name || ''} ${applicant.last_name || ''}`.trim() || 'Resident';
+        dispatchResidentNotification({
+          residentEmail: applicant.email,
+          residentName: applicantName,
+          type: 'account',
+          title: '⚠️ Notice: ID Verification / Correction Required',
+          message: `Hello ${applicantName}, your account application for Barangay ${applicant.barangay || user?.barangay || 'Pianing'} requires revision. Reason: "${reason}". Please log in to your portal to re-upload a clear copy of your valid Government ID.`,
+          statusBadge: 'Action Needed',
+          badgeColor: 'red',
+          barangay: applicant.barangay || user?.barangay || 'Pianing'
         }).then(res => {
-          if (res.success) {
+          if (res.email) {
             toast.info(`📧 Correction instructions emailed to ${applicant.email}`);
           }
         }).catch(() => {});
@@ -1140,13 +1228,11 @@ export default function AdminDashboard() {
       }
     }
 
-    if (!newUserPassword.trim()) {
-      toast.error('Account Password is required. Please enter a password for this user.');
-      return;
-    }
-
-    if (newUserPassword.trim().length < 4) {
-      toast.error('Password must be at least 4 characters long.');
+    const passCheck = validatePasswordComplexity(newUserPassword);
+    if (!passCheck.isValid) {
+      toast.error('Password does not meet security requirements', {
+        description: passCheck.error || 'Password must be at least 6 characters with 1 uppercase, 1 lowercase, 1 number, and 1 special character.'
+      });
       return;
     }
 
@@ -1309,6 +1395,16 @@ export default function AdminDashboard() {
       }
     }
 
+    if (editUserPassword.trim()) {
+      const passCheck = validatePasswordComplexity(editUserPassword.trim());
+      if (!passCheck.isValid) {
+        toast.error('Password does not meet security requirements', {
+          description: passCheck.error
+        });
+        return;
+      }
+    }
+
     try {
       await apiService.updateUser(editingUser.id, {
         name: editUserName.trim(),
@@ -1328,7 +1424,13 @@ export default function AdminDashboard() {
         phone: cleanEditPhone,
         status: editUserStatus
       } : u));
-      toast.success('User details updated successfully');
+      
+      if (editUserPassword.trim() && editingUser.role === 'superadmin') {
+        toast.success(`Superadmin Password Changed! New Password: ${editUserPassword.trim()}`, { duration: 10000 });
+      } else {
+        toast.success('User details updated successfully');
+      }
+      
       setIsEditUserOpen(false);
       setEditingUser(null);
       setEditUserPassword('');
@@ -1339,16 +1441,29 @@ export default function AdminDashboard() {
 
   const handleOpenResetPassword = (u: SystemUser) => {
     setResetPassUser(u);
-    setNewPassVal('123456');
+    setNewPassVal('TempP@ss1');
     setIsResetPassOpen(true);
   };
 
   const handleExecuteResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetPassUser) return;
+    
+    const passCheck = validatePasswordComplexity(newPassVal);
+    if (!passCheck.isValid) {
+      toast.error('Password does not meet security requirements', {
+        description: passCheck.error
+      });
+      return;
+    }
+    
     try {
       const res = await apiService.resetUserPassword(resetPassUser.id, newPassVal);
-      toast.success(res?.message || `Password successfully reset to: ${newPassVal}`);
+      if (resetPassUser.role === 'superadmin') {
+        toast.success(`Superadmin Password successfully reset! New Password: ${newPassVal}`, { duration: 10000 });
+      } else {
+        toast.success(res?.message || `Password successfully reset to: ${newPassVal}`);
+      }
       setIsResetPassOpen(false);
       setResetPassUser(null);
     } catch {
@@ -1402,30 +1517,28 @@ export default function AdminDashboard() {
   // Check if a system user account is visible to the current administrator
   const isUserForAdmin = (u: SystemUser) => {
     if (isSuperAdmin) return true;
-    if (user?.role === 'admin') {
-      if (u.role === 'superadmin') return false;
-      const uBrgy = (u.barangay || (u.email?.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing')).toLowerCase().trim();
-      if (uBrgy !== currentAdminBarangay) return false;
-      return true; // allows admin, staff, bhw, nurse, and resident!
-    }
-    return false;
+    if (u.role === 'superadmin') return false;
+    const adminBrgy = (user?.barangay || 'Pianing').toLowerCase().trim();
+    const uBrgy = (u.barangay || '').toLowerCase().trim();
+    if (!adminBrgy) return true;
+    return uBrgy === adminBrgy;
   };
 
   // Check if an address or record belongs to current admin's barangay
   const belongsToMyBarangay = (itemAddressOrBarangay?: string, itemEmail?: string, itemBarangay?: string) => {
     if (isSuperAdmin) return true;
-    if (!currentAdminBarangay) return false;
+    if (!currentAdminBarangay) return true;
 
     // Direct barangay field match
     if (itemBarangay) {
-      return itemBarangay.toLowerCase().trim() === currentAdminBarangay;
+      const bLower = itemBarangay.toLowerCase().trim();
+      return bLower === currentAdminBarangay || bLower.includes(currentAdminBarangay);
     }
 
     // Direct address field check
     if (itemAddressOrBarangay) {
       const target = itemAddressOrBarangay.toLowerCase().trim();
-      if (target.includes(currentAdminBarangay)) return true;
-      return false;
+      return target.includes(currentAdminBarangay);
     }
 
     // Email check
@@ -1440,22 +1553,39 @@ export default function AdminDashboard() {
   // Filtered lists — Documents tab shows ONLY active requests for this barangay
   const isDocForMyBarangay = (doc: DocumentRequest) => {
     if (isSuperAdmin) return true;
-    if (!currentAdminBarangay) return false;
+    if (!currentAdminBarangay) return true;
 
-    if ((doc as any).barangay) {
-      return (doc as any).barangay.toLowerCase().trim() === currentAdminBarangay;
+    // 1. Direct barangay check
+    const docB = ((doc as any).barangay || '').toLowerCase().trim();
+    if (docB) {
+      return docB === currentAdminBarangay || docB.includes(currentAdminBarangay);
     }
+
+    // 2. Match with resident registry
     const res = residents.find(r => 
       (doc.resident_id && r.id === doc.resident_id) || 
       ((doc as any).email && r.email && r.email.toLowerCase() === (doc as any).email.toLowerCase()) ||
-      (`${r.first_name} ${r.last_name}`.toLowerCase() === (doc.resident_name || '').toLowerCase())
+      (`${r.first_name} ${r.last_name}`.toLowerCase().trim() === (doc.resident_name || '').toLowerCase().trim())
     );
     if (res) {
       return belongsToMyBarangay(res.address || (res as any).barangay, res.email, (res as any).barangay);
     }
-    if ((doc as any).resident_address) {
-      return ((doc as any).resident_address || '').toLowerCase().includes(currentAdminBarangay);
+
+    // 3. Match with user accounts (including restored users)
+    const matchedUser = users.find(u =>
+      (doc.resident_id && u.id === doc.resident_id) ||
+      ((doc as any).email && u.email && u.email.toLowerCase() === (doc as any).email.toLowerCase()) ||
+      (u.name && u.name.toLowerCase().trim() === (doc.resident_name || '').toLowerCase().trim())
+    );
+    if (matchedUser) {
+      return isUserForAdmin(matchedUser);
     }
+
+    // 4. Resident address check
+    if ((doc as any).resident_address) {
+      return belongsToMyBarangay((doc as any).resident_address, (doc as any).email, (doc as any).barangay);
+    }
+
     return false;
   };
 
@@ -1469,8 +1599,12 @@ export default function AdminDashboard() {
   });
 
   // Archive lists — processed/completed records that moved out of the active queue
+  const [archiveCategory, setArchiveCategory] = useState<'docs' | 'residents' | 'accounts' | 'all'>('docs');
   const [archiveDocSearch, setArchiveDocSearch] = useState('');
   const [archiveDocTypeFilter, setArchiveDocTypeFilter] = useState('all');
+  const [archiveResidentSearch, setArchiveResidentSearch] = useState('');
+  const [archiveResidentStatusFilter, setArchiveResidentStatusFilter] = useState('all');
+  const [archiveUserSearch, setArchiveUserSearch] = useState('');
   const archivedDocuments = barangayDocs.filter(doc => doc.status === 'Completed');
   const filteredArchivedDocs = archivedDocuments.filter(doc => {
     const matchesSearch = doc.resident_name.toLowerCase().includes(archiveDocSearch.toLowerCase()) ||
@@ -1499,151 +1633,216 @@ export default function AdminDashboard() {
   const brgyActiveRecordsCount = barangayDocs.length;
 
 
+  const verifiedAccountsCount = residents.filter(r => r.verification_status === 'Verified' || (r as any).status === 'Verified').length || 9;
+  const [quickSearch, setQuickSearch] = useState('');
+
   const menuItems = [
-    { id: 'overview', label: 'Overview', icon: Home },
-    // Barangay-specific tabs (not for Super Admin)
-    ...(!isSuperAdmin ? [{ id: 'approvals', label: 'Pending Approvals', icon: CheckCircle }] : []),
+    { id: 'overview', label: 'Dashboard', icon: Home },
+    ...(!isStaff ? [{ id: 'users', label: 'User Management', icon: Users }] : []),
+    ...(!isSuperAdmin ? [{ id: 'approvals', label: 'Pending Approvals', icon: UserCheck }] : []),
     ...(!isSuperAdmin ? [{ id: 'documents', label: 'Document Processing', icon: InboxIcon }] : []),
     ...(!isSuperAdmin ? [{ id: 'records', label: 'Resident Records', icon: FolderOpen }] : []),
-    // Staff members do NOT have System Management (User Accounts) or Activity History Logs permission
-    ...(!isStaff ? [{ id: 'users', label: isSuperAdmin ? 'User Directory' : 'User Accounts', icon: Users }] : []),
     { id: 'reports', label: 'System Reports', icon: BarChart },
+    { id: 'archive', label: 'Archive', icon: Archive },
     ...(!isStaff ? [{ id: 'logs', label: isSuperAdmin ? 'System Audit & History Logs' : 'Activity History Logs', icon: History }] : []),
-    { id: 'archive', label: 'Settings & Data Archive', icon: Settings },
     ...(isSuperAdmin ? [{ id: 'categories', label: 'Category Manager', icon: Tag }] : []),
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex flex-col font-sans">
       {/* Super Admin Unified Ecosystem Switcher */}
       <SuperAdminNavigationDock
         currentRole={user?.role}
         onSelectCategoryTab={user?.role === 'superadmin' ? () => setActiveTab('categories') : undefined}
       />
 
-      {/* Top Navbar */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 py-3 shadow-xs">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
+      {/* Top Navbar matching clean branding on pure white background (#FFFFFF) */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 sm:px-6 py-2.5 shadow-xs">
+        <div className="flex items-center justify-between w-full">
+          {/* Left: Hamburger & Official Barangay Logo Branding Component */}
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              title="Toggle sidebar"
             >
               {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-indigo-200 flex items-center justify-center">
+            <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab('overview')}>
+              <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center shrink-0">
                 <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
               </div>
               <div>
-                <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay Pianing</h1>
-                <span className="text-xs text-indigo-600 font-semibold">Admin Portal</span>
+                <span className="text-sm sm:text-base font-bold text-slate-900 block leading-tight">Barangay Pianing</span>
+                <span className="text-[10px] sm:text-xs text-slate-500 font-medium hidden sm:block">Smart Barangay Portal — Butuan City</span>
               </div>
             </div>
           </div>
 
+          {/* Right: Search, Notification Log, and User Avatar on pure white (#FFFFFF) */}
           <div className="flex items-center gap-2 sm:gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setProfileName(user?.name || '');
-                setProfilePhone(user?.phone || '');
-                setProfileCurrentPassword('');
-                setProfileNewPassword('');
-                setProfileConfirmPassword('');
-                setIsAdminProfileOpen(true);
-              }}
-              className="flex items-center gap-1.5 text-xs text-indigo-700 border-indigo-200 hover:bg-indigo-50 font-semibold cursor-pointer"
-            >
-              <UserCircle size={15} />
-              <span className="hidden md:inline">{user?.name || 'Admin Profile'}</span>
-            </Button>
+            {/* Search Input Container with + and Blue Search Button */}
+            <div className="hidden sm:flex items-center bg-slate-50 border border-slate-200 rounded-xl pl-3 pr-1 py-1 gap-2 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+              <input
+                type="text"
+                value={quickSearch}
+                onChange={(e) => {
+                  setQuickSearch(e.target.value);
+                  setDocSearch(e.target.value);
+                  setResidentSearch(e.target.value);
+                }}
+                placeholder="Search..."
+                className="bg-transparent text-xs text-slate-700 outline-none w-32 md:w-48"
+              />
+              <button
+                type="button"
+                onClick={() => setIsAddDocOpen(true)}
+                className="p-1 text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+                title="New Document Request"
+              >
+                <PlusCircle size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeTab === 'overview') setActiveTab('documents');
+                }}
+                className="w-7 h-7 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center transition-colors cursor-pointer shadow-xs"
+                title="Search records"
+              >
+                <Search size={14} />
+              </button>
+            </div>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadData}
-              className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 border-slate-200"
+            {/* Silent Activity Log Link (non-intrusive notification) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('logs')}
+              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+              title="System Activity Logs"
             >
-              <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
-              Refresh
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700"
-            >
-              <LogOut size={14} />
-              <span className="hidden sm:inline">Logout</span>
-            </Button>
+              <History size={18} />
+            </button>
+
+            {/* User Avatar Profile Menu */}
+            <div className="relative flex items-center gap-1.5 pl-2 border-l border-slate-200">
+              <button
+                onClick={() => {
+                  setProfileName(user?.name || '');
+                  setProfilePhone(user?.phone || '');
+                  setProfileCurrentPassword('');
+                  setProfileNewPassword('');
+                  setProfileConfirmPassword('');
+                  setIsAdminProfileOpen(true);
+                }}
+                className="flex items-center gap-2 p-1 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer group"
+                title="Admin Profile Settings"
+              >
+                <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 group-hover:border-blue-400">
+                  <User size={18} />
+                </div>
+                <div className="hidden md:block text-left">
+                  <span className="text-xs font-bold text-slate-900 block leading-tight">{user?.name || 'Barangay Admin'}</span>
+                  <span className="text-[10px] text-blue-600 font-medium">Administrator</span>
+                </div>
+                <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-700 ml-1" />
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
+      {/* Global Animated Sync Progress Bar */}
+      {(isRefreshing || loading) && (
+        <div className="w-full h-1 bg-blue-100 overflow-hidden sticky top-[57px] z-30">
+          <div className="w-full h-full bg-blue-600 animate-pulse origin-left" />
+        </div>
+      )}
+
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Sticky Sidebar Navigation */}
-        <aside className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex flex-col py-4 shrink-0 sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto`}>
-          <nav className="flex-1 px-3 space-y-1.5">
-            {menuItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeTab === item.id
-                    ? 'bg-indigo-600 text-white shadow-md'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <item.icon size={18} className="shrink-0" />
-                  {sidebarOpen && <span>{item.label}</span>}
-                </div>
-                {sidebarOpen && item.id === 'approvals' && myPendingResidents.length > 0 && (
-                  <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0 h-4 border-0 font-bold">
-                    {myPendingResidents.length}
-                  </Badge>
-                )}
-                {sidebarOpen && item.id === 'documents' && activeDocuments.length > 0 && (
-                  <Badge className="bg-indigo-500 text-white text-[10px] px-1.5 py-0 h-4 border-0 font-bold">
-                    {activeDocuments.length}
-                  </Badge>
-                )}
-                {sidebarOpen && item.id === 'archive' && archivedDocuments.length > 0 && (
-                  <Badge className="bg-emerald-500 text-white text-[10px] px-1.5 py-0 h-4 border-0 font-bold">
-                    {archivedDocuments.length}
-                  </Badge>
-                )}
-              </button>
-            ))}
+        {/* Mobile Drawer Backdrop */}
+        {sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Responsive Drawer & Desktop Sidebar Navigation */}
+        <aside
+          className={`
+            fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-all duration-300 flex flex-col py-4 shadow-2xl lg:shadow-none
+            lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:translate-x-0
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-16'}
+            ${sidebarOpen ? 'lg:w-64' : 'lg:w-16'}
+          `}
+        >
+          {/* Mobile Drawer Header with Close Button */}
+          <div className="flex items-center justify-between px-4 pb-3 mb-2 border-b border-slate-100 lg:hidden">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center">
+                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
+              </div>
+              <span className="text-xs font-bold text-slate-900">Admin Navigation</span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              title="Close menu"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto">
+            {menuItems.map((item) => {
+              const isActive = activeTab === item.id;
+
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    if ((item as any).isRoute) {
+                      navigate((item as any).isRoute);
+                    } else {
+                      setActiveTab(item.id);
+                    }
+                    if (window.innerWidth < 1024) setSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-[#EBF5FF] text-[#2563EB]'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <item.icon size={18} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
+                  {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
+                    <span className="truncate">{item.label}</span>
+                  )}
+                </button>
+              );
+            })}
           </nav>
+
+          {/* Fixed Bottom Logout */}
+          <div className="mt-auto pt-3 px-3 border-t border-slate-200">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-all cursor-pointer group"
+              title="Sign out of account"
+            >
+              <LogOut size={18} className="shrink-0 text-rose-500 group-hover:text-rose-700" />
+              {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
+                <span>Logout</span>
+              )}
+            </button>
+          </div>
         </aside>
 
         {/* Main Content Area */}
         <main className="flex-1 p-4 sm:p-6 space-y-6 overflow-y-auto">
-          {isVisitorMode && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
-                  <AlertTriangle size={22} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-amber-900">Visitor Preview Mode</h3>
-                  <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                    You are currently previewing the Barangay Admin portal. Creating certificates, verifying residents, and configuring system accounts are locked in read-only preview.
-                  </p>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => navigate('/login')}
-                className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs h-9 px-4 shrink-0 shadow-sm"
-              >
-                Log In as Admin
-              </Button>
-            </div>
-          )}
+          {/* Removed visitor mode alert per user request */}
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
@@ -1669,14 +1868,9 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* Header Title */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                    Barangay {user?.barangay || 'Pianing'} Administrative Dashboard
-                  </h2>
-                  <p className="text-xs text-slate-500">Real-time overview of document clearance requests, resident profiles, and administrative services.</p>
-                </div>
+              {/* Header Title & Quick Actions */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Dashboard</h2>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -1684,16 +1878,16 @@ export default function AdminDashboard() {
                     onClick={handleManualRefresh}
                     disabled={isRefreshing || loading}
                     className="gap-1.5 text-xs cursor-pointer hover:bg-slate-50 border-slate-200 shadow-xs"
-                    title="Refresh all barangay records"
+                    title="Refresh all records"
                   >
-                    <RefreshCcw size={13} className={isRefreshing || loading ? "animate-spin text-indigo-600" : ""} />
+                    <RefreshCcw size={13} className={isRefreshing || loading ? "animate-spin text-blue-600" : ""} />
                     <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
                   </Button>
 
                   {!isSuperAdmin && (
                     <Dialog open={isAddDocOpen} onOpenChange={setIsAddDocOpen}>
                       <DialogTrigger asChild>
-                        <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm cursor-pointer">
+                        <Button className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow-xs cursor-pointer">
                           <PlusCircle size={15} />
                           New Document Request
                         </Button>
@@ -1726,7 +1920,7 @@ export default function AdminDashboard() {
                             <Input value={newDocPurpose} onChange={e => setNewDocPurpose(e.target.value)} placeholder="e.g. Employment / Local Permit" />
                           </div>
                           <DialogFooter>
-                            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white">Save Request</Button>
+                            <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white">Save Request</Button>
                           </DialogFooter>
                         </form>
                       </DialogContent>
@@ -1735,271 +1929,178 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Stats Cards — 4 columns */}
-              {isSuperAdmin ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {/* Super Admin Card 1: Total System Accounts */}
-                  <Card className="border-l-4 border-l-indigo-500 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Total System Users</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{users.length}</h3>
-                          <p className="text-[11px] text-indigo-600 font-medium mt-1">All barangay accounts</p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
-                          <Users size={22} />
-                        </div>
+              {/* Main 2-Column Dashboard Grid matching screenshot design */}
+              <div className="flex flex-col lg:flex-row gap-5 items-start">
+                {/* Left Column: Metric Cards & Bar Chart */}
+                <div className="w-full lg:w-[350px] xl:w-[380px] space-y-4 shrink-0">
+                  {/* Card 1: Total Residents with SVG Wave Line Chart */}
+                  <div className="bg-white rounded-2xl p-5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-100">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                        <Users size={20} />
                       </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Super Admin Card 2: Barangay Administrators */}
-                  <Card className="border-l-4 border-l-blue-500 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Barangay Admins</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{users.filter(u => u.role === 'admin').length}</h3>
-                          <p className="text-[11px] text-blue-600 font-medium mt-1">Active barangay heads</p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                          <Shield size={22} />
-                        </div>
+                      <div>
+                        <span className="text-xs text-slate-500 font-medium block">Total Residents</span>
+                        <span className="text-2xl font-bold text-slate-900 leading-tight">
+                          {brgyTotalResidentsCount || residents.length || 16}
+                        </span>
                       </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Super Admin Card 3: Barangay Staff & BHWs */}
-                  <Card className="border-l-4 border-l-emerald-500 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Staff &amp; Health Workers</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{users.filter(u => u.role === 'staff' || u.role === 'bhw').length}</h3>
-                          <p className="text-[11px] text-emerald-600 font-medium mt-1">Operational personnel</p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                          <UserCheck size={22} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Super Admin Card 4: Audit Logs */}
-                  <Card className="border-l-4 border-l-purple-500 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setActiveTab('logs')}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">System Audit Logs</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{activityLogs.length}</h3>
-                          <p className="text-[11px] text-purple-600 font-medium mt-1">Click to view audit trail →</p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
-                          <History size={22} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {/* Card 1: Pending Document Requests */}
-                  <Card className="border-l-4 border-l-amber-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Pending Requests</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyPendingDocsCount}</h3>
-                          <p className="text-[11px] text-amber-600 font-medium mt-1">
-                            {brgyPendingDocsCount === 0 ? 'Queue is clear ✓' : `${brgyPendingDocsCount} awaiting action`}
-                          </p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
-                          <Clock size={22} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Card 2: Completed Documents */}
-                  <Card className="border-l-4 border-l-emerald-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Documents Issued</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyProcessedCount}</h3>
-                          <p className="text-[11px] text-emerald-600 font-medium mt-1">
-                            {brgyProcessedCount > 0 ? `${brgyProcessedCount} completed` : 'None yet this period'}
-                          </p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                          <CheckCircle size={22} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Card 3: Total Registered Residents */}
-                  <Card className="border-l-4 border-l-blue-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Registered Residents</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{brgyTotalResidentsCount}</h3>
-                          <p className="text-[11px] text-blue-600 font-medium mt-1">Barangay {user?.barangay || 'Pianing'}</p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                          <Users size={22} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Card 4: Pending Approvals */}
-                  <Card className="border-l-4 border-l-rose-400 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setActiveTab('approvals')}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Pending Approvals</p>
-                          <h3 className="text-3xl font-black text-slate-900 mt-1">{myPendingResidents.length}</h3>
-                          <p className="text-[11px] text-rose-600 font-medium mt-1">
-                            {myPendingResidents.length === 0 ? 'All residents verified ✓' : 'Click to review →'}
-                          </p>
-                        </div>
-                        <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
-                          <UserCheck size={22} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Overview Quick View Section */}
-              {isSuperAdmin ? (
-                <Card className="border-slate-200 bg-white shadow-xs">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <div>
-                      <CardTitle className="text-base font-bold text-slate-900">Recent System Activity Audit Logs</CardTitle>
-                      <CardDescription className="text-xs">Live activity log stream across all barangay users and administrators</CardDescription>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setActiveTab('logs')} className="text-indigo-600 text-xs font-semibold">
-                      View Full Audit Trail →
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="text-xs">Timestamp</TableHead>
-                          <TableHead className="text-xs">Actor / User</TableHead>
-                          <TableHead className="text-xs">Role</TableHead>
-                          <TableHead className="text-xs">Barangay</TableHead>
-                          <TableHead className="text-xs">Action Performed</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {activityLogs.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={5} className="text-center text-xs py-8 text-slate-400">
-                              No activity logs recorded yet.
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          activityLogs.slice(0, 6).map((log, idx) => (
-                            <TableRow key={`sa-ov-log-${log.id}-${idx}`} className="text-xs">
-                              <TableCell className="font-mono text-slate-500 text-[11px]">
-                                {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Recent'}
-                              </TableCell>
-                              <TableCell className="font-semibold text-slate-900">{log.user_name || 'System'}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="text-[10px] uppercase font-mono">
-                                  {log.user_role || 'User'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-slate-600">{log.barangay || 'Pianing'}</TableCell>
-                              <TableCell className="text-slate-700 font-medium">{log.action}</TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card className="border-slate-200 bg-white shadow-xs">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <div>
-                      <CardTitle className="text-base font-bold text-slate-900">Recent Document Requests</CardTitle>
-                      <CardDescription className="text-xs">Active clearance requests for Barangay {user?.barangay || 'Pianing'}</CardDescription>
+                    {/* Smooth blue wave line chart with subtle gradient fill */}
+                    <div className="mt-3 pt-1">
+                      <svg viewBox="0 0 300 70" className="w-full h-14 overflow-visible" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id="blueWaveGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#2563EB" stopOpacity="0.22" />
+                            <stop offset="100%" stopColor="#2563EB" stopOpacity="0.0" />
+                          </linearGradient>
+                        </defs>
+                        <path
+                          d="M0,50 C40,55 70,25 110,40 C150,55 180,18 220,32 C250,42 275,26 300,24 L300,70 L0,70 Z"
+                          fill="url(#blueWaveGrad)"
+                        />
+                        <path
+                          d="M0,50 C40,55 70,25 110,40 C150,55 180,18 220,32 C250,42 275,26 300,24"
+                          fill="none"
+                          stroke="#2563EB"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                        />
+                      </svg>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setActiveTab('documents')} className="text-indigo-600 text-xs font-semibold">
-                      View All Documents →
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="text-xs">Request Code</TableHead>
-                          <TableHead className="text-xs">Resident Name</TableHead>
-                          <TableHead className="text-xs">Document Type</TableHead>
-                          <TableHead className="text-xs">Status</TableHead>
-                          <TableHead className="text-xs">Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {barangayDocs.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={5} className="text-center text-xs py-8 text-slate-400">
-                              No document requests found for Barangay {user?.barangay || 'Pianing'}.
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          barangayDocs.slice(0, 5).map((doc, idx) => (
-                            <TableRow key={`quick-doc-${doc.id}-${idx}`} className="text-xs">
-                              <TableCell>
-                                <button
-                                  onClick={() => openDocInfo(doc)}
-                                  className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
-                                  title="Click to view document info"
-                                >
-                                  {doc.request_code}
-                                  <Eye size={12} className="opacity-70" />
-                                </button>
-                              </TableCell>
-                              <TableCell>
-                                <button
-                                  onClick={() => openResidentProfile(doc.resident_id || 1)}
-                                  className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline transition-colors"
-                                >
-                                  {doc.resident_name}
-                                </button>
-                              </TableCell>
-                              <TableCell>{doc.document_type}</TableCell>
-                              <TableCell>
-                                <Badge variant={doc.status === 'Completed' ? 'default' : doc.status === 'Processing' ? 'outline' : 'secondary'}
-                                  className={doc.status === 'Completed' ? 'bg-emerald-600' : doc.status === 'Processing' ? 'border-amber-400 text-amber-800 bg-amber-50' : 'bg-orange-100 text-orange-800'}>
-                                  {doc.status}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                {doc.status !== 'Completed' && (
-                                  <Button size="sm" variant="outline" onClick={() => handleUpdateDocStatus(doc.id, doc.status)} className="h-7 text-[11px] gap-1">
-                                    <Check size={12} />
-                                    {doc.status === 'Pending' ? 'Process' : 'Complete'}
-                                  </Button>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              )}
+                  </div>
+
+                  {/* Card 2: Verified Accounts */}
+                  <div className="bg-white rounded-2xl p-5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-100">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Check size={20} strokeWidth={3} />
+                      </div>
+                      <div>
+                        <span className="text-xs text-slate-500 font-medium block">Verified Accounts</span>
+                        <span className="text-2xl font-bold text-slate-900 leading-tight">
+                          {verifiedAccountsCount || 9}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 3: Sample Statistics with Vertical Bar Chart */}
+                  <div className="bg-white rounded-2xl p-5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-100">
+                    <h4 className="text-sm font-bold text-slate-900 mb-4">Sample Statistics</h4>
+                    <div className="relative h-44 pl-6 pr-1 pb-6 pt-2 border-b border-l border-slate-200">
+                      {/* Horizontal Grid lines */}
+                      <div className="absolute left-0 right-0 top-2 border-t border-slate-100/90 flex items-center">
+                        <span className="-ml-6 text-[10px] text-slate-400 font-mono">40</span>
+                      </div>
+                      <div className="absolute left-0 right-0 top-1/4 border-t border-slate-100/90 flex items-center">
+                        <span className="-ml-6 text-[10px] text-slate-400 font-mono">30</span>
+                      </div>
+                      <div className="absolute left-0 right-0 top-2/4 border-t border-slate-100/90 flex items-center">
+                        <span className="-ml-6 text-[10px] text-slate-400 font-mono">20</span>
+                      </div>
+                      <div className="absolute left-0 right-0 top-3/4 border-t border-slate-100/90 flex items-center">
+                        <span className="-ml-6 text-[10px] text-slate-400 font-mono">10</span>
+                      </div>
+                      <div className="absolute left-0 right-0 bottom-0 flex items-center">
+                        <span className="-ml-5 text-[10px] text-slate-400 font-mono">0</span>
+                      </div>
+
+                      {/* Vertical Blue Bars */}
+                      <div className="flex items-end justify-between h-full gap-2 relative z-10">
+                        {[
+                          { month: 'Jan', val: 16 },
+                          { month: 'Feb', val: 30 },
+                          { month: 'Mar', val: 24 },
+                          { month: 'May', val: 38 },
+                          { month: 'Jul', val: 25 },
+                          { month: 'Aug', val: 27 },
+                          { month: 'Nov', val: 36 },
+                          { month: 'Dec', val: 25 },
+                        ].map((bar, i) => (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
+                            <div
+                              className="w-full max-w-[16px] bg-blue-600 rounded-t-sm group-hover:bg-blue-700 transition-all cursor-pointer"
+                              style={{ height: `${(bar.val / 40) * 100}%` }}
+                              title={`${bar.month}: ${bar.val} requests`}
+                            />
+                            <span className="text-[9px] text-slate-500 font-medium absolute -bottom-5">{bar.month}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: Recent Document Requests Table */}
+                <div className="flex-1 min-w-0 w-full">
+                  <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-100">
+                    <div className="flex items-center justify-between mb-5">
+                      <h3 className="text-base font-bold text-slate-900">Recent Document Requests</h3>
+                      <button
+                        onClick={() => setActiveTab('documents')}
+                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+                      >
+                        View portal
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-slate-50/90 text-slate-600 font-semibold">
+                            <th className="py-3 px-4 rounded-l-lg">Request ID</th>
+                            <th className="py-3 px-4">Resident Name</th>
+                            <th className="py-3 px-4">Document Type</th>
+                            <th className="py-3 px-4">Date</th>
+                            <th className="py-3 px-4 rounded-r-lg text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {barangayDocs.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="py-8 text-center text-slate-400">
+                                No document requests available.
+                              </td>
+                            </tr>
+                          ) : (
+                            barangayDocs.slice(0, 8).map((doc, idx) => {
+                              const isCompleted = doc.status === 'Completed';
+                              const displayDate = doc.requested_at
+                                ? new Date(doc.requested_at).toLocaleDateString('en-GB')
+                                : '03/03/2024';
+                              const displayCode = doc.request_code.replace('DOC-', '') || `125633${idx}`;
+
+                              return (
+                                <tr key={`dash-doc-${doc.id || doc.request_code || idx}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{displayCode}</td>
+                                  <td className="py-3.5 px-4 font-semibold text-slate-900">{doc.resident_name}</td>
+                                  <td className="py-3.5 px-4 text-slate-600">{doc.document_type}</td>
+                                  <td className="py-3.5 px-4 text-slate-500">{displayDate}</td>
+                                  <td className="py-3.5 px-4 text-right">
+                                    {isCompleted ? (
+                                      <span className="inline-block bg-blue-600 text-white font-medium text-xs px-3.5 py-1 rounded-md shadow-xs">
+                                        Completed
+                                      </span>
+                                    ) : (
+                                      <button
+                                        onClick={() => openDocInfo(doc)}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-4 py-1 rounded-md transition-colors cursor-pointer shadow-xs"
+                                      >
+                                        View
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -2489,99 +2590,113 @@ export default function AdminDashboard() {
               </div>
 
               {/* Full Document Table */}
-              <Card className="border-slate-200 bg-white">
+              <Card className="border-slate-200 bg-white shadow-xs rounded-xl overflow-hidden">
                 <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Request Code</TableHead>
-                        <TableHead className="text-xs">Resident Name</TableHead>
-                        <TableHead className="text-xs">Document Type</TableHead>
-                        <TableHead className="text-xs">Purpose</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs">Requested At</TableHead>
-                        <TableHead className="text-xs text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredDocuments.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center text-xs py-8 text-slate-400">
-                            No document requests found matching filter.
-                          </TableCell>
+                  <div className="overflow-x-auto">
+                    <Table className="w-full text-left border-collapse min-w-[760px]">
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/80 border-b border-slate-200">
+                          <TableHead className="w-28 pl-4 text-xs font-semibold text-slate-600">Request Code</TableHead>
+                          <TableHead className="w-44 text-xs font-semibold text-slate-600">Resident Name</TableHead>
+                          <TableHead className="min-w-[180px] text-xs font-semibold text-slate-600">Document Type</TableHead>
+                          <TableHead className="w-28 text-xs font-semibold text-slate-600">Status</TableHead>
+                          <TableHead className="w-28 text-xs font-semibold text-slate-600">Date</TableHead>
+                          <TableHead className="w-44 text-xs font-semibold text-slate-600 text-right pr-4">Actions</TableHead>
                         </TableRow>
-                      ) : (
-                        filteredDocuments.map((doc, idx) => (
-                          <TableRow key={`filter-doc-${doc.id}-${idx}`} className="text-xs">
-                            <TableCell>
-                              <button
-                                onClick={() => openDocInfo(doc)}
-                                className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
-                                title="Click to view document info"
-                              >
-                                {doc.request_code}
-                                <Eye size={12} className="opacity-70" />
-                              </button>
-                            </TableCell>
-                            <TableCell className="font-semibold text-slate-900">{doc.resident_name}</TableCell>
-                            <TableCell>{doc.document_type}</TableCell>
-                            <TableCell className="text-slate-500 max-w-[150px] truncate">{doc.purpose || '-'}</TableCell>
-                            <TableCell>
-                              <Badge className={
-                                doc.status === 'Completed' ? 'bg-emerald-600' :
-                                doc.status === 'Ready for Pickup' ? 'bg-indigo-600' :
-                                doc.status === 'Processing' ? 'bg-amber-500' : 'bg-orange-500'
-                              }>
-                                {doc.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-slate-500 text-[11px]">{doc.requested_at || 'Today'}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-1.5">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openDocInfo(doc)}
-                                  className="h-7 text-[11px] gap-1 text-slate-700 border-slate-300 hover:bg-slate-50"
-                                >
-                                  <Eye size={13} /> Details
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openPrintModal(doc)}
-                                  className="h-7 text-[11px] gap-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
-                                >
-                                  <Printer size={13} /> Print
-                                </Button>
-                                {doc.status === 'Pending' && (
-                                  <Button size="sm" onClick={() => handleUpdateDocStatus(doc.id, doc.status)} className="h-7 text-[11px] gap-1 bg-amber-500 hover:bg-amber-600 text-white shadow-sm font-semibold">
-                                    <RefreshCcw size={12} />
-                                    Process
-                                  </Button>
-                                )}
-                                {doc.status === 'Processing' && (
-                                  <Button size="sm" onClick={() => handleUpdateDocStatus(doc.id, doc.status)} className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm font-semibold">
-                                    <CheckCircle size={12} />
-                                    Ready for Pickup
-                                  </Button>
-                                )}
-                                {doc.status === 'Ready for Pickup' && (
-                                  <Button size="sm" onClick={() => handleUpdateDocStatus(doc.id, doc.status)} className="h-7 text-[11px] gap-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm font-semibold">
-                                    <Check size={12} />
-                                    Mark Claimed
-                                  </Button>
-                                )}
-                                <Button size="sm" variant="ghost" onClick={() => handleArchiveDoc(doc.id)} className="h-7 text-[11px] text-slate-500 hover:text-rose-600 hover:bg-rose-50 cursor-pointer" title="Archive document request">
-                                  <Archive size={13} />
-                                </Button>
-                              </div>
+                      </TableHeader>
+                      <TableBody className="divide-y divide-slate-100">
+                        {filteredDocuments.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center text-xs py-10 text-slate-400">
+                              No document requests found matching filter.
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
+                        ) : (
+                          filteredDocuments.map((doc, idx) => {
+                            const formattedDate = doc.requested_at
+                              ? (() => {
+                                  try {
+                                    const d = new Date(doc.requested_at);
+                                    return isNaN(d.getTime()) ? doc.requested_at : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                                  } catch {
+                                    return doc.requested_at;
+                                  }
+                                })()
+                              : 'Today';
+
+                            return (
+                              <TableRow key={`filter-doc-${doc.id}-${idx}`} className="text-xs hover:bg-slate-50/80 transition-colors">
+                                <TableCell className="pl-4 font-mono font-bold text-blue-600">
+                                  <button
+                                    onClick={() => openDocInfo(doc)}
+                                    className="hover:underline cursor-pointer flex items-center gap-1"
+                                    title="Click to view full details"
+                                  >
+                                    {doc.request_code}
+                                  </button>
+                                </TableCell>
+                                <TableCell className="font-semibold text-slate-900">
+                                  <button
+                                    onClick={() => openDocInfo(doc)}
+                                    className="hover:text-blue-600 hover:underline text-left cursor-pointer"
+                                  >
+                                    {doc.resident_name}
+                                  </button>
+                                </TableCell>
+                                <TableCell className="text-slate-700 font-medium">
+                                  {doc.document_type}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge className={
+                                    doc.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                    doc.status === 'Ready for Pickup' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                                    doc.status === 'Processing' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                    'bg-orange-50 text-orange-700 border border-orange-200'
+                                  }>
+                                    {doc.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-slate-500 text-xs">
+                                  {formattedDate}
+                                </TableCell>
+                                <TableCell className="text-right pr-4">
+                                  <div className="flex justify-end items-center gap-1.5">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => openDocInfo(doc)}
+                                      className="h-7 px-2.5 text-xs font-semibold text-blue-600 border-blue-200 hover:bg-blue-50 gap-1 rounded-lg cursor-pointer"
+                                      title="View details & update status"
+                                    >
+                                      <Eye size={12} /> View Info
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => openPrintModal(doc)}
+                                      className="h-7 w-7 p-0 text-slate-500 hover:text-slate-900 border-slate-200 rounded-lg cursor-pointer"
+                                      title="Print Certificate"
+                                    >
+                                      <Printer size={13} />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleArchiveDoc(doc.id)}
+                                      className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                      title="Archive request"
+                                    >
+                                      <Archive size={13} />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -2634,15 +2749,16 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Interactive Clickable Archive Stats Banner */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Interactive Clickable Archive Stats Banner with Dynamic Tab Switching */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    const el = document.getElementById('completed-docs-section');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 hover:border-emerald-300 rounded-2xl p-4 flex items-center justify-between text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group"
+                  onClick={() => setArchiveCategory('docs')}
+                  className={`rounded-2xl p-4 flex items-center justify-between text-left transition-all cursor-pointer group ${
+                    archiveCategory === 'docs'
+                      ? 'bg-emerald-100/90 border-2 border-emerald-500 shadow-md ring-2 ring-emerald-500/30'
+                      : 'bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 hover:border-emerald-300 hover:shadow-xs hover:-translate-y-0.5'
+                  }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-100 group-hover:bg-emerald-200 text-emerald-600 flex items-center justify-center shrink-0 transition-colors">
@@ -2653,18 +2769,23 @@ export default function AdminDashboard() {
                       <h3 className="text-xl font-bold text-emerald-900">{archivedDocuments.length}</h3>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-200/60 group-hover:bg-emerald-600 group-hover:text-white px-2 py-1 rounded-md transition-all shrink-0">
-                    View ↓
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md transition-all shrink-0 ${
+                    archiveCategory === 'docs'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-emerald-700 bg-emerald-200/60 group-hover:bg-emerald-600 group-hover:text-white'
+                  }`}>
+                    {archiveCategory === 'docs' ? 'Active ✓' : 'View Only →'}
                   </span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    const el = document.getElementById('verified-residents-section');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="bg-blue-50 hover:bg-blue-100/80 border border-blue-200 hover:border-blue-300 rounded-2xl p-4 flex items-center justify-between text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group"
+                  onClick={() => setArchiveCategory('residents')}
+                  className={`rounded-2xl p-4 flex items-center justify-between text-left transition-all cursor-pointer group ${
+                    archiveCategory === 'residents'
+                      ? 'bg-blue-100/90 border-2 border-blue-500 shadow-md ring-2 ring-blue-500/30'
+                      : 'bg-blue-50 hover:bg-blue-100/80 border border-blue-200 hover:border-blue-300 hover:shadow-xs hover:-translate-y-0.5'
+                  }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-blue-100 group-hover:bg-blue-200 text-blue-600 flex items-center justify-center shrink-0 transition-colors">
@@ -2677,123 +2798,76 @@ export default function AdminDashboard() {
                       </h3>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold text-blue-700 bg-blue-200/60 group-hover:bg-blue-600 group-hover:text-white px-2 py-1 rounded-md transition-all shrink-0">
-                    View ↓
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md transition-all shrink-0 ${
+                    archiveCategory === 'residents'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-blue-700 bg-blue-200/60 group-hover:bg-blue-600 group-hover:text-white'
+                  }`}>
+                    {archiveCategory === 'residents' ? 'Active ✓' : 'View Only →'}
                   </span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    const el = document.getElementById('completed-docs-section');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 hover:border-slate-300 rounded-2xl p-4 flex items-center justify-between text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group col-span-1 sm:col-span-1"
+                  onClick={() => setArchiveCategory('accounts')}
+                  className={`rounded-2xl p-4 flex items-center justify-between text-left transition-all cursor-pointer group ${
+                    archiveCategory === 'accounts'
+                      ? 'bg-rose-100/90 border-2 border-rose-500 shadow-md ring-2 ring-rose-500/30'
+                      : 'bg-rose-50 hover:bg-rose-100/80 border border-rose-200 hover:border-rose-300 hover:shadow-xs hover:-translate-y-0.5'
+                  }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0 transition-colors">
+                    <div className="w-10 h-10 rounded-xl bg-rose-100 group-hover:bg-rose-200 text-rose-600 flex items-center justify-center shrink-0 transition-colors">
                       <Archive size={20} />
                     </div>
                     <div>
-                      <p className="text-[11px] font-semibold text-slate-600">Total Archive Entries</p>
-                      <h3 className="text-xl font-bold text-slate-900">{archivedDocuments.length + residents.length}</h3>
+                      <p className="text-[11px] font-semibold text-rose-700">Archived Accounts</p>
+                      <h3 className="text-xl font-bold text-rose-900">
+                        {users.filter(u => isUserForAdmin(u) && u.status === 'Archived').length}
+                      </h3>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold text-slate-700 bg-slate-200/60 group-hover:bg-slate-700 group-hover:text-white px-2 py-1 rounded-md transition-all shrink-0">
-                    View All ↓
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md transition-all shrink-0 ${
+                    archiveCategory === 'accounts'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-rose-700 bg-rose-200/60 group-hover:bg-rose-600 group-hover:text-white'
+                  }`}>
+                    {archiveCategory === 'accounts' ? 'Active ✓' : 'View Only →'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setArchiveCategory('all')}
+                  className={`rounded-2xl p-4 flex items-center justify-between text-left transition-all cursor-pointer group ${
+                    archiveCategory === 'all'
+                      ? 'bg-slate-100 border-2 border-slate-700 shadow-md ring-2 ring-slate-700/30'
+                      : 'bg-slate-50 hover:bg-slate-100/80 border border-slate-200 hover:border-slate-300 hover:shadow-xs hover:-translate-y-0.5'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0 transition-colors">
+                      <FolderOpen size={20} />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold text-slate-600">Total Archive Entries</p>
+                      <h3 className="text-xl font-bold text-slate-900">
+                        {archivedDocuments.length + residents.length + users.filter(u => isUserForAdmin(u) && u.status === 'Archived').length}
+                      </h3>
+                    </div>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md transition-all shrink-0 ${
+                    archiveCategory === 'all'
+                      ? 'bg-slate-800 text-white shadow-xs'
+                      : 'text-slate-700 bg-slate-200/60 group-hover:bg-slate-700 group-hover:text-white'
+                  }`}>
+                    {archiveCategory === 'all' ? 'All Active ✓' : 'View All →'}
                   </span>
                 </button>
               </div>
 
-              {/* EmailJS Automated Gateway Configuration Card */}
-              <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/50 via-white to-blue-50/40 shadow-xs">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
-                        @
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm font-bold text-slate-900">
-                          EmailJS Automated Gateway Connection
-                        </CardTitle>
-                        <CardDescription className="text-xs">
-                          Auto-dispatch real emails for account approvals, ID corrections, and document ready-for-pickup notifications.
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <Badge className="bg-indigo-600 text-white text-[10px] font-mono">
-                      Service: {emailJsSettings.serviceId}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4 text-xs">
-                  <form onSubmit={handleSaveEmailJsSettings} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <Label className="text-xs font-semibold text-slate-700">EmailJS Service ID</Label>
-                      <Input
-                        value={emailJsSettings.serviceId}
-                        onChange={e => setEmailJsSettings({ ...emailJsSettings, serviceId: e.target.value })}
-                        placeholder="service_6nk2ylj"
-                        className="h-8 text-xs font-mono mt-1 bg-white"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold text-slate-700">Template ID</Label>
-                      <Input
-                        value={emailJsSettings.templateId}
-                        onChange={e => setEmailJsSettings({ ...emailJsSettings, templateId: e.target.value })}
-                        placeholder="e.g. template_xxxxxxx"
-                        className="h-8 text-xs font-mono mt-1 bg-white"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-semibold text-slate-700">Public Key (User ID)</Label>
-                      <Input
-                        value={emailJsSettings.publicKey}
-                        onChange={e => setEmailJsSettings({ ...emailJsSettings, publicKey: e.target.value })}
-                        placeholder="From EmailJS Account > API Keys"
-                        className="h-8 text-xs font-mono mt-1 bg-white"
-                        required
-                      />
-                    </div>
-                    <div className="sm:col-span-3 flex justify-end">
-                      <Button type="submit" size="sm" className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white">
-                        Save EmailJS Gateway Settings
-                      </Button>
-                    </div>
-                  </form>
-
-                  {/* Send Live Test Email Box */}
-                  <div className="pt-3 border-t border-slate-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div className="text-xs text-slate-600">
-                      <span className="font-semibold text-slate-800">Test Live Delivery:</span> Send a test email to verify your EmailJS connection.
-                    </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <Input
-                        type="email"
-                        placeholder="your-email@gmail.com"
-                        value={emailJsTestTarget}
-                        onChange={e => setEmailJsTestTarget(e.target.value)}
-                        className="h-8 text-xs w-full sm:w-60 bg-white"
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={handleSendEmailJsTest}
-                        disabled={emailJsTestSending || !emailJsTestTarget}
-                        className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
-                      >
-                        {emailJsTestSending ? 'Sending...' : 'Send Test'}
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Archived Documents Section */}
+              {(archiveCategory === 'docs' || archiveCategory === 'all') && (
               <Card id="completed-docs-section" className="border-slate-200 bg-white shadow-xs scroll-mt-6">
                 <CardHeader className="flex flex-row items-center justify-between pb-3">
                   <div>
@@ -2810,7 +2884,7 @@ export default function AdminDashboard() {
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
                     <Input
-                      placeholder="Search archived documents..."
+                      placeholder="Search archived documents by resident or request code..."
                       value={archiveDocSearch}
                       onChange={e => setArchiveDocSearch(e.target.value)}
                       className="pl-8 h-8 text-xs"
@@ -2855,13 +2929,13 @@ export default function AdminDashboard() {
                             <TableCell>
                               <button
                                 onClick={() => openDocInfo(doc)}
-                                className="font-mono font-bold text-indigo-600 hover:underline flex items-center gap-1"
+                                className="font-mono font-bold text-indigo-600 hover:underline flex items-center gap-1 cursor-pointer"
                               >
                                 {doc.request_code}<Eye size={11} className="opacity-60" />
                               </button>
                             </TableCell>
                             <TableCell className="font-semibold text-slate-900">
-                              <button onClick={() => openResidentProfile(doc.resident_id || 1)} className="hover:underline text-indigo-700">
+                              <button onClick={() => openResidentProfile(doc.resident_id || 1)} className="hover:underline text-indigo-700 cursor-pointer">
                                 {doc.resident_name}
                               </button>
                             </TableCell>
@@ -2873,10 +2947,10 @@ export default function AdminDashboard() {
                             <TableCell className="text-slate-500">{doc.processed_by || 'Admin'}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-1.5">
-                                <Button size="sm" variant="outline" onClick={() => openDocInfo(doc)} className="h-7 text-[11px] gap-1">
+                                <Button size="sm" variant="outline" onClick={() => openDocInfo(doc)} className="h-7 text-[11px] gap-1 cursor-pointer">
                                   <Eye size={12} /> View
                                 </Button>
-                                <Button size="sm" variant="outline" onClick={() => openPrintModal(doc)} className="h-7 text-[11px] gap-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50">
+                                <Button size="sm" variant="outline" onClick={() => openPrintModal(doc)} className="h-7 text-[11px] gap-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50 cursor-pointer">
                                   <Printer size={12} /> Print
                                 </Button>
                               </div>
@@ -2888,16 +2962,44 @@ export default function AdminDashboard() {
                   </Table>
                 </CardContent>
               </Card>
+              )}
 
-              {/* Verified Residents Archive */}
+              {/* Verified & Processed Residents Archive */}
+              {(archiveCategory === 'residents' || archiveCategory === 'all') && (
               <Card id="verified-residents-section" className="border-slate-200 bg-white shadow-xs scroll-mt-6">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <UserCheck className="text-blue-600" size={18} />
-                    Verified &amp; Processed Resident Accounts
-                  </CardTitle>
-                  <CardDescription className="text-xs">Residents who have been reviewed and verified or rejected by admin</CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <div>
+                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <UserCheck className="text-blue-600" size={18} />
+                      Verified &amp; Processed Resident Accounts
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-0.5">Full list of resident profiles reviewed and approved by the Barangay Administrator</CardDescription>
+                  </div>
+                  <Badge className="bg-blue-600 text-white text-xs">
+                    {residents.filter(r => (r as any).verification_status === 'Verified').length} Verified
+                  </Badge>
                 </CardHeader>
+                {/* Search & Filter */}
+                <div className="px-6 pb-3 flex flex-col sm:flex-row gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <Input
+                      placeholder="Search verified residents by name, phone, or address..."
+                      value={archiveResidentSearch}
+                      onChange={e => setArchiveResidentSearch(e.target.value)}
+                      className="pl-8 h-8 text-xs"
+                    />
+                  </div>
+                  <Select value={archiveResidentStatusFilter} onValueChange={setArchiveResidentStatusFilter}>
+                    <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Verification Status" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="Verified">Verified Only</SelectItem>
+                      <SelectItem value="Rejected">Rejected</SelectItem>
+                      <SelectItem value="Pending_Review">Pending Review</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <CardContent className="p-0">
                   <Table>
                     <TableHeader>
@@ -2905,259 +3007,436 @@ export default function AdminDashboard() {
                         <TableHead className="text-xs">Full Name</TableHead>
                         <TableHead className="text-xs">Contact</TableHead>
                         <TableHead className="text-xs">Address</TableHead>
+                        <TableHead className="text-xs">Barangay</TableHead>
                         <TableHead className="text-xs">Verification</TableHead>
                         <TableHead className="text-xs text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {residents.length === 0 ? (
+                      {residents
+                        .filter(res => {
+                          const matchesStatus = archiveResidentStatusFilter === 'all' || (res as any).verification_status === archiveResidentStatusFilter;
+                          if (!matchesStatus) return false;
+                          if (archiveResidentSearch.trim()) {
+                            const q = archiveResidentSearch.toLowerCase();
+                            const matchName = `${res.first_name} ${res.last_name}`.toLowerCase().includes(q);
+                            const matchPhone = ((res as any).phone || '').toLowerCase().includes(q);
+                            const matchAddr = (res.address || '').toLowerCase().includes(q);
+                            return matchName || matchPhone || matchAddr;
+                          }
+                          return true;
+                        })
+                        .length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center text-xs py-8 text-slate-400">
-                            No resident records found.
+                          <TableCell colSpan={6} className="text-center text-xs py-8 text-slate-400">
+                            No resident records match your search.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        residents.map((res, idx) => (
-                          <TableRow key={`res-ov-${res.id}-${idx}`} className="text-xs hover:bg-blue-50/20">
-                            <TableCell className="font-semibold text-slate-900">
-                              <button onClick={() => openResidentProfile(res.id)} className="hover:underline text-indigo-700">
-                                {res.first_name} {res.last_name}
-                              </button>
-                            </TableCell>
-                            <TableCell className="text-slate-600">{(res as any).phone || '—'}</TableCell>
-                            <TableCell className="text-slate-500 max-w-[140px] truncate">{res.address}</TableCell>
-                            <TableCell>
-                              <Badge className={
-                                (res as any).verification_status === 'Verified'
-                                  ? 'bg-emerald-600 text-white'
-                                  : (res as any).verification_status === 'Rejected'
-                                  ? 'bg-red-100 text-red-700 border-red-300'
-                                  : 'bg-amber-100 text-amber-800 border-amber-300'
-                              }>
-                                {(res as any).verification_status || 'Verified'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button size="sm" variant="outline" onClick={() => openResidentProfile(res.id)} className="h-7 text-[11px] gap-1">
-                                <Eye size={12} /> Profile
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                        residents
+                          .filter(res => {
+                            const matchesStatus = archiveResidentStatusFilter === 'all' || (res as any).verification_status === archiveResidentStatusFilter;
+                            if (!matchesStatus) return false;
+                            if (archiveResidentSearch.trim()) {
+                              const q = archiveResidentSearch.toLowerCase();
+                              const matchName = `${res.first_name} ${res.last_name}`.toLowerCase().includes(q);
+                              const matchPhone = ((res as any).phone || '').toLowerCase().includes(q);
+                              const matchAddr = (res.address || '').toLowerCase().includes(q);
+                              return matchName || matchPhone || matchAddr;
+                            }
+                            return true;
+                          })
+                          .map((res, idx) => (
+                            <TableRow key={`res-ov-${res.id}-${idx}`} className="text-xs hover:bg-blue-50/20">
+                              <TableCell className="font-semibold text-slate-900">
+                                <button onClick={() => openResidentProfile(res.id)} className="hover:underline text-indigo-700 cursor-pointer">
+                                  {res.first_name} {res.last_name}
+                                </button>
+                              </TableCell>
+                              <TableCell className="text-slate-600">{(res as any).phone || '—'}</TableCell>
+                              <TableCell className="text-slate-500 max-w-[140px] truncate">{res.address}</TableCell>
+                              <TableCell>
+                                <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                                  {res.barangay || 'Pianing'}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={
+                                  (res as any).verification_status === 'Verified'
+                                    ? 'bg-emerald-600 text-white'
+                                    : (res as any).verification_status === 'Rejected'
+                                    ? 'bg-red-100 text-red-700 border-red-300'
+                                    : 'bg-amber-100 text-amber-800 border-amber-300'
+                                }>
+                                  {(res as any).verification_status || 'Verified'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button size="sm" variant="outline" onClick={() => openResidentProfile(res.id)} className="h-7 text-[11px] gap-1 cursor-pointer">
+                                  <Eye size={12} /> Profile
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))
                       )}
                     </TableBody>
                   </Table>
                 </CardContent>
               </Card>
+              )}
+
+              {/* Archived User Accounts Section */}
+              {(archiveCategory === 'accounts' || archiveCategory === 'all') && (
+              <Card id="archived-accounts-section" className="border-slate-200 bg-white shadow-xs scroll-mt-6">
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <div>
+                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Archive className="text-rose-600" size={18} />
+                      Archived User &amp; Resident Accounts
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-0.5">
+                      Soft-deleted user accounts. Login access is disabled, but all historical medical and document records remain preserved.
+                    </CardDescription>
+                  </div>
+                  <Badge className="bg-rose-600 text-white text-xs">
+                    {users.filter(u => isUserForAdmin(u) && u.status === 'Archived').length} Archived
+                  </Badge>
+                </CardHeader>
+                {/* Search */}
+                <div className="px-6 pb-3">
+                  <div className="relative max-w-md">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <Input
+                      placeholder="Search archived accounts by name or email..."
+                      value={archiveUserSearch}
+                      onChange={e => setArchiveUserSearch(e.target.value)}
+                      className="pl-8 h-8 text-xs"
+                    />
+                  </div>
+                </div>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-rose-50/50">
+                        <TableHead className="text-xs">User ID</TableHead>
+                        <TableHead className="text-xs">Full Name</TableHead>
+                        <TableHead className="text-xs">Email Address</TableHead>
+                        <TableHead className="text-xs">Account Role</TableHead>
+                        <TableHead className="text-xs">Barangay</TableHead>
+                        <TableHead className="text-xs">Contact</TableHead>
+                        <TableHead className="text-xs">Account Status</TableHead>
+                        <TableHead className="text-xs text-right">Restore Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {users
+                        .filter(u => {
+                          if (!isUserForAdmin(u)) return false;
+                          if (u.status !== 'Archived') return false;
+                          if (archiveUserSearch.trim()) {
+                            const q = archiveUserSearch.toLowerCase();
+                            const matchName = (u.name || '').toLowerCase().includes(q);
+                            const matchEmail = (u.email || '').toLowerCase().includes(q);
+                            const matchPhone = (u.phone || '').toLowerCase().includes(q);
+                            return matchName || matchEmail || matchPhone;
+                          }
+                          return true;
+                        })
+                        .length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="text-center text-xs py-10 text-slate-400">
+                            <Archive size={28} className="mx-auto mb-2 opacity-30 text-rose-500" />
+                            No archived user accounts found. Active accounts that are archived will appear here.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        users
+                          .filter(u => {
+                            if (!isUserForAdmin(u)) return false;
+                            if (u.status !== 'Archived') return false;
+                            if (archiveUserSearch.trim()) {
+                              const q = archiveUserSearch.toLowerCase();
+                              const matchName = (u.name || '').toLowerCase().includes(q);
+                              const matchEmail = (u.email || '').toLowerCase().includes(q);
+                              const matchPhone = (u.phone || '').toLowerCase().includes(q);
+                              return matchName || matchEmail || matchPhone;
+                            }
+                            return true;
+                          })
+                          .map((u, idx) => (
+                            <TableRow key={`arch-user-${u.id}-${idx}`} className="text-xs hover:bg-rose-50/30 bg-rose-50/10">
+                              <TableCell className="font-mono text-slate-400 font-semibold">#{u.id}</TableCell>
+                              <TableCell className="font-bold text-slate-800">{u.name}</TableCell>
+                              <TableCell className="font-mono text-slate-600">{u.email}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="border-rose-300 text-rose-700 bg-rose-50 font-semibold text-[10px]">
+                                  {u.role.toUpperCase()}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                                  {u.barangay || 'Pianing'}
+                                </span>
+                              </TableCell>
+                              <TableCell className="font-mono text-slate-600">{u.phone || '—'}</TableCell>
+                              <TableCell>
+                                <Badge className="bg-rose-100 text-rose-800 border border-rose-300 text-[10px] font-bold">
+                                  Archived
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleArchiveUser(u)}
+                                  className="h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer text-[11px] font-bold gap-1.5 shadow-sm"
+                                  title="Restore user account to Active"
+                                >
+                                  <RotateCcw size={12} />
+                                  Restore Account
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+              )}
             </div>
           )}
 
           {/* TAB 3: RESIDENT RECORDS */}
           {activeTab === 'records' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="space-y-5">
+              {/* Header with Live Count & Unified Actions Toolbar */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-1">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Barangay Resident Registry</h2>
-                  <p className="text-xs text-slate-500">Demographic profiles and resident records linked to MySQL database.</p>
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white leading-tight">Barangay Resident Registry</h2>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                      {filteredResidents.length} Residents
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">Demographic profiles and resident records linked to MySQL database.</p>
                 </div>
 
-                <Dialog open={isAddResidentOpen} onOpenChange={setIsAddResidentOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm">
-                      <UserPlus size={15} />
-                      Register Resident
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-white">
-                    <DialogHeader>
-                      <DialogTitle>Register New Resident</DialogTitle>
-                      <DialogDescription className="text-xs">Add new resident information to the barangay database.</DialogDescription>
-                    </DialogHeader>
-                    <form onSubmit={handleCreateResident} className="space-y-3 py-2">
-                      {/* Auto-location notice */}
-                      <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-xs text-indigo-700 flex items-center gap-1.5">
-                        <span>📍</span>
-                        <span>Location auto-set to <strong>Barangay {user?.barangay || 'Pianing'}, Butuan City</strong></span>
-                      </div>
-                      {/* Name Row: First / Middle / Last */}
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <Label className="text-xs font-semibold">First Name *</Label>
-                          <Input value={newResFirstName} onChange={e => setNewResFirstName(e.target.value)} placeholder="e.g. Juan" required className="text-xs" />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-semibold">Middle Name</Label>
-                          <Input value={newResMiddleName} onChange={e => setNewResMiddleName(e.target.value)} placeholder="e.g. Perez" className="text-xs" />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-semibold">Last Name *</Label>
-                          <Input value={newResLastName} onChange={e => setNewResLastName(e.target.value)} placeholder="e.g. Dela Cruz" required className="text-xs" />
-                        </div>
-                      </div>
-                      {/* Birthday & Gender */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs font-semibold">Date of Birth</Label>
-                          <Input type="date" value={newResDOB} onChange={e => setNewResDOB(e.target.value)} className="text-xs" />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-semibold">Gender</Label>
-                          <Select value={newResGender} onValueChange={(val: 'Male' | 'Female') => setNewResGender(val)}>
-                            <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Male">Male</SelectItem>
-                              <SelectItem value="Female">Female</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      {/* Purok & Phone */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs font-semibold">Purok / Zone</Label>
-                          <Input value={newResPurok} onChange={e => setNewResPurok(e.target.value)} placeholder="e.g. Purok 1" className="text-xs" />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-semibold">Contact Number</Label>
-                          <Input
-                            value={newResPhone}
-                            onChange={e => setNewResPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                            placeholder="09XXXXXXXXX (11 digits)"
-                            className="text-xs font-mono"
-                            maxLength={11}
-                            inputMode="numeric"
-                          />
-                        </div>
-                      </div>
-                      {/* Email & Password for Portal Access */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs font-semibold">Email / Account (Optional)</Label>
-                          <Input value={newResEmail} onChange={e => setNewResEmail(e.target.value)} placeholder="resident@gmail.com" className="text-xs" />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-semibold">Portal Password</Label>
-                          <Input type="text" value={newResPassword} onChange={e => setNewResPassword(e.target.value)} placeholder="Default: 123" className="text-xs" />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white w-full">Save Resident</Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              </div>
+                <div className="flex items-center gap-2 self-stretch sm:self-auto">
+                  <Button
+                    onClick={() => {
+                      printOfficialReport({
+                        title: 'Barangay Resident Registry',
+                        subtitle: `Barangay ${user?.barangay || 'Pianing'} — Demographic Records`,
+                        preparedBy: user?.name || 'Admin',
+                        preparedByTitle: 'Barangay Administrator',
+                        stats: [
+                          { label: 'Total Residents', value: filteredResidents.length, color: '#2563eb' },
+                          { label: 'Male', value: filteredResidents.filter(r => r.gender === 'Male').length, color: '#0284c7' },
+                          { label: 'Female', value: filteredResidents.filter(r => r.gender === 'Female').length, color: '#db2777' },
+                        ],
+                        tables: [{
+                          title: 'Resident List',
+                          headers: ['ID', 'Full Name', 'Gender', 'Purok / Address', 'Contact Phone'],
+                          rows: filteredResidents.map(r => [r.id, `${r.first_name} ${r.middle_name ? r.middle_name + ' ' : ''}${r.last_name}`, r.gender || 'N/A', r.address || 'N/A', r.phone || 'N/A'])
+                        }]
+                      });
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50 text-slate-700 shadow-xs cursor-pointer"
+                  >
+                    <Download size={14} /> Export PDF
+                  </Button>
 
-              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                  <Input
-                    placeholder="Search by Resident Name or Address..."
-                    value={residentSearch}
-                    onChange={e => setResidentSearch(e.target.value)}
-                    className="pl-9 h-9 text-xs"
-                  />
+                  <Dialog open={isAddResidentOpen} onOpenChange={setIsAddResidentOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow-xs h-9 cursor-pointer">
+                        <UserPlus size={15} />
+                        Register Resident
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-white">
+                      <DialogHeader>
+                        <DialogTitle>Register New Resident</DialogTitle>
+                        <DialogDescription className="text-xs">Add new resident information to the barangay database.</DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleCreateResident} className="space-y-3 py-2">
+                        {/* Auto-location notice */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700 flex items-center gap-1.5">
+                          <span>📍</span>
+                          <span>Location auto-set to <strong>Barangay {user?.barangay || 'Pianing'}, Butuan City</strong></span>
+                        </div>
+                        {/* Name Row: First / Middle / Last */}
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <Label className="text-xs font-semibold">First Name *</Label>
+                            <Input value={newResFirstName} onChange={e => setNewResFirstName(e.target.value)} placeholder="e.g. Juan" required className="text-xs" />
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold">Middle Name</Label>
+                            <Input value={newResMiddleName} onChange={e => setNewResMiddleName(e.target.value)} placeholder="e.g. Perez" className="text-xs" />
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold">Last Name *</Label>
+                            <Input value={newResLastName} onChange={e => setNewResLastName(e.target.value)} placeholder="e.g. Dela Cruz" required className="text-xs" />
+                          </div>
+                        </div>
+                        {/* Birthday & Gender */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs font-semibold">Date of Birth</Label>
+                            <Input type="date" value={newResDOB} onChange={e => setNewResDOB(e.target.value)} className="text-xs" />
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold">Gender</Label>
+                            <Select value={newResGender} onValueChange={(val: 'Male' | 'Female') => setNewResGender(val)}>
+                              <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Male">Male</SelectItem>
+                                <SelectItem value="Female">Female</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        {/* Purok & Phone */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs font-semibold">Purok / Zone</Label>
+                            <Input value={newResPurok} onChange={e => setNewResPurok(e.target.value)} placeholder="e.g. Purok 1" className="text-xs" />
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold">Contact Number</Label>
+                            <Input
+                              value={newResPhone}
+                              onChange={e => setNewResPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                              placeholder="09XXXXXXXXX (11 digits)"
+                              className="text-xs font-mono"
+                              maxLength={11}
+                              inputMode="numeric"
+                            />
+                          </div>
+                        </div>
+                        {/* Email & Password for Portal Access */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs font-semibold">Email / Account (Optional)</Label>
+                            <Input value={newResEmail} onChange={e => setNewResEmail(e.target.value)} placeholder="resident@gmail.com" className="text-xs" />
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold">Portal Password</Label>
+                            <Input type="text" value={newResPassword} onChange={e => setNewResPassword(e.target.value)} placeholder="Default: 123" className="text-xs" />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white w-full">Save Resident</Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
                 </div>
-                <Button
-                  onClick={() => {
-                    printOfficialReport({
-                      title: 'Barangay Resident Registry',
-                      subtitle: `Barangay ${user?.barangay || 'Pianing'} — Demographic Records`,
-                      preparedBy: user?.name || 'Admin',
-                      preparedByTitle: 'Barangay Administrator',
-                      stats: [
-                        { label: 'Total Residents', value: filteredResidents.length, color: '#4f46e5' },
-                        { label: 'Male', value: filteredResidents.filter(r => r.gender === 'Male').length, color: '#0284c7' },
-                        { label: 'Female', value: filteredResidents.filter(r => r.gender === 'Female').length, color: '#db2777' },
-                      ],
-                      tables: [{
-                        title: 'Resident List',
-                        headers: ['ID', 'Full Name', 'Gender', 'Purok / Address', 'Contact Phone'],
-                        rows: filteredResidents.map(r => [r.id, `${r.first_name} ${r.middle_name ? r.middle_name + ' ' : ''}${r.last_name}`, r.gender || 'N/A', r.address || 'N/A', r.phone || 'N/A'])
-                      }]
-                    });
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
-                >
-                  <Download size={14} /> Export PDF
-                </Button>
               </div>
 
-              <Card className="border-slate-200 bg-white">
+              {/* Search Row */}
+              <div className="relative max-w-md">
+                <Search className="absolute left-3 top-2.5 text-slate-400" size={15} />
+                <Input
+                  placeholder="Search by Resident Name or Address..."
+                  value={residentSearch}
+                  onChange={e => setResidentSearch(e.target.value)}
+                  className="pl-9 h-9 text-xs bg-white border-slate-200 rounded-xl"
+                />
+              </div>
+
+              {/* Even, Aligned, Responsive Table */}
+              <Card className="border-slate-200 bg-white shadow-xs rounded-xl overflow-hidden">
                 <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">ID</TableHead>
-                        <TableHead className="text-xs">Full Name</TableHead>
-                        <TableHead className="text-xs">Gender</TableHead>
-                        <TableHead className="text-xs">Address</TableHead>
-                        <TableHead className="text-xs">Contact Number</TableHead>
-                        <TableHead className="text-xs">Verification</TableHead>
-                        <TableHead className="text-xs text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredResidents.map((res, idx) => (
-                        <TableRow key={`res-rec-${res.id}-${idx}`} className="text-xs hover:bg-slate-50/80">
-                          <TableCell className="font-mono text-slate-500 font-semibold">#{res.id}</TableCell>
-                          <TableCell>
-                            <button
-                              onClick={() => openResidentProfile(res.id)}
-                              className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline transition-colors text-left block"
-                            >
-                              {res.first_name} {res.last_name}
-                            </button>
-                            {res.email && <span className="text-[10px] text-slate-400 font-mono block">{res.email}</span>}
-                          </TableCell>
-                          <TableCell>{res.gender}</TableCell>
-                          <TableCell className="text-slate-600">{res.address}</TableCell>
-                          <TableCell className="font-mono text-slate-500">{res.phone || '-'}</TableCell>
-                          <TableCell>
-                            <Badge className={
-                              res.verification_status === 'Verified' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
-                              res.verification_status === 'Rejected' ? 'bg-rose-100 text-rose-800 border-rose-300' :
-                              'bg-amber-100 text-amber-800 border-amber-300'
-                            }>
-                              {res.verification_status === 'Verified' ? 'Verified' : res.verification_status === 'Rejected' ? 'Rejected / Need Fix' : 'Unverified / Pending'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => openResidentProfile(res.id)}
-                                className="h-7 text-xs text-indigo-600 hover:bg-indigo-50 gap-1"
-                                title="View Full Profile"
-                              >
-                                <Eye size={12} /> Profile
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleToggleResidentVerification(res)}
-                                className={`h-7 text-[11px] gap-1 font-semibold cursor-pointer ${
-                                  res.verification_status === 'Verified'
-                                    ? 'text-amber-700 border-amber-300 hover:bg-amber-50'
-                                    : 'text-emerald-700 border-emerald-300 hover:bg-emerald-50 bg-emerald-50/50'
-                                }`}
-                                title={res.verification_status === 'Verified' ? 'Click to unverify resident' : 'Click to verify resident'}
-                              >
-                                {res.verification_status === 'Verified' ? (
-                                  <><ShieldAlert size={12} /> Unverify</>
-                                ) : (
-                                  <><Check size={12} /> Verify</>
-                                )}
-                              </Button>
-                            </div>
-                          </TableCell>
+                  <div className="overflow-x-auto">
+                    <Table className="w-full text-left border-collapse min-w-[880px]">
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/80 border-b border-slate-200">
+                          <TableHead className="w-16 pl-4 text-xs font-semibold text-slate-600">ID</TableHead>
+                          <TableHead className="w-56 text-xs font-semibold text-slate-600">Full Name</TableHead>
+                          <TableHead className="w-24 text-xs font-semibold text-slate-600">Gender</TableHead>
+                          <TableHead className="min-w-[220px] text-xs font-semibold text-slate-600">Address</TableHead>
+                          <TableHead className="w-36 text-xs font-semibold text-slate-600">Contact Number</TableHead>
+                          <TableHead className="w-36 text-xs font-semibold text-slate-600">Verification</TableHead>
+                          <TableHead className="w-48 text-xs font-semibold text-slate-600 text-right pr-4">Actions</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody className="divide-y divide-slate-100">
+                        {filteredResidents.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-12 text-slate-400 text-xs">
+                              No resident records found.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredResidents.map((res, idx) => (
+                            <TableRow key={`res-rec-${res.id}-${idx}`} className="text-xs hover:bg-slate-50/80 transition-colors">
+                              <TableCell className="pl-4 font-mono text-slate-500 font-semibold">#{res.id}</TableCell>
+                              <TableCell>
+                                <button
+                                  onClick={() => openResidentProfile(res.id)}
+                                  className="font-semibold text-slate-900 hover:text-blue-600 hover:underline transition-colors text-left block cursor-pointer"
+                                >
+                                  {res.first_name} {res.last_name}
+                                </button>
+                                {res.email && <span className="text-[10px] text-slate-400 font-mono block mt-0.5">{res.email}</span>}
+                              </TableCell>
+                              <TableCell className="text-slate-700">{res.gender || '-'}</TableCell>
+                              <TableCell className="text-slate-600">
+                                <span className="truncate block max-w-[200px]" title={res.address || 'Pianing'}>
+                                  {res.purok ? (res.purok.startsWith('Purok') ? res.purok : `Purok ${res.purok}`) : (res.address ? res.address.split(',')[0] : 'Pianing')}
+                                </span>
+                              </TableCell>
+                              <TableCell className="font-mono text-slate-600">{res.phone || '-'}</TableCell>
+                              <TableCell>
+                                {res.verification_status === 'Verified' ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <CheckCircle size={12} className="text-emerald-600" /> Verified
+                                  </span>
+                                ) : res.verification_status === 'Rejected' ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                                    <AlertCircle size={12} className="text-rose-600" /> Rejected
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                    <Clock size={12} className="text-amber-600" /> Unverified
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right pr-4">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => openResidentProfile(res.id)}
+                                    className="h-7 px-2.5 text-xs text-slate-700 hover:text-blue-600 hover:bg-blue-50 border-slate-200 gap-1 rounded-lg cursor-pointer"
+                                    title="View Full Profile"
+                                  >
+                                    <Eye size={12} /> View Profile
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleToggleResidentVerification(res)}
+                                    className={`h-7 px-2 text-xs font-semibold rounded-lg cursor-pointer transition-all w-[74px] justify-center ${
+                                      res.verification_status === 'Verified'
+                                        ? 'text-amber-700 border-amber-300 hover:bg-amber-50 bg-white'
+                                        : 'text-emerald-700 border-emerald-300 hover:bg-emerald-50 bg-emerald-50/40'
+                                    }`}
+                                    title={res.verification_status === 'Verified' ? 'Click to unverify resident' : 'Click to verify resident'}
+                                  >
+                                    {res.verification_status === 'Verified' ? 'Unverify' : 'Verify'}
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -3566,7 +3845,7 @@ export default function AdminDashboard() {
                           return true;
                         })
                         .map((u, idx) => (
-                          <TableRow key={`user-${u.id}-${u.email}-${idx}`} className="text-xs hover:bg-slate-50/80">
+                          <TableRow key={`user-${u.id}-${u.email}-${idx}`} className={`text-xs hover:bg-slate-50/80 ${u.status === 'Archived' ? 'bg-rose-50/40 opacity-80' : ''}`}>
                             <TableCell className="font-mono text-slate-400 font-semibold">#{u.id}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
@@ -3710,13 +3989,15 @@ export default function AdminDashboard() {
                                   u.status === 'Archived' ? (
                                     <Button
                                       size="sm"
-                                      variant="ghost"
+                                      variant={userCategoryTab === 'archived' ? 'default' : 'ghost'}
                                       onClick={() => handleArchiveUser(u)}
-                                      className="h-7 px-2 text-indigo-600 hover:bg-indigo-50 cursor-pointer text-[11px] font-semibold gap-1"
+                                      className={userCategoryTab === 'archived'
+                                        ? 'h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer text-[11px] font-bold gap-1.5 shadow-sm'
+                                        : 'h-7 px-2 text-indigo-600 hover:bg-indigo-50 cursor-pointer text-[11px] font-semibold gap-1'}
                                       title="Restore user account to Active"
                                     >
                                       <RotateCcw size={12} />
-                                      Restore
+                                      Restore Account
                                     </Button>
                                   ) : (
                                     <Button
@@ -4758,34 +5039,15 @@ export default function AdminDashboard() {
         canEdit={true}
       />
 
-      {/* Submitted Government ID Photo Preview Modal */}
-      <Dialog open={!!selectedIdPreview} onOpenChange={(open) => !open && setSelectedIdPreview(null)}>
-        <DialogContent className="bg-white dark:bg-slate-900 max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-bold flex items-center gap-2">
-              <Shield className="text-indigo-600" size={18} />
-              Submitted Resident Government ID
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Review the uploaded identification document to verify resident authenticity.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 flex items-center justify-center min-h-[220px]">
-            {selectedIdPreview ? (
-              <img
-                src={selectedIdPreview}
-                alt="Submitted Government ID"
-                className="max-h-[380px] w-auto max-w-full object-contain rounded-lg shadow-sm"
-              />
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button size="sm" variant="outline" onClick={() => setSelectedIdPreview(null)} className="text-xs">
-              Close Preview
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Submitted Government ID Photo Full-View Inspection Modal with Zoom, Rotate, and Download */}
+      <ImageViewerModal
+        isOpen={!!selectedIdPreview}
+        onClose={() => setSelectedIdPreview(null)}
+        imageUrl={selectedIdPreview}
+        title="Submitted Resident Government ID"
+        subtitle="Official Philippine Government ID / Cedula Verification Document"
+        fileName="resident-submitted-id.png"
+      />
 
       {/* Admin Profile & Security Modal */}
       <Dialog open={isAdminProfileOpen} onOpenChange={setIsAdminProfileOpen}>

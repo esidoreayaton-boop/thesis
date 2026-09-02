@@ -11,8 +11,10 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
-import { User, Phone, Lock, MapPin, Mail, Eye, EyeOff, KeyRound, CheckCircle2, AlertCircle, Calendar, Upload, FileText, ImageIcon } from 'lucide-react';
+import { User, Phone, Lock, MapPin, Mail, Eye, EyeOff, KeyRound, CheckCircle2, AlertCircle, Calendar, Upload, FileText, ImageIcon, X } from 'lucide-react';
 import { apiService } from '../../services/api';
+import { validatePasswordComplexity } from '../../utils/passwordValidation';
+import { BUTUAN_BARANGAYS } from '../../utils/barangays';
 import { toast } from 'sonner';
 
 interface ProfileSettingsModalProps {
@@ -35,10 +37,13 @@ export default function ProfileSettingsModal({
   const [gender, setGender] = useState<'Male' | 'Female'>('Male');
   const [civilStatus, setCivilStatus] = useState<'Single' | 'Married' | 'Widowed' | 'Separated'>('Single');
   const [phone, setPhone] = useState('');
+  const [purok, setPurok] = useState('Purok 1');
+  const [residentBarangay, setResidentBarangay] = useState('Pianing');
   const [address, setAddress] = useState('');
   const [residencyYears, setResidencyYears] = useState('');
   const [submittedId, setSubmittedId] = useState<string | null>(null);
   const [newIdPreview, setNewIdPreview] = useState<string | null>(null);
+  const [photoRemoved, setPhotoRemoved] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -82,10 +87,16 @@ export default function ProfileSettingsModal({
       setGender(user.gender === 'Female' ? 'Female' : 'Male');
       setCivilStatus((user.civil_status || user.civilStatus || 'Single') as 'Single' | 'Married' | 'Widowed' | 'Separated');
       setPhone(user.phone || '');
-      setAddress(user.address || '');
+      const rawAddress = user.address || '';
+      const rawPurok = user.purok || (rawAddress ? rawAddress.split(',')[0].trim() : 'Purok 1');
+      const rawBrgy = user.barangay || 'Pianing';
+      setPurok(rawPurok);
+      setResidentBarangay(rawBrgy);
+      setAddress(rawAddress || `${rawPurok}, Barangay ${rawBrgy}, Butuan City`);
       setResidencyYears(user.years_of_residency || user.residency_years || '');
       setSubmittedId(user.submitted_id || null);
       setNewIdPreview(null);
+      setPhotoRemoved(false);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -109,9 +120,18 @@ export default function ProfileSettingsModal({
       const base64 = reader.result as string;
       setNewIdPreview(base64);
       setSubmittedId(base64);
+      setPhotoRemoved(false);
       toast.success('ID photo selected! Save your profile to submit it for re-verification.');
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    setSubmittedId(null);
+    setNewIdPreview(null);
+    setPhotoRemoved(true);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    toast.info('ID photo removed. Click "Save Changes" to apply.');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -153,9 +173,10 @@ export default function ProfileSettingsModal({
         });
         return;
       }
-      if (newPassword.length < 6) {
-        toast.error('Password too short', {
-          description: 'New password must be at least 6 characters.'
+      const passCheck = validatePasswordComplexity(newPassword);
+      if (!passCheck.isValid) {
+        toast.error('New password does not meet security requirements', {
+          description: passCheck.error || 'Must be at least 8 characters with 1 uppercase, 1 lowercase, 1 number, and 1 special character.'
         });
         return;
       }
@@ -189,6 +210,8 @@ export default function ProfileSettingsModal({
         }
       }
 
+      const finalAddress = `${purok.trim() || 'Purok 1'}, Barangay ${residentBarangay.trim()}, Butuan City`;
+
       // If a new ID is uploaded or updated, also send resubmit verification
       if (newIdPreview) {
         try {
@@ -199,7 +222,7 @@ export default function ProfileSettingsModal({
             first_name: cleanFirst,
             middle_name: cleanMiddle,
             last_name: cleanLast,
-            address: address.trim(),
+            address: finalAddress,
             phone: cleanPhone
           });
         } catch (resubmitErr) {
@@ -207,7 +230,11 @@ export default function ProfileSettingsModal({
         }
       }
 
-      await apiService.updateProfile({
+      const finalSubmittedId = photoRemoved && !newIdPreview ? null : (submittedId || user?.submitted_id || null);
+
+      // Build payload — only include submitted_id when it has actually changed
+      const idChanged = newIdPreview !== null || photoRemoved;
+      const profilePayload: any = {
         id: user?.id,
         email: user?.email,
         name: computedFullName,
@@ -218,9 +245,15 @@ export default function ProfileSettingsModal({
         gender: gender || 'Male',
         civil_status: civilStatus || 'Single',
         phone: cleanPhone || undefined,
-        address: address.trim() || undefined,
+        address: finalAddress,
+        barangay: residentBarangay.trim(),
         password: newPassword || undefined,
-      } as any);
+      };
+      // Only touch submitted_id on the backend when user explicitly changed it
+      if (idChanged) {
+        profilePayload.submitted_id = finalSubmittedId;
+      }
+      await apiService.updateProfile(profilePayload);
 
       const updatedUser = {
         ...user,
@@ -233,10 +266,16 @@ export default function ProfileSettingsModal({
         civil_status: civilStatus || 'Single',
         age: calculatedNumericAge !== undefined ? calculatedNumericAge : user?.age,
         phone: cleanPhone,
-        address: address.trim(),
-        submitted_id: submittedId || user?.submitted_id,
+        address: finalAddress,
+        purok: purok.trim() || 'Purok 1',
+        barangay: residentBarangay.trim(),
+        city: 'Butuan City',
+        // Always preserve submitted_id; only override when explicitly changed
+        submitted_id: idChanged ? finalSubmittedId : (user?.submitted_id ?? null),
         years_of_residency: residencyYears.trim(),
-        verification_status: newIdPreview ? 'Pending_Review' : user?.verification_status
+        verification_status: idChanged
+          ? 'Pending_Review'
+          : user?.verification_status
       };
 
       localStorage.setItem('barangay_user', JSON.stringify(updatedUser));
@@ -415,19 +454,36 @@ export default function ProfileSettingsModal({
             <p className="text-[10px] text-slate-400">PH format: 09XXXXXXXXX (11 digits). Used for SMS alerts &amp; official updates.</p>
           </div>
 
-          {/* Editable: Address */}
+          {/* Separated Address: Purok, Barangay, City */}
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <MapPin size={13} className="text-teal-600" />
-              Home Address <RequiredStar />
+              Residential Address <RequiredStar />
             </Label>
-            <Input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="e.g. Purok 1, Barangay Pianing, Butuan City"
-              className="h-9 text-xs"
-              required
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 font-medium">Purok / Street <RequiredStar /></span>
+                <Input
+                  value={purok}
+                  onChange={(e) => setPurok(e.target.value)}
+                  placeholder="e.g. Purok 1"
+                  className="h-9 text-xs"
+                  required
+                />
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 font-medium">Barangay</span>
+                <div className="h-9 px-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center select-none shadow-xs">
+                  Barangay {residentBarangay || 'Pianing'}
+                </div>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 font-medium">City / Municipality</span>
+                <div className="h-9 px-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center select-none shadow-xs">
+                  Butuan City
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Editable: Years of Residency in Barangay */}
@@ -454,50 +510,69 @@ export default function ProfileSettingsModal({
               </Label>
               {user?.verification_status === 'Verified' ? (
                 <Badge className="bg-emerald-100 text-emerald-800 text-[10px] font-semibold">Verified</Badge>
+              ) : user?.verification_status === 'Rejected' ? (
+                <Badge className="bg-red-100 text-red-800 text-[10px] font-semibold">Rejected / Resubmission Required</Badge>
               ) : (
                 <Badge className="bg-amber-100 text-amber-800 text-[10px] font-semibold">Review Needed</Badge>
               )}
             </div>
+
+            {/* Persistent Resubmit ID Warning for Rejected / Needs_Resubmission */}
+            {user?.verification_status === 'Rejected' && (
+              <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={15} className="text-red-600 shrink-0" />
+                  <span className="font-bold text-xs text-red-900 dark:text-red-200">ID Verification Rejected</span>
+                </div>
+                <p className="text-[11px] text-red-800 dark:text-red-300 leading-relaxed">
+                  <strong>Reason:</strong> {user?.rejection_reason || 'Submitted ID photo was unclear or illegible.'}
+                </p>
+                <p className="text-[11px] text-red-700 dark:text-red-400 font-medium">
+                  Please contact the Barangay Office or use the official ID resubmission form if required.
+                </p>
+              </div>
+            )}
             
             <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                Upload or update your valid Philippine Government ID (PhilID National ID, Passport, Driver's License, Postal ID, PRC, or Cedula) for Barangay Administrator approval.
+                Submitted Philippine Government ID on record.
               </p>
 
-              {/* Current / New Preview */}
-              {(newIdPreview || submittedId) && (
-                <div className="relative border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden max-h-44 bg-slate-900 flex items-center justify-center p-1">
+              {/* Display-Only ID Image with X button to remove */}
+              {(!photoRemoved && (newIdPreview || submittedId)) ? (
+                <div className="relative border border-slate-300 dark:border-slate-600 rounded-xl overflow-hidden max-h-56 bg-slate-950 flex items-center justify-center p-2 shadow-inner group">
                   <img
                     src={newIdPreview || submittedId || ''}
                     alt="Submitted Government ID"
-                    className="max-h-40 object-contain rounded"
+                    className="max-h-52 object-contain rounded-lg shadow-sm"
                   />
-                  {newIdPreview && (
-                    <span className="absolute top-2 right-2 bg-teal-600 text-white text-[10px] px-2 py-0.5 rounded shadow-sm font-semibold">
-                      New Upload Selected
-                    </span>
-                  )}
+                  {/* Top-Right X Button to remove photo */}
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    className="absolute top-2.5 right-2.5 w-7 h-7 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-md transition-all cursor-pointer hover:scale-105"
+                    title="Remove Government ID"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="py-6 px-4 text-center border border-dashed border-slate-300 dark:border-slate-600 hover:border-blue-500 bg-white dark:bg-slate-900/40 rounded-xl cursor-pointer transition-all group"
+                >
+                  <Upload size={24} className="mx-auto mb-1.5 text-slate-400 group-hover:text-blue-600 transition-colors" />
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 group-hover:text-blue-600">Click to upload valid Government ID</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">PNG, JPG, or JPEG up to 5MB for verification</p>
                 </div>
               )}
-
               <input
-                type="file"
                 ref={fileInputRef}
-                onChange={handleFileChange}
+                type="file"
                 accept="image/*"
+                onChange={handleFileChange}
                 className="hidden"
               />
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full text-xs h-8 gap-1.5 border-dashed border-teal-500 text-teal-700 hover:bg-teal-50 dark:hover:bg-teal-950/30"
-              >
-                <Upload size={13} />
-                {submittedId || newIdPreview ? 'Change / Upload New ID Photo' : 'Upload Valid Government ID'}
-              </Button>
             </div>
           </div>
 

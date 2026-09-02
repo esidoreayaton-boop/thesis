@@ -1,5 +1,5 @@
-import { useRef } from 'react';
-import { Printer, Shield, X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Printer, Shield, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { DocumentRequest } from '../../services/api';
@@ -137,7 +137,14 @@ function cleanPronouns(doc: DocumentRequest, f: Record<string, string>) {
 }
 
 function cleanBusinessName(f: Record<string, string>, purpose?: string): string {
-  return f['Business Name'] || f['Store Name'] || f['Business Type'] || f['Nature of Business'] || 'sari-sari';
+  if (f['Business Name']) return f['Business Name'];
+  if (f['Store Name']) return f['Store Name'];
+  if (f['Business Type']) return f['Business Type'];
+  if (f['Nature of Business']) return f['Nature of Business'];
+  if (purpose && purpose.trim() && !purpose.toLowerCase().includes('clearance') && !purpose.toLowerCase().includes('personal')) {
+    return purpose.trim();
+  }
+  return 'General Merchandise / Sari-Sari Store';
 }
 
 function cleanEmploymentDetails(f: Record<string, string>) {
@@ -783,7 +790,8 @@ function CertificatePreview({ doc }: { doc: DocumentRequest }) {
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
 export default function DocumentPrintModal({ isOpen, onClose, document: docItem }: DocumentPrintModalProps) {
-  if (!docItem) return null;
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const [zoomLevel, setZoomLevel] = useState<number>(100);
 
   const handlePrint = () => {
     const originalTitle = window.document.title;
@@ -836,56 +844,102 @@ export default function DocumentPrintModal({ isOpen, onClose, document: docItem 
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-5">
-        <DialogHeader className="flex flex-row justify-between items-center border-b pb-3 bg-white dark:bg-slate-900 -mx-5 -mt-5 px-5 pt-3 pb-3 rounded-t-lg shadow-xs sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            <Shield className="text-indigo-600" size={20} />
-            <div>
-              <DialogTitle className="text-sm font-bold">Official Barangay Document Preview &amp; Print</DialogTitle>
-              <DialogDescription className="text-[11px] text-slate-500">
-                Office of the Punong Barangay — Pianing, Butuan City &bull; {docItem.document_type}
-              </DialogDescription>
+    <>
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex flex-col bg-slate-100 dark:bg-slate-900"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Document Print Preview"
+        >
+          {/* Sticky Toolbar */}
+          <div className="flex items-center justify-between px-5 py-3 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0">
+            <div className="flex items-center gap-2.5">
+              <Shield className="text-indigo-600 shrink-0" size={20} />
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
+                  Official Barangay Document Preview &amp; Print
+                </h2>
+                <p className="text-[11px] text-slate-500">
+                  Office of the Punong Barangay — Pianing, Butuan City &bull; {docItem.document_type}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Zoom Controls */}
+              <div className="hidden sm:flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setZoomLevel(prev => Math.max(70, prev - 10))}
+                  className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                  title="Zoom Out"
+                >
+                  <ZoomOut size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoomLevel(100)}
+                  className="px-2 py-0.5 hover:bg-white dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 font-mono text-[11px] transition-colors cursor-pointer"
+                  title="Reset Zoom"
+                >
+                  {zoomLevel}%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoomLevel(prev => Math.min(140, prev + 10))}
+                  className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                  title="Zoom In"
+                >
+                  <ZoomIn size={15} />
+                </button>
+              </div>
+
+              <Button
+                onClick={handlePrint}
+                size="sm"
+                className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 h-9 shadow-sm cursor-pointer"
+              >
+                <Printer size={15} /> Print Document
+              </Button>
+              <button
+                onClick={onClose}
+                className="rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X size={18} />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={handlePrint} size="sm" className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 shadow-sm cursor-pointer h-9">
-              <Printer size={15} /> Print Document
-            </Button>
-            <button
-              onClick={onClose}
-              className="rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-              title="Close"
-            >
-              <X size={18} />
-            </button>
+
+          {/* Print Tip Banner */}
+          <div className="bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 px-5 py-2 text-xs flex items-center gap-2 shrink-0">
+            <span>
+              💡 <strong>Print Tip:</strong> In the browser print dialog, expand <em>&ldquo;More settings&rdquo;</em> and <strong>uncheck &ldquo;Headers and footers&rdquo;</strong> for a clean official printout.
+            </span>
           </div>
-        </DialogHeader>
 
-        {/* Clean Print Reminder Banner */}
-        <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 px-3.5 py-2 rounded-lg text-xs flex items-center gap-2 mt-2">
-          <span>
-            💡 <strong>Print Tip:</strong> In the browser print dialog, expand <em>"More settings"</em> and <strong>uncheck "Headers and footers"</strong> for a clean official printout.
-          </span>
+          {/* Scrollable Document Body with Near Full-Screen High-Legibility Layout */}
+          <div className="flex-1 overflow-y-auto py-8 px-4 flex justify-center items-start">
+            <div
+              className="bg-white text-black shadow-2xl border border-slate-300 rounded-sm transition-transform duration-150"
+              style={{
+                width: '100%',
+                maxWidth: '890px',
+                minHeight: '1120px',
+                padding: '60px 72px',
+                boxSizing: 'border-box',
+                fontFamily: 'Arial, Helvetica, sans-serif',
+                fontSize: '12pt',
+                lineHeight: '1.75',
+                transform: `scale(${zoomLevel / 100})`,
+                transformOrigin: 'top center',
+              }}
+            >
+              <CertificatePreview doc={docItem} />
+            </div>
+          </div>
         </div>
-
-        {/* Full-width complete letter preview — no clipping, full pagination support */}
-        <div
-          className="bg-white text-black shadow-lg border border-slate-300 mx-auto my-4 rounded-sm"
-          style={{
-            width: '100%',
-            maxWidth: '792px',
-            minHeight: '1024px',
-            padding: '52px 64px',
-            boxSizing: 'border-box',
-            fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '11pt',
-            lineHeight: '1.65'
-          }}
-        >
-          <CertificatePreview doc={docItem} />
-        </div>
-      </DialogContent>
-    </Dialog>
+      )}
+    </>
   );
 }

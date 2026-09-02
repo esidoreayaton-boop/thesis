@@ -59,6 +59,25 @@ async function verifyPassword(inputPassword, storedHashOrPlain) {
   return String(inputPassword) === String(storedHashOrPlain);
 }
 
+function validatePasswordComplexity(password) {
+  if (!password || typeof password !== 'string' || password.length < 8) {
+    return { isValid: false, message: 'Password must be at least 8 characters long.' };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { isValid: false, message: 'Password must contain at least 1 uppercase letter (A-Z).' };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { isValid: false, message: 'Password must contain at least 1 lowercase letter (a-z).' };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { isValid: false, message: 'Password must contain at least 1 numeric digit (0-9).' };
+  }
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(password)) {
+    return { isValid: false, message: 'Password must contain at least 1 special character (e.g. @, $, !, %, *, #, ?, &).' };
+  }
+  return { isValid: true };
+}
+
 // Serve compiled Vite frontend in production mode
 const distPath = path.resolve(__dirname, '../dist');
 if (fs.existsSync(distPath)) {
@@ -121,6 +140,7 @@ async function migrateDatabase() {
     } catch {}
     try {
       await pool.query("ALTER TABLE document_requests MODIFY COLUMN document_type VARCHAR(100) NOT NULL");
+      await pool.query("ALTER TABLE document_requests MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'Pending'");
     } catch {}
     try {
       await pool.query("ALTER TABLE document_requests MODIFY COLUMN resident_id INT NULL DEFAULT 1");
@@ -677,25 +697,61 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ success: false, message: 'First name, last name, and email are required.' });
   }
 
-  const rawPassword = password || '123';
+  if (password) {
+    const passCheck = validatePasswordComplexity(password);
+    if (!passCheck.isValid) {
+      return res.status(400).json({ success: false, message: passCheck.message });
+    }
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const rawPassword = password || 'Admin123!';
   const hashedPassword = await hashPassword(rawPassword);
   const userRole = role || 'resident';
-  const residentAddress = address || 'Purok 1, Barangay Pianing, Butuan City';
-  const userBarangay = req.body.barangay || (residentAddress.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing');
+  
+  // DYNAMIC LOCATION ROUTING: Read resident's selected barangay (defaults to Pianing)
+  const userBarangay = (req.body.barangay || 'Pianing').trim();
+  let residentAddress = address || `Purok 1, Barangay ${userBarangay}, Butuan City`;
+  if (!residentAddress.toLowerCase().includes(userBarangay.toLowerCase())) {
+    residentAddress = `${residentAddress.split(',')[0].trim()}, Barangay ${userBarangay}, Butuan City`;
+  }
 
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
+      // 1 GMAIL PER ACCOUNT: Check if email is already registered in users or residents table
+      const [existingUsers] = await pool.query(
+        "SELECT id, email, role, verification_status FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+        [cleanEmail]
+      );
+      if (existingUsers.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'This email address is already registered. Each resident must use a unique Gmail address. Please sign in or use a different email.'
+        });
+      }
+
+      const [existingResidents] = await pool.query(
+        "SELECT id, email FROM residents WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+        [cleanEmail]
+      );
+      if (existingResidents.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'This email is already associated with an existing resident profile. Please sign in or contact the Barangay Office.'
+        });
+      }
+
       // 1. Insert into users table with bcrypt hashed password
       await pool.query(
-        "INSERT INTO users (name, email, password_hash, role, status, verification_status, barangay, phone, last_login) VALUES (?, ?, ?, ?, 'Active', 'Pending_Review', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name), password_hash = VALUES(password_hash), verification_status = 'Pending_Review', barangay = VALUES(barangay)",
-        [fullName, email.trim().toLowerCase(), hashedPassword, userRole, userBarangay, phone || '']
+        "INSERT INTO users (name, email, password_hash, role, status, verification_status, barangay, phone, last_login) VALUES (?, ?, ?, ?, 'Active', 'Pending_Review', ?, ?, NOW())",
+        [fullName, cleanEmail, hashedPassword, userRole, userBarangay, phone || '']
       );
 
       // 2. Insert into residents table with date_of_birth, gender, civil_status and barangay
       const [resResult] = await pool.query(
-        "INSERT INTO residents (first_name, middle_name, last_name, date_of_birth, gender, civil_status, address, barangay, phone, email, verification_status, submitted_id, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending_Review', ?, NOW())",
-        [firstName, middleName, lastName, dob, userGender, userCivilStatus, residentAddress, userBarangay, phone || '', email.trim().toLowerCase(), submitted_id || null]
+        "INSERT INTO residents (first_name, middle_name, last_name, date_of_birth, gender, civil_status, address, barangay, phone, email, verification_status, submitted_id, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending_Review', ?, NOW()) ON DUPLICATE KEY UPDATE first_name = VALUES(first_name), last_name = VALUES(last_name), address = VALUES(address), barangay = VALUES(barangay), verification_status = 'Pending_Review', submitted_id = VALUES(submitted_id)",
+        [firstName, middleName, lastName, dob, userGender, userCivilStatus, residentAddress, userBarangay, phone || '', cleanEmail, submitted_id || null]
       );
 
       // 3. If years_of_residency provided, save to column (add column if missing)
@@ -720,7 +776,7 @@ app.post('/api/auth/register', async (req, res) => {
 
       return res.status(201).json({
         success: true,
-        user: { id: resResult.insertId, name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName, date_of_birth: dob, gender: userGender, civil_status: userCivilStatus, email, role: userRole, verification_status: 'Pending_Review', submitted_id, phone, address: residentAddress, barangay: userBarangay, years_of_residency: years_of_residency || '' },
+        user: { id: resResult.insertId, name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName, date_of_birth: dob, gender: userGender, civil_status: userCivilStatus, email: cleanEmail, role: userRole, verification_status: 'Pending_Review', submitted_id, phone, address: residentAddress, barangay: userBarangay, years_of_residency: years_of_residency || '' },
         message: 'Account created! Your submitted ID is under review by the Barangay Admin.'
       });
     } catch (err) {
@@ -728,7 +784,15 @@ app.post('/api/auth/register', async (req, res) => {
     }
   }
 
-  // Fallback: store in mockData
+  // Fallback: check unique in mockData
+  const existsInMock = mockData.users.some(u => u.email && u.email.toLowerCase() === cleanEmail) ||
+                       mockData.residents.some(r => r.email && r.email.toLowerCase() === cleanEmail);
+  if (existsInMock) {
+    return res.status(409).json({
+      success: false,
+      message: 'This email address is already registered. Each resident must use a unique Gmail address.'
+    });
+  }
   const newPending = {
     id: Date.now(),
     name: fullName,
@@ -851,6 +915,7 @@ app.get('/api/residents/pending', async (req, res) => {
         FROM users u
         LEFT JOIN residents r ON LOWER(u.email) = LOWER(r.email)
         WHERE (u.role = 'resident' OR r.id IS NOT NULL)
+          AND u.status != 'Archived'
           AND (
             LOWER(COALESCE(r.verification_status, u.verification_status, '')) NOT IN ('verified')
             OR COALESCE(r.verification_status, u.verification_status) IS NULL
@@ -1206,8 +1271,16 @@ app.delete('/api/residents/:id/purge', async (req, res) => {
 
 // PUT /api/users/profile - Resident Profile Settings (phone, address, name, password, gender, civil_status)
 app.put('/api/users/profile', async (req, res) => {
-  const { id, email, password, phone, address, name, first_name, middle_name, last_name, date_of_birth, gender, civil_status } = req.body;
+  const { id, email, password, phone, address, name, first_name, middle_name, last_name, date_of_birth, gender, civil_status, submitted_id } = req.body;
   const fullName = name || (first_name ? `${first_name} ${middle_name ? middle_name + ' ' : ''}${last_name || ''}`.trim() : undefined);
+  
+  if (password) {
+    const passCheck = validatePasswordComplexity(password);
+    if (!passCheck.isValid) {
+      return res.status(400).json({ success: false, message: passCheck.message });
+    }
+  }
+
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
@@ -1229,6 +1302,21 @@ app.put('/api/users/profile', async (req, res) => {
       if (civil_status) { updates.push('civil_status = ?'); params.push(civil_status); }
       if (phone) { updates.push('phone = ?'); params.push(phone); }
       if (address) { updates.push('address = ?'); params.push(address); }
+      // Handle submitted_id: only update when explicitly provided in payload
+      // null = intentional removal; undefined (not in body) = do NOT touch existing value
+      if ('submitted_id' in req.body) {
+        const sidVal = submitted_id === null ? null : submitted_id;
+        updates.push('submitted_id = ?');
+        params.push(sidVal);
+        // Also reset verification to Pending_Review when a new ID is submitted
+        if (sidVal) {
+          updates.push("verification_status = 'Pending_Review'");
+          await pool.query("UPDATE users SET verification_status = 'Pending_Review' WHERE id = ? OR LOWER(email) = LOWER(?)", [id || 0, (email || '').toLowerCase()]);
+        } else if (sidVal === null) {
+          updates.push("verification_status = 'Pending_Review'");
+          await pool.query("UPDATE users SET verification_status = 'Pending_Review' WHERE id = ? OR LOWER(email) = LOWER(?)", [id || 0, (email || '').toLowerCase()]);
+        }
+      }
       if (updates.length > 0) {
         params.push(id || 0, (email || '').toLowerCase(), (email || '').toLowerCase());
         await pool.query(`UPDATE residents SET ${updates.join(', ')} WHERE id = ? OR LOWER(email) = LOWER(?) OR email = ?`, params);
@@ -1252,6 +1340,7 @@ app.put('/api/users/profile', async (req, res) => {
     if (password) user.password_hash = password;
     if (fullName) user.name = fullName;
     if (date_of_birth) user.date_of_birth = date_of_birth;
+    if ('submitted_id' in req.body) user.submitted_id = submitted_id;
   }
   const resident = mockData.residents.find(r => (id && r.id === id) || (email && r.email.toLowerCase() === email.toLowerCase()));
   if (resident) {
@@ -1261,6 +1350,7 @@ app.put('/api/users/profile', async (req, res) => {
     if (date_of_birth) resident.date_of_birth = date_of_birth;
     if (phone) resident.phone = phone;
     if (address) resident.address = address;
+    if ('submitted_id' in req.body) resident.submitted_id = submitted_id;
   }
   res.json({ success: true, message: 'Profile settings updated successfully.' });
 });
@@ -1313,6 +1403,13 @@ app.post('/api/users', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Name and email are required.' });
   }
 
+  if (password) {
+    const passCheck = validatePasswordComplexity(password);
+    if (!passCheck.isValid) {
+      return res.status(400).json({ success: false, message: passCheck.message });
+    }
+  }
+
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
@@ -1321,7 +1418,7 @@ app.post('/api/users', async (req, res) => {
         return res.status(400).json({ success: false, message: 'An account with this email already exists.' });
       }
 
-      const rawPassword = password || '123';
+      const rawPassword = password || 'Admin123!';
       const hashedPassword = await hashPassword(rawPassword);
       const userRole = role || 'staff';
       const userBarangay = barangay || 'Pianing';
@@ -1387,6 +1484,13 @@ app.put('/api/users/:id', async (req, res) => {
   const { id } = req.params;
   const { name, email, role, barangay, phone, status, verification_status, password } = req.body;
 
+  if (password) {
+    const passCheck = validatePasswordComplexity(password);
+    if (!passCheck.isValid) {
+      return res.status(400).json({ success: false, message: passCheck.message });
+    }
+  }
+
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
@@ -1450,7 +1554,15 @@ app.put('/api/users/:id', async (req, res) => {
 app.post('/api/users/:id/reset-password', async (req, res) => {
   const { id } = req.params;
   const { newPassword } = req.body;
-  const resetPass = newPassword || '123';
+
+  if (newPassword) {
+    const passCheck = validatePasswordComplexity(newPassword);
+    if (!passCheck.isValid) {
+      return res.status(400).json({ success: false, message: passCheck.message });
+    }
+  }
+
+  const resetPass = newPassword || 'Admin123!';
 
   const pool = getPool();
   if (pool && getStatus().connected) {
@@ -1752,7 +1864,7 @@ app.get('/api/stats/bhw', async (req, res) => {
 // Documents CRUD
 // -------------------------------------------------------------
 app.get('/api/documents', async (req, res) => {
-  const { barangay } = req.query;
+  const { barangay, email, resident_id } = req.query;
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
@@ -1770,9 +1882,31 @@ app.get('/api/documents', async (req, res) => {
         LEFT JOIN residents r ON (d.resident_id = r.id OR (d.email != '' AND LOWER(d.email) = LOWER(r.email)))
       `;
       const params = [];
-      if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
-        query += ` WHERE (LOWER(d.barangay) = LOWER(?) OR LOWER(COALESCE(r.barangay, '')) = LOWER(?) OR LOWER(COALESCE(r.address, '')) LIKE LOWER(?))`;
-        params.push(barangay.trim(), barangay.trim(), `%${barangay.trim()}%`);
+      const whereConditions = [];
+
+      if (email || resident_id) {
+        const userOrs = [];
+        if (email) {
+          userOrs.push(`LOWER(d.email) = LOWER(?)`);
+          params.push(email.trim());
+        }
+        if (resident_id) {
+          userOrs.push(`d.resident_id = ?`);
+          params.push(Number(resident_id));
+        }
+        whereConditions.push(`(${userOrs.join(' OR ')})`);
+      } else if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+        whereConditions.push(`(
+          LOWER(COALESCE(d.barangay, '')) LIKE LOWER(?)
+          OR LOWER(COALESCE(r.barangay, '')) LIKE LOWER(?)
+          OR LOWER(COALESCE(r.address, '')) LIKE LOWER(?)
+          OR (LOWER(?) = 'pianing' AND (d.barangay IS NULL OR d.barangay = '' OR LOWER(d.barangay) NOT LIKE '%anticala%'))
+        )`);
+        params.push(`%${barangay.trim()}%`, `%${barangay.trim()}%`, `%${barangay.trim()}%`, barangay.trim());
+      }
+
+      if (whereConditions.length > 0) {
+        query += ` WHERE ${whereConditions.join(' AND ')}`;
       }
       query += ` ORDER BY d.id DESC`;
       const [rows] = await pool.query(query, params);
@@ -1782,8 +1916,22 @@ app.get('/api/documents', async (req, res) => {
     }
   }
   let docs = mockData.documents;
-  if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
-    docs = docs.filter(d => (d.barangay || '').toLowerCase() === barangay.toLowerCase());
+  if (email || resident_id) {
+    const targetEmail = (email || '').toLowerCase().trim();
+    const targetResId = resident_id ? Number(resident_id) : null;
+    docs = docs.filter(d => {
+      if (targetEmail && (d.email || '').toLowerCase() === targetEmail) return true;
+      if (targetResId && d.resident_id === targetResId) return true;
+      return false;
+    });
+  } else if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+    const bLower = barangay.toLowerCase().trim();
+    docs = docs.filter(d => {
+      const docB = (d.barangay || '').toLowerCase();
+      if (docB.includes(bLower)) return true;
+      if (bLower === 'pianing' && (!docB || !docB.includes('anticala'))) return true;
+      return false;
+    });
   }
   res.json(docs);
 });
@@ -1843,6 +1991,8 @@ app.post('/api/documents', async (req, res) => {
         await pool.query("ALTER TABLE document_requests ADD COLUMN IF NOT EXISTS processed_by VARCHAR(100) NULL");
         await pool.query("ALTER TABLE document_requests ADD COLUMN IF NOT EXISTS processed_at DATETIME NULL");
       } catch {}
+
+      const extraFieldsStr = typeof extra_fields === 'object' ? JSON.stringify(extra_fields) : (extra_fields || null);
 
       const [result] = await pool.query(
         "INSERT INTO document_requests (request_code, resident_id, resident_name, email, document_type, purpose, status, barangay, extra_fields, processed_by, processed_at, requested_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
@@ -2258,73 +2408,6 @@ app.post('/api/users', async (req, res) => {
   };
   mockData.users.unshift(newUser);
   res.status(201).json(newUser);
-});
-
-app.put('/api/users/:id', async (req, res) => {
-  const id = Number(req.params.id);
-  const { name, email, role, status, barangay, phone, password } = req.body;
-  const userBarangay = barangay || 'Pianing';
-
-  const pool = getPool();
-
-  // 1 Admin per Barangay rule check on edit
-  if (role === 'admin') {
-    if (pool && getStatus().connected) {
-      try {
-        const [existingAdmins] = await pool.query(
-          "SELECT id, name FROM users WHERE role = 'admin' AND status = 'Active' AND LOWER(barangay) = LOWER(?) AND id != ?",
-          [userBarangay.trim(), id]
-        );
-        if (existingAdmins.length > 0) {
-          return res.status(400).json({
-            success: false,
-            message: `Barangay ${userBarangay} already has an active Administrator (${existingAdmins[0].name}). Only 1 Admin per Barangay is allowed.`
-          });
-        }
-      } catch {}
-    } else {
-      const existing = (mockData.users || []).find(u => u.role === 'admin' && u.status === 'Active' && (u.barangay || 'Pianing').toLowerCase() === userBarangay.toLowerCase() && u.id !== id);
-      if (existing) {
-        return res.status(400).json({
-          success: false,
-          message: `Barangay ${userBarangay} already has an active Administrator (${existing.name}). Only 1 Admin per Barangay is allowed.`
-        });
-      }
-    }
-  }
-  if (pool && getStatus().connected) {
-    try {
-      const updates = [];
-      const params = [];
-      if (name) { updates.push('name = ?'); params.push(name.trim()); }
-      if (email) { updates.push('email = ?'); params.push(email.toLowerCase().trim()); }
-      if (role) { updates.push('role = ?'); params.push(role); }
-      if (status) { updates.push('status = ?'); params.push(status); }
-      if (barangay) { updates.push('barangay = ?'); params.push(barangay); }
-      if (phone !== undefined) { updates.push('phone = ?'); params.push(phone); }
-      if (password) { updates.push('password_hash = ?'); params.push(password); }
-
-      if (updates.length > 0) {
-        params.push(id);
-        await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
-      }
-      return res.json({ success: true, message: 'User updated successfully.' });
-    } catch (err) {
-      console.warn('MySQL user update error:', err.message);
-    }
-  }
-
-  const user = mockData.users.find(u => u.id === id);
-  if (user) {
-    if (name) user.name = name.trim();
-    if (email) user.email = email.toLowerCase().trim();
-    if (role) user.role = role;
-    if (status) user.status = status;
-    if (barangay) user.barangay = barangay;
-    if (phone !== undefined) user.phone = phone;
-    if (password) user.password_hash = password;
-  }
-  res.json({ success: true, message: 'User updated successfully.' });
 });
 
 app.post('/api/users/:id/reset-password', async (req, res) => {
@@ -2986,6 +3069,7 @@ app.get('/api/notifications', async (req, res) => {
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
+      await safeAddColumn(pool, 'sms_notifications', 'is_read', "TINYINT(1) DEFAULT 0");
       const [rows] = await pool.query("SELECT * FROM sms_notifications ORDER BY id DESC");
       return res.json(rows);
     } catch (err) {
@@ -2993,6 +3077,40 @@ app.get('/api/notifications', async (req, res) => {
     }
   }
   res.json(mockData.notifications);
+});
+
+// Mark single notification as read
+app.put('/api/notifications/:id/read', async (req, res) => {
+  const { id } = req.params;
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      await safeAddColumn(pool, 'sms_notifications', 'is_read', "TINYINT(1) DEFAULT 0");
+      await pool.query("UPDATE sms_notifications SET is_read = 1 WHERE id = ?", [id]);
+      return res.json({ success: true, message: 'Notification marked as read.' });
+    } catch (err) {
+      console.warn('MySQL mark notification read error:', err.message);
+    }
+  }
+  const notif = (mockData.notifications || []).find(n => String(n.id) === String(id));
+  if (notif) notif.is_read = 1;
+  return res.json({ success: true, message: 'Notification marked as read.' });
+});
+
+// Mark all notifications as read
+app.put('/api/notifications/mark-all-read', async (req, res) => {
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      await safeAddColumn(pool, 'sms_notifications', 'is_read', "TINYINT(1) DEFAULT 0");
+      await pool.query("UPDATE sms_notifications SET is_read = 1");
+      return res.json({ success: true, message: 'All notifications marked as read.' });
+    } catch (err) {
+      console.warn('MySQL mark all notifications read error:', err.message);
+    }
+  }
+  (mockData.notifications || []).forEach(n => { n.is_read = 1; });
+  return res.json({ success: true, message: 'All notifications marked as read.' });
 });
 
 app.post('/api/notifications', async (req, res) => {

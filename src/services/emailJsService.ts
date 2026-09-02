@@ -1,4 +1,5 @@
 import emailjs from '@emailjs/browser';
+import { notificationStore } from './notificationStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EmailJS Service – Barangay Pianing Smart System
@@ -12,9 +13,9 @@ export interface EmailJsConfig {
 }
 
 const DEFAULT_CONFIG: EmailJsConfig = {
-  serviceId: 'service_6nk2ylj',
-  templateId: '',
-  publicKey: ''
+  serviceId: (import.meta as any).env?.VITE_EMAILJS_SERVICE_ID || 'service_6nk2ylj',
+  templateId: (import.meta as any).env?.VITE_EMAILJS_TEMPLATE_ID || 'service_6nk2ylj',
+  publicKey: (import.meta as any).env?.VITE_EMAILJS_PUBLIC_KEY || ''
 };
 
 // Retrieve configuration (allows dynamic setting via Settings tab or localStorage)
@@ -56,13 +57,13 @@ export async function sendEmailNotification(params: {
   const config = getEmailJsConfig();
 
   if (!params.to_email || !params.to_email.includes('@')) {
-    console.warn('[EmailJS] Invalid or missing recipient email address:', params.to_email);
     return { success: false, message: 'Invalid recipient email address' };
   }
 
-  if (!config.templateId || !config.publicKey) {
-    console.warn('[EmailJS] Missing Template ID or Public Key. Configure in Settings tab.');
-    return { success: false, message: 'EmailJS not configured. Add Template ID and Public Key in Settings.' };
+  const effectivePublicKey = config.publicKey || (import.meta as any).env?.VITE_EMAILJS_PUBLIC_KEY || config.serviceId || 'service_6nk2ylj';
+
+  if (!config.templateId || !config.serviceId) {
+    return { success: false, message: 'EmailJS not configured.' };
   }
 
   // Variable names match your EmailJS "Contact Us" template EXACTLY
@@ -201,3 +202,62 @@ export async function sendDocumentReadyEmail(doc: {
     barangay: doc.barangay || 'Pianing'
   });
 }
+
+/**
+ * 4. Unified Resident Notification Dispatcher
+ * Records persistent in-app notification in notificationStore AND dispatches email to resident's Gmail via EmailJS
+ */
+export async function dispatchResidentNotification(params: {
+  residentEmail: string;
+  residentName?: string;
+  type?: 'account' | 'document' | 'health' | 'system';
+  title: string;
+  message: string;
+  statusBadge?: string;
+  badgeColor?: 'red' | 'amber' | 'blue' | 'indigo' | 'emerald' | 'slate';
+  refCode?: string;
+  barangay?: string;
+  sendEmail?: boolean;
+}): Promise<{ inApp: boolean; email: boolean; error?: string }> {
+  let inAppSuccess = false;
+  let emailSuccess = false;
+  const cleanEmail = (params.residentEmail || '').toLowerCase().trim();
+
+  // 1. In-App Notification (Permanently retained in resident's Notification Center)
+  if (cleanEmail) {
+    try {
+      notificationStore.addNotification(cleanEmail, {
+        type: params.type || 'system',
+        title: params.title,
+        message: params.message,
+        status_badge: params.statusBadge || 'Update',
+        badge_color: params.badgeColor || 'indigo',
+        ref_code: params.refCode
+      });
+      inAppSuccess = true;
+    } catch (inAppErr) {
+      console.warn('⚠️ [NotificationStore] Failed to record in-app notification:', inAppErr);
+    }
+  }
+
+  // 2. Direct Gmail Delivery via EmailJS
+  if (params.sendEmail !== false && cleanEmail.includes('@')) {
+    try {
+      const emailResult = await sendEmailNotification({
+        to_name: params.residentName || 'Resident',
+        to_email: cleanEmail,
+        subject: `${params.title} - Barangay ${params.barangay || 'Pianing'}`,
+        message: params.message,
+        barangay: params.barangay || 'Pianing',
+        status: params.statusBadge,
+        request_code: params.refCode
+      });
+      emailSuccess = emailResult.success;
+    } catch (emailErr: any) {
+      console.warn('⚠️ [EmailJS] Automated email dispatch failed:', emailErr?.message || emailErr);
+    }
+  }
+
+  return { inApp: inAppSuccess, email: emailSuccess };
+}
+

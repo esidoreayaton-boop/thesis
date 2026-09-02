@@ -71,7 +71,7 @@ export default function ResidentProfileModal({ residentId, isOpen, onClose }: Re
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-xl sm:max-w-2xl bg-white p-6 max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[96vw] max-w-7xl h-[90vh] max-h-[95vh] bg-white p-6 overflow-y-auto rounded-2xl border-0 shadow-2xl">
         <DialogHeader className="border-b pb-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div className="flex items-center gap-3">

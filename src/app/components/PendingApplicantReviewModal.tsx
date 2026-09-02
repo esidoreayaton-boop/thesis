@@ -27,9 +27,13 @@ import {
   RotateCcw,
   ChevronDown,
   ChevronUp,
-  Info
+  Info,
+  RotateCw,
+  Download,
+  Maximize2
 } from 'lucide-react';
 import { PendingResident } from '../../services/api';
+import ImageViewerModal from './ImageViewerModal';
 
 interface PendingApplicantReviewModalProps {
   isOpen: boolean;
@@ -111,6 +115,8 @@ export default function PendingApplicantReviewModal({
   const [selectedReasonKey, setSelectedReasonKey] = useState('blurry_id');
   const [customMessage, setCustomMessage] = useState(CORRECTION_OPTIONS[0].defaultMsg);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   if (!applicant) return null;
 
@@ -141,7 +147,7 @@ export default function PendingApplicantReviewModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="bg-white dark:bg-slate-900 max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800">
+      <DialogContent className="bg-white dark:bg-slate-900 w-[96vw] max-w-7xl h-[92vh] max-h-[95vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800 rounded-2xl">
         <DialogHeader className="border-b border-slate-100 dark:border-slate-800 pb-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -198,11 +204,19 @@ export default function PendingApplicantReviewModal({
                 </span>
               </div>
               <div className="sm:col-span-2">
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Residential Address</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                  <MapPin size={12} className="text-rose-600 shrink-0" />
-                  {applicant.address || 'Barangay Pianing, Butuan City'}
-                </span>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Residential Address</span>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded-md font-semibold border border-slate-200 dark:border-slate-700 flex items-center gap-1">
+                    <MapPin size={11} className="text-rose-500" />
+                    {applicant.address ? applicant.address.split(',')[0].trim() : 'Purok 1'}
+                  </span>
+                  <span className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-md font-semibold border border-emerald-200 dark:border-emerald-800/60">
+                    Barangay Pianing
+                  </span>
+                  <span className="bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 px-2.5 py-1 rounded-md font-semibold border border-blue-200 dark:border-blue-800/60">
+                    Butuan City
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -215,28 +229,48 @@ export default function PendingApplicantReviewModal({
                 Submitted Government Identification Document
               </Label>
               {applicant.submitted_id && (
-                <button
-                  type="button"
-                  onClick={() => setIsZoomed(!isZoomed)}
-                  className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer"
-                >
-                  <ZoomIn size={13} />
-                  {isZoomed ? 'Standard View' : 'Enlarge / Zoom'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRotation(r => (r + 90) % 360)}
+                    className="text-[11px] text-slate-600 hover:text-indigo-600 font-semibold flex items-center gap-1 cursor-pointer bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded"
+                    title="Rotate image 90 degrees"
+                  >
+                    <RotateCw size={12} />
+                    Rotate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsZoomed(!isZoomed)}
+                    className="text-[11px] text-slate-600 hover:text-indigo-600 font-semibold flex items-center gap-1 cursor-pointer bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded"
+                  >
+                    <ZoomIn size={12} />
+                    {isZoomed ? 'Standard' : 'Enlarge'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsViewerOpen(true)}
+                    className="text-[11px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded border border-indigo-200"
+                  >
+                    <Maximize2 size={12} />
+                    Full Screen / Tools
+                  </button>
+                </div>
               )}
             </div>
 
             {applicant.submitted_id ? (
-              <div className={`relative border border-slate-200 rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center transition-all ${isZoomed ? 'h-96' : 'h-56'}`}>
+              <div className={`relative border border-slate-200 rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center transition-all ${isZoomed ? 'h-96' : 'h-64'}`}>
                 <img
                   src={applicant.submitted_id}
                   alt="Government ID"
-                  className="max-h-full max-w-full object-contain cursor-pointer"
-                  onClick={() => window.open(applicant.submitted_id!, '_blank')}
-                  title="Click to view full original photo in new tab"
+                  style={{ transform: `rotate(${rotation}deg)` }}
+                  className="max-h-full max-w-full object-contain cursor-pointer transition-transform duration-200"
+                  onClick={() => setIsViewerOpen(true)}
+                  title="Click to open interactive full-screen viewer"
                 />
-                <span className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-xs">
-                  Click image to open original
+                <span className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-xs flex items-center gap-1">
+                  <Maximize2 size={10} /> Click to inspect with zoom & rotate tools
                 </span>
               </div>
             ) : (
@@ -247,6 +281,15 @@ export default function PendingApplicantReviewModal({
               </div>
             )}
           </div>
+
+          <ImageViewerModal
+            isOpen={isViewerOpen}
+            onClose={() => setIsViewerOpen(false)}
+            imageUrl={applicant.submitted_id || null}
+            title={`Government ID — ${applicant.name}`}
+            subtitle={`Verification Review for ${applicant.email} • Barangay ${applicant.barangay || 'Pianing'}`}
+            fileName={`${applicant.name.replace(/\s+/g, '-').toLowerCase()}-submitted-id.png`}
+          />
 
           {/* Resubmit / Correction Notice Panel */}
           {showResubmitPanel && (

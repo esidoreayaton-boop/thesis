@@ -125,10 +125,30 @@ export default function BhwDashboard() {
   // SMS Details Modal State
   const [selectedSms, setSelectedSms] = useState<SmsNotification | null>(null);
   const [isSmsDetailsOpen, setIsSmsDetailsOpen] = useState(false);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
   const openSmsDetails = (sms: SmsNotification) => {
     setSelectedSms(sms);
     setIsSmsDetailsOpen(true);
+  };
+
+  const handleMarkRead = async (id: number) => {
+    try {
+      await apiService.markNotificationRead(id);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    } catch {
+      toast.error('Failed to mark notification as read');
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await apiService.markAllNotificationsRead();
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      toast.success('All notifications marked as read');
+    } catch {
+      toast.error('Failed to mark all notifications as read');
+    }
   };
 
   // Search & Filters
@@ -496,6 +516,76 @@ export default function BhwDashboard() {
               </Button>
             )}
 
+            {/* Notification Bell */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifDropdown(v => !v)}
+                className="relative p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+              >
+                <Bell size={18} />
+                {notifications.filter(n => !n.is_read).length > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {notifications.filter(n => !n.is_read).length > 99 ? '99+' : notifications.filter(n => !n.is_read).length}
+                  </span>
+                )}
+              </button>
+              {showNotifDropdown && (
+                <div className="absolute right-0 top-10 w-80 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">Notifications</span>
+                    <div className="flex items-center gap-2">
+                      {notifications.filter(n => !n.is_read).length > 0 && (
+                        <button
+                          onClick={handleMarkAllRead}
+                          className="text-[10px] text-blue-600 hover:underline font-semibold"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                      <button onClick={() => setShowNotifDropdown(false)} className="text-slate-400 hover:text-slate-700">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    {notifications.length === 0 ? (
+                      <p className="text-xs text-slate-400 text-center py-6">No notifications yet</p>
+                    ) : notifications.slice(0, 8).map(n => (
+                      <div
+                        key={n.id}
+                        className={`flex items-start gap-2.5 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors ${!n.is_read ? 'bg-blue-50/60 dark:bg-blue-950/30' : ''}`}
+                        onClick={() => { openSmsDetails(n); setShowNotifDropdown(false); }}
+                      >
+                        <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${!n.is_read ? 'bg-blue-500' : 'bg-slate-300'}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-[11px] font-semibold truncate ${!n.is_read ? 'text-slate-900 dark:text-white' : 'text-slate-500'}`}>
+                            {n.recipient_name || 'Resident'} — {n.type || 'Notification'}
+                          </p>
+                          <p className="text-[10px] text-slate-400 truncate">{n.message}</p>
+                        </div>
+                        {!n.is_read && (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleMarkRead(n.id); }}
+                            className="text-[9px] text-blue-600 hover:underline shrink-0"
+                          >
+                            Read
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      className="text-xs text-blue-600 hover:underline w-full text-center font-medium"
+                      onClick={() => { setActiveTab('notifications'); setShowNotifDropdown(false); }}
+                    >
+                      View all notifications
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <Button
               variant="outline"
               size="sm"
@@ -519,24 +609,75 @@ export default function BhwDashboard() {
       </header>
 
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Sidebar Navigation */}
-        <aside className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex flex-col py-4 shrink-0`}>
-          <nav className="flex-1 px-3 space-y-1.5">
-            {menuItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeTab === item.id
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                <item.icon size={18} className="shrink-0" />
-                {sidebarOpen && <span>{item.label}</span>}
-              </button>
-            ))}
+        {/* Mobile Drawer Backdrop */}
+        {sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Responsive Drawer & Desktop Sidebar Navigation */}
+        <aside
+          className={`
+            fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex flex-col py-4 shadow-2xl lg:shadow-none
+            lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:translate-x-0
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-16'}
+            ${sidebarOpen ? 'lg:w-64' : 'lg:w-16'}
+          `}
+        >
+          {/* Mobile Drawer Header with Close Button */}
+          <div className="flex items-center justify-between px-4 pb-3 mb-2 border-b border-slate-100 dark:border-slate-800 lg:hidden">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center">
+                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
+              </div>
+              <span className="text-xs font-bold text-slate-900 dark:text-white">BHW Navigation</span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Close menu"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto">
+            {menuItems.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    if (window.innerWidth < 1024) setSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-[#EBF5FF] text-[#2563EB] shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <item.icon size={18} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
+                  {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && <span>{item.label}</span>}
+                </button>
+              );
+            })}
           </nav>
+
+          {/* Fixed Bottom Logout */}
+          <div className="mt-auto pt-3 px-3 border-t border-slate-200/90 dark:border-slate-800">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer group"
+              title="Sign out of account"
+            >
+              <LogOut size={18} className="shrink-0 text-rose-500 group-hover:text-rose-700" />
+              {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && <span>Logout</span>}
+            </button>
+          </div>
         </aside>
 
         {/* Main Content Area */}
@@ -689,46 +830,7 @@ export default function BhwDashboard() {
                 </Card>
               </div>
 
-              {/* Overdue Alerts Box */}
-              {overdueVaccines.length > 0 && (
-                <Card className="border-red-200 bg-red-50/50 shadow-xs">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-bold text-red-900 flex items-center gap-2">
-                      <AlertTriangle className="text-red-600" size={18} />
-                      Attention Required: Overdue Immunizations ({overdueVaccines.length})
-                    </CardTitle>
-                    <CardDescription className="text-xs text-red-700">Children requiring urgent follow-up vaccine dosage</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-red-100/50">
-                          <TableHead className="text-xs text-red-900">Child Name</TableHead>
-                          <TableHead className="text-xs text-red-900">Vaccine</TableHead>
-                          <TableHead className="text-xs text-red-900">Due Date</TableHead>
-                          <TableHead className="text-xs text-red-900">Days Overdue</TableHead>
-                          <TableHead className="text-xs text-red-900 text-right">Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {overdueVaccines.map(ov => (
-                          <TableRow key={ov.id} className="text-xs">
-                            <TableCell className="font-semibold text-slate-900">{ov.child_name}</TableCell>
-                            <TableCell><Badge variant="outline" className="border-red-300 text-red-800">{ov.vaccine_name}</Badge></TableCell>
-                            <TableCell className="font-mono text-slate-600">{ov.due_date}</TableCell>
-                            <TableCell><span className="text-red-700 font-bold">{ov.days_overdue || 10} days overdue</span></TableCell>
-                            <TableCell className="text-right">
-                              <Button size="sm" onClick={() => handleMarkImmunizationComplete(ov.id)} className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white">
-                                <CheckCircle2 size={12} className="mr-1" /> Mark Administered
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              )}
+              {/* Overdue Alerts Box removed per user request */}
             </div>
           )}
 
@@ -1668,6 +1770,7 @@ export default function BhwDashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-slate-50 text-slate-600">
+                        <TableHead className="text-xs font-semibold w-4" />
                         <TableHead className="text-xs font-semibold">Recipient</TableHead>
                         <TableHead className="text-xs font-semibold">Mobile Phone</TableHead>
                         <TableHead className="text-xs font-semibold">Alert Type</TableHead>
@@ -1680,7 +1783,7 @@ export default function BhwDashboard() {
                     <TableBody>
                       {filteredNotifications.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-xs py-12 text-slate-400">
+                          <TableCell colSpan={8} className="text-center text-xs py-12 text-slate-400">
                             <Bell size={28} className="mx-auto mb-2 opacity-40 text-blue-500" />
                             No SMS notifications found matching your search.
                           </TableCell>
@@ -1689,10 +1792,13 @@ export default function BhwDashboard() {
                         filteredNotifications.map(n => (
                           <TableRow
                             key={n.id}
-                            className="text-xs hover:bg-blue-50/40 cursor-pointer transition-colors group"
+                            className={`text-xs cursor-pointer transition-colors group ${!n.is_read ? 'bg-blue-50/50 hover:bg-blue-100/60 font-semibold' : 'hover:bg-slate-50/60'}`}
                             onClick={() => openSmsDetails(n)}
                           >
-                            <TableCell className="font-semibold text-slate-900 group-hover:text-blue-700">
+                            <TableCell className="pl-3 pr-1">
+                              <div className={`w-2 h-2 rounded-full ${!n.is_read ? 'bg-blue-500' : 'bg-transparent'}`} />
+                            </TableCell>
+                            <TableCell className={`${!n.is_read ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'} group-hover:text-blue-700`}>
                               {n.recipient_name || 'Resident'}
                             </TableCell>
                             <TableCell className="font-mono font-medium text-slate-600">
@@ -1716,8 +1822,8 @@ export default function BhwDashboard() {
                                 {n.type || 'General'}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-slate-600 max-w-[280px]">
-                              <p className="truncate font-sans">{n.message}</p>
+                            <TableCell className="text-slate-600 max-w-[260px]">
+                              <p className="truncate">{n.message}</p>
                             </TableCell>
                             <TableCell>
                               <Badge className="bg-emerald-600 hover:bg-emerald-600 text-[10px] gap-1 px-2 py-0.5">
@@ -1729,15 +1835,27 @@ export default function BhwDashboard() {
                               {n.sent_at ? new Date(n.sent_at).toLocaleDateString() + ' ' + new Date(n.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent'}
                             </TableCell>
                             <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => openSmsDetails(n)}
-                                className="h-7 text-xs gap-1 text-blue-600 hover:bg-blue-50 font-medium px-2.5"
-                              >
-                                <Eye size={13} />
-                                <span>View SMS</span>
-                              </Button>
+                              <div className="flex items-center justify-end gap-1">
+                                {!n.is_read && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleMarkRead(n.id)}
+                                    className="h-7 text-[10px] gap-1 text-blue-600 hover:bg-blue-50 px-2"
+                                  >
+                                    Mark Read
+                                  </Button>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => openSmsDetails(n)}
+                                  className="h-7 text-xs gap-1 text-blue-600 hover:bg-blue-50 font-medium px-2.5"
+                                >
+                                  <Eye size={13} />
+                                  <span>View</span>
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))

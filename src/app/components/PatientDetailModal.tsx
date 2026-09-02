@@ -66,9 +66,10 @@ interface PatientDetailModalProps {
   onClose: () => void;
   patient: PatientRecordData | null;
   onSendSmsSuccess?: () => void;
+  onLogReturnVisit?: (patient: PatientRecordData) => void;
 }
 
-export default function PatientDetailModal({ isOpen, onClose, patient, onSendSmsSuccess }: PatientDetailModalProps) {
+export default function PatientDetailModal({ isOpen, onClose, patient, onSendSmsSuccess, onLogReturnVisit }: PatientDetailModalProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [smsType, setSmsType] = useState('Health Center Notice');
   const [smsMessage, setSmsMessage] = useState('');
@@ -110,12 +111,12 @@ export default function PatientDetailModal({ isOpen, onClose, patient, onSendSms
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-white max-w-3xl max-h-[90vh] overflow-y-auto p-0 rounded-2xl">
+      <DialogContent className="bg-white w-[96vw] max-w-7xl h-[92vh] max-h-[95vh] overflow-y-auto p-0 rounded-2xl border-0 shadow-2xl">
         {/* Header */}
         <div className="bg-gradient-to-r from-teal-700 via-teal-800 to-slate-900 text-white p-6 relative rounded-t-2xl">
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white font-bold text-xl shadow-inner">
+              <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white font-bold text-xl shadow-inner shrink-0">
                 {patient.name.charAt(0)}
               </div>
               <div>
@@ -144,6 +145,21 @@ export default function PatientDetailModal({ isOpen, onClose, patient, onSendSms
                 </div>
               </div>
             </div>
+
+            {/* Return Visit Action Button */}
+            {onLogReturnVisit && (
+              <Button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onLogReturnVisit(patient);
+                }}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer shrink-0 border border-emerald-400/40"
+              >
+                <Stethoscope size={15} />
+                + Log Return Visit
+              </Button>
+            )}
           </div>
         </div>
 
@@ -174,57 +190,87 @@ export default function PatientDetailModal({ isOpen, onClose, patient, onSendSms
                 </div>
               </div>
 
-              {/* Send Quick SMS */}
+              {/* Send Quick or Dynamic SMS */}
               <div className="bg-teal-50/70 border border-teal-200 rounded-xl p-4 space-y-3">
-                <h3 className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
-                  <Send size={14} className="text-teal-700" /> Dispatch Direct SMS Alert to Patient
-                </h3>
-                <form onSubmit={handleSendSms} className="space-y-2">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <Label className="text-[10px] text-teal-800 font-semibold">SMS Category</Label>
-                      <select
-                        value={smsType}
-                        onChange={e => setSmsType(e.target.value)}
-                        className="w-full h-8 text-xs bg-white border border-teal-200 rounded-md px-2 focus:outline-none"
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                    <Send size={14} className="text-teal-700" /> Dispatch Direct SMS to Patient (Static Template & Dynamic Custom)
+                  </h3>
+                  <span className="text-[10px] font-medium text-teal-700">
+                    {smsMessage.length} chars
+                  </span>
+                </div>
+                <form onSubmit={handleSendSms} className="space-y-3">
+                  <div>
+                    <Label className="text-[10px] text-teal-800 font-semibold mb-1 block">SMS Category</Label>
+                    <select
+                      value={smsType}
+                      onChange={e => setSmsType(e.target.value)}
+                      className="w-full h-8 text-xs bg-white border border-teal-200 rounded-md px-2 focus:outline-none"
+                    >
+                      <option value="Health Center Notice">Health Center Notice</option>
+                      <option value="Prenatal Visit Reminder">Prenatal Visit Reminder</option>
+                      <option value="Immunization Due Reminder">Immunization Due Reminder</option>
+                      <option value="Follow-up Checkup Request">Follow-up Checkup Request</option>
+                      <option value="Lab / Vital Checkup">Lab / Vital Checkup</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label className="text-[10px] text-teal-800 font-semibold mb-1 block">Static Quick Templates (Click to Auto-fill)</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSmsMessage(`Good day ${patient.name}, this is a reminder for your scheduled visit at Barangay ${patient.barangay || 'Pianing'} Health Center.`)}
+                        className="px-2 py-1 bg-white border border-teal-200 hover:bg-teal-100 rounded text-[10px] text-teal-800 font-medium cursor-pointer transition-colors"
                       >
-                        <option value="Health Center Notice">Health Center Notice</option>
-                        <option value="Prenatal Visit Reminder">Prenatal Visit Reminder</option>
-                        <option value="Immunization Due Reminder">Immunization Due Reminder</option>
-                        <option value="Lab / Vital Checkup">Lab / Vital Checkup</option>
-                      </select>
-                    </div>
-                    <div className="col-span-2">
-                      <Label className="text-[10px] text-teal-800 font-semibold">Pre-set Quick Message</Label>
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setSmsMessage(`Good day ${patient.name}, this is a reminder for your upcoming Health Center visit. Please visit Barangay ${patient.barangay || 'Pianing'} Health Center.`)}
-                          className="px-2 py-1 bg-white border border-teal-200 hover:bg-teal-100 rounded text-[10px] text-teal-800 font-medium cursor-pointer"
-                        >
-                          + Visit Reminder
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSmsMessage(`Dear ${patient.name}, your vaccination/check-up is due. Please bring your Mother-Baby Handbook.`)}
-                          className="px-2 py-1 bg-white border border-teal-200 hover:bg-teal-100 rounded text-[10px] text-teal-800 font-medium cursor-pointer"
-                        >
-                          + Vaccine Due
-                        </button>
-                      </div>
+                        + Visit Reminder
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSmsMessage(`Dear ${patient.name}, your vaccination/check-up is due. Please bring your Mother-Baby Handbook.`)}
+                        className="px-2 py-1 bg-white border border-teal-200 hover:bg-teal-100 rounded text-[10px] text-teal-800 font-medium cursor-pointer transition-colors"
+                      >
+                        + Vaccine Due
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSmsMessage(`Good day ${patient.name}, your follow-up checkup results are ready. Please visit the health center for consultation.`)}
+                        className="px-2 py-1 bg-white border border-teal-200 hover:bg-teal-100 rounded text-[10px] text-teal-800 font-medium cursor-pointer transition-colors"
+                      >
+                        + Follow-up Ready
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSmsMessage(`Notice for ${patient.name}: Please return to the health center for vital sign re-check.`)}
+                        className="px-2 py-1 bg-white border border-teal-200 hover:bg-teal-100 rounded text-[10px] text-teal-800 font-medium cursor-pointer transition-colors"
+                      >
+                        + Re-Checkup Notice
+                      </button>
                     </div>
                   </div>
+
                   <div>
-                    <Input
+                    <Label className="text-[10px] text-teal-800 font-semibold mb-1 block">Dynamic Custom SMS Message (Free-will text entry)</Label>
+                    <textarea
+                      rows={3}
                       value={smsMessage}
                       onChange={e => setSmsMessage(e.target.value)}
-                      placeholder="Type custom SMS message..."
-                      className="h-9 text-xs bg-white border-teal-200"
+                      placeholder="Type custom SMS message here with specific instructions, doctor notes, or appointment details..."
+                      className="w-full text-xs p-2.5 bg-white border border-teal-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-sans"
                     />
                   </div>
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={smsSending} className="bg-teal-700 hover:bg-teal-800 text-white text-xs gap-1.5 h-8 cursor-pointer">
-                      <Send size={12} /> {smsSending ? 'Sending...' : 'Send SMS Now'}
+
+                  <div className="flex justify-between items-center pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setSmsMessage('')}
+                      className="text-[10px] text-slate-500 hover:text-slate-700 underline cursor-pointer"
+                    >
+                      Clear message
+                    </button>
+                    <Button type="submit" disabled={smsSending} className="bg-teal-700 hover:bg-teal-800 text-white text-xs gap-1.5 h-8 px-4 cursor-pointer">
+                      <Send size={12} /> {smsSending ? 'Sending SMS...' : 'Send SMS Now'}
                     </Button>
                   </div>
                 </form>
