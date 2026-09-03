@@ -54,6 +54,8 @@ export interface SystemUser {
   status: 'Active' | 'Inactive' | 'Archived';
   barangay?: string;
   phone?: string;
+  employee_id?: string | null;
+  job_title?: string | null;
   last_login?: string;
   created_at?: string;
   verification_status?: string;

@@ -2450,7 +2450,7 @@ app.get('/api/users', async (req, res) => {
     try {
       // Full user directory — includes all roles including residents
       const [rows] = await pool.query(
-        `SELECT u.id, u.name, u.email, u.role, u.status, u.barangay, u.phone, u.last_login, u.created_at, u.verification_status,
+        `SELECT u.id, u.name, u.email, u.role, u.status, u.barangay, u.phone, u.employee_id, u.job_title, u.last_login, u.created_at, u.verification_status,
                 r.first_name, r.last_name, r.middle_name, r.address, r.date_of_birth
          FROM users u
          LEFT JOIN residents r ON LOWER(u.email) = LOWER(r.email)
@@ -2474,6 +2474,8 @@ app.get('/api/users', async (req, res) => {
         status: 'Active',
         barangay: r.barangay || 'Pianing',
         phone: r.phone || '',
+        employee_id: null,
+        job_title: null,
         last_login: r.last_login || 'Never',
         verification_status: r.verification_status || 'Verified'
       }))
@@ -2482,7 +2484,7 @@ app.get('/api/users', async (req, res) => {
 });
 
 app.post('/api/users', async (req, res) => {
-  const { name, email, password, role, status, barangay, phone } = req.body;
+  const { name, email, password, role, status, barangay, phone, employee_id, job_title, created_by } = req.body;
   if (!name || !email || !role) {
     return res.status(400).json({ success: false, message: 'Name, email, and role are required.' });
   }
@@ -2490,6 +2492,8 @@ app.post('/api/users', async (req, res) => {
   const rawPassword = password || '123';
   const userBarangay = barangay || 'Pianing';
   const userPhone = phone || '';
+  const userEmployeeId = employee_id ? String(employee_id).trim() : null;
+  const userJobTitle = job_title ? String(job_title).trim() : null;
 
   const pool = getPool();
 
@@ -2524,20 +2528,35 @@ app.post('/api/users', async (req, res) => {
       try {
         await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS barangay VARCHAR(100) DEFAULT 'Pianing'");
         await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''");
+        await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id VARCHAR(50) DEFAULT NULL");
+        await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title VARCHAR(100) DEFAULT NULL");
       } catch {}
 
+      const hashedPassword = await hashPassword(rawPassword);
       const [result] = await pool.query(
-        "INSERT INTO users (name, email, password_hash, role, status, barangay, phone) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), role = VALUES(role), barangay = VALUES(barangay), phone = VALUES(phone)",
-        [name.trim(), email.toLowerCase().trim(), rawPassword, role, status || 'Active', userBarangay, userPhone]
+        "INSERT INTO users (name, email, password_hash, role, status, verification_status, barangay, phone, employee_id, job_title) VALUES (?, ?, ?, ?, ?, 'Verified', ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), role = VALUES(role), verification_status = 'Verified', barangay = VALUES(barangay), phone = VALUES(phone), employee_id = VALUES(employee_id), job_title = VALUES(job_title)",
+        [name.trim(), email.toLowerCase().trim(), hashedPassword, role, status || 'Active', userBarangay, userPhone, userEmployeeId, userJobTitle]
       );
+
+      // Audit trail logging
+      try {
+        await pool.query(
+          "INSERT INTO activity_logs (action, user, role, details, timestamp) VALUES ('CREATE_STAFF_ACCOUNT', ?, 'admin', ?, NOW())",
+          [created_by || 'Administrator', `Created ${role.toUpperCase()} account for ${name.trim()} (${email.trim()}) [ID: ${userEmployeeId || 'N/A'}] in Barangay ${userBarangay}`]
+        );
+      } catch {}
+
       return res.status(201).json({
         id: result.insertId,
         name: name.trim(),
         email: email.toLowerCase().trim(),
         role,
         status: status || 'Active',
+        verification_status: 'Verified',
         barangay: userBarangay,
         phone: userPhone,
+        employee_id: userEmployeeId,
+        job_title: userJobTitle,
         last_login: 'Never'
       });
     } catch (err) {
@@ -2552,8 +2571,11 @@ app.post('/api/users', async (req, res) => {
     password_hash: rawPassword,
     role,
     status: status || 'Active',
+    verification_status: 'Verified',
     barangay: userBarangay,
     phone: userPhone,
+    employee_id: userEmployeeId,
+    job_title: userJobTitle,
     last_login: 'Never'
   };
   mockData.users.unshift(newUser);

@@ -58,7 +58,8 @@ import {
   Camera,
   HardDrive,
   Layers,
-  Server
+  Server,
+  Copy
 } from 'lucide-react';
 import { apiService, DocumentRequest, Resident, SystemUser, PendingResident, ActivityLog, ClinicSchedule, HealthAppointment, PopulationStats, BarangayOverviewItem } from '../../services/api';
 import { ID_TYPES } from '../../utils/idTypes';
@@ -250,6 +251,33 @@ export default function AdminDashboard() {
   const [newUserRole, setNewUserRole] = useState<'superadmin' | 'admin' | 'staff' | 'bhw' | 'nurse' | 'resident'>('staff');
   const [newUserBarangay, setNewUserBarangay] = useState('');
   const [newUserPhone, setNewUserPhone] = useState('');
+  const [newUserEmployeeId, setNewUserEmployeeId] = useState('');
+  const [newUserJobTitle, setNewUserJobTitle] = useState('');
+
+  const generateSecureStaffPassword = () => {
+    const charsUpper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const charsLower = 'abcdefghjkmnpqrstuvwxyz';
+    const charsNums = '23456789';
+    const charsSpecial = '!@#$%^&*';
+    
+    let pass = '';
+    pass += charsUpper.charAt(Math.floor(Math.random() * charsUpper.length));
+    pass += charsLower.charAt(Math.floor(Math.random() * charsLower.length));
+    pass += charsNums.charAt(Math.floor(Math.random() * charsNums.length));
+    pass += charsSpecial.charAt(Math.floor(Math.random() * charsSpecial.length));
+    
+    const all = charsUpper + charsLower + charsNums + charsSpecial;
+    for (let i = 0; i < 6; i++) {
+      pass += all.charAt(Math.floor(Math.random() * all.length));
+    }
+    setNewUserPassword(pass);
+    setShowNewUserPass(true);
+    navigator.clipboard?.writeText(pass);
+    toast.success('Generated strong password & copied to clipboard!', {
+      description: pass
+    });
+  };
+
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // User Directory tab & filter states
@@ -1331,8 +1359,11 @@ export default function AdminDashboard() {
         role: newUserRole === 'resident' ? 'staff' : newUserRole,
         status: 'Active',
         barangay: assignedBarangay,
-        phone: cleanPhone
-      });
+        phone: cleanPhone,
+        employee_id: newUserEmployeeId.trim() || undefined,
+        job_title: newUserJobTitle.trim() || undefined,
+        created_by: user?.name || 'Administrator'
+      } as any);
       setUsers([created, ...users]);
       toast.success(`${newUserRole === 'admin' ? 'Administrator' : newUserRole.toUpperCase()} account created for Barangay ${assignedBarangay}`);
       setIsAddUserOpen(false);
@@ -1342,6 +1373,8 @@ export default function AdminDashboard() {
       setNewUserEmail('');
       setNewUserPassword('');
       setNewUserPhone('');
+      setNewUserEmployeeId('');
+      setNewUserJobTitle('');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to add user account');
     }
@@ -4039,19 +4072,43 @@ export default function AdminDashboard() {
                           {isSuperAdmin ? 'Add User Account' : `Add Staff (${user?.barangay || 'Pianing'})`}
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="bg-white max-w-lg">
+                      <DialogContent className="bg-white max-w-xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
-                          <DialogTitle className="flex items-center gap-2 text-slate-900">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-indigo-100 text-indigo-800 border border-indigo-300 text-[10px] font-extrabold px-2 py-0.5 rounded-md">
+                              PRIORITY PERSONNEL ONBOARDING
+                            </span>
+                            <span className="text-[11px] text-emerald-600 font-mono font-semibold flex items-center gap-1">
+                              <CheckCircle size={12} /> Pre-Verified Credential
+                            </span>
+                          </div>
+                          <DialogTitle className="flex items-center gap-2 text-slate-900 mt-1">
                             <UserPlus className="text-indigo-600" size={18} />
-                            {isSuperAdmin ? 'Add System User Account' : `Add Staff for Barangay ${user?.barangay || 'Pianing'}`}
+                            {isSuperAdmin ? 'Add System Administrator / Staff Account' : `Add Staff for Barangay ${user?.barangay || 'Pianing'}`}
                           </DialogTitle>
                           <DialogDescription className="text-xs text-slate-500">
-                            {isSuperAdmin ? 'Register a new barangay administrator, staff, nurse, or health worker account. All fields marked with ' : 'Register a new barangay staff, nurse, or health worker account. All fields marked with '}
-                            <span className="text-red-500">*</span> are required.
+                            Streamlined operational credentials and role-based security access for internal municipal personnel.
                           </DialogDescription>
                         </DialogHeader>
+
                         <form onSubmit={handleCreateUser} className="space-y-3 py-2" autoComplete="off">
-                          {/* First, Middle, and Last Name */}
+                          {/* Priority Personnel Notice Banner */}
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 space-y-1">
+                            <div className="flex items-center justify-between font-bold text-slate-800">
+                              <span className="flex items-center gap-1.5">
+                                <Shield size={14} className="text-indigo-600" />
+                                Streamlined Internal Employee Profile
+                              </span>
+                              <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
+                                RBAC Security Enabled
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 leading-relaxed">
+                              Unlike public residents, staff accounts only require priority operational credentials (Legal Name, Work Email, Contact Phone, Staff Badge ID, and Job Title). Civil census profiling (civil status, residency duration, and personal ID photo upload) is omitted.
+                            </p>
+                          </div>
+
+                          {/* Full Name Row: First, Middle, Last */}
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             <div>
                               <Label className="text-xs font-semibold">First Name <span className="text-red-500">*</span></Label>
@@ -4084,47 +4141,22 @@ export default function AdminDashboard() {
                             </div>
                           </div>
 
-                          <div>
-                            <Label className="text-xs font-semibold">Email Address <span className="text-red-500">*</span></Label>
-                            <Input
-                              type="email"
-                              value={newUserEmail}
-                              onChange={e => setNewUserEmail(e.target.value)}
-                              placeholder="e.g. maria.santos@barangay.gov.ph"
-                              autoComplete="off"
-                              required
-                              className="h-9 text-xs mt-1"
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
+                          {/* Contact Info Row: Work Email & Contact Number */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div>
-                              <Label className="text-xs font-semibold">Account Password <span className="text-red-500">*</span></Label>
-                              <div className="relative mt-1">
-                                <Input
-                                  type={showNewUserPass ? "text" : "password"}
-                                  value={newUserPassword}
-                                  onChange={e => setNewUserPassword(e.target.value)}
-                                  placeholder="Type account password"
-                                  autoComplete="new-password"
-                                  required
-                                  minLength={4}
-                                  className="h-9 text-xs font-mono pr-8 bg-white"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowNewUserPass(!showNewUserPass)}
-                                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                                  tabIndex={-1}
-                                  title={showNewUserPass ? "Hide password" : "Show password"}
-                                >
-                                  {showNewUserPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                                </button>
-                              </div>
-                              <p className="text-[10px] text-slate-400 mt-0.5">Password used to log in</p>
+                              <Label className="text-xs font-semibold">Official Work Email <span className="text-red-500">*</span></Label>
+                              <Input
+                                type="email"
+                                value={newUserEmail}
+                                onChange={e => setNewUserEmail(e.target.value)}
+                                placeholder="e.g. maria.santos@pianing.gov.ph"
+                                autoComplete="off"
+                                required
+                                className="h-9 text-xs mt-1"
+                              />
                             </div>
                             <div>
-                              <Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label>
+                              <Label className="text-xs font-semibold">Contact Mobile Number <span className="text-red-500">*</span></Label>
                               <Input
                                 value={newUserPhone}
                                 onChange={e => {
@@ -4135,7 +4167,7 @@ export default function AdminDashboard() {
                                 maxLength={11}
                                 required
                                 pattern="09[0-9]{9}"
-                                title="Must be an 11-digit Philippine mobile number starting with 09 (e.g. 09171234567)"
+                                title="Must be an 11-digit Philippine mobile number starting with 09"
                                 inputMode="numeric"
                                 autoComplete="off"
                                 className="h-9 text-xs font-mono mt-1"
@@ -4143,25 +4175,25 @@ export default function AdminDashboard() {
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2">
+                          {/* Role & Jurisdiction Row */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div>
-                              <Label className="text-xs font-semibold">System Role <span className="text-red-500">*</span></Label>
+                              <Label className="text-xs font-semibold">System Role / Permissions <span className="text-red-500">*</span></Label>
                               <Select
                                 value={newUserRole === 'resident' || (!isSuperAdmin && newUserRole === 'admin') ? 'staff' : newUserRole}
                                 onValueChange={(val: 'admin' | 'staff' | 'bhw' | 'nurse') => setNewUserRole(val)}
                               >
                                 <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                  {/* Only Super Admin can create Admin accounts; Admin can add Staff, BHW, and Nurse */}
-                                  {isSuperAdmin && <SelectItem value="admin">Barangay Admin</SelectItem>}
-                                  <SelectItem value="staff">Barangay Staff / Clerk</SelectItem>
-                                  <SelectItem value="bhw">BHW (Health Worker)</SelectItem>
+                                  {isSuperAdmin && <SelectItem value="admin">Barangay Admin (Full Local Control)</SelectItem>}
+                                  <SelectItem value="staff">Barangay Staff / Records Clerk</SelectItem>
+                                  <SelectItem value="bhw">BHW (Community Health Worker)</SelectItem>
                                   <SelectItem value="nurse">Nurse (Health Center Nurse)</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
                             <div>
-                              <Label className="text-xs font-semibold">Assigned Barangay <span className="text-red-500">*</span></Label>
+                              <Label className="text-xs font-semibold">Assigned Barangay Jurisdiction <span className="text-red-500">*</span></Label>
                               {isSuperAdmin || user?.role === 'superadmin' ? (
                                 <>
                                   <Input
@@ -4180,21 +4212,96 @@ export default function AdminDashboard() {
                                 </>
                               ) : (
                                 <>
-                                  <Input
-                                    value={user?.barangay || 'Pianing'}
-                                    readOnly
-                                    disabled
-                                    className="h-9 text-xs mt-1 bg-slate-100 cursor-not-allowed"
-                                  />
-                                  <p className="text-[10px] text-slate-400 mt-0.5">Auto-assigned to your barangay</p>
+                                  <div className="h-9 px-3 bg-slate-100 border border-slate-200 rounded-md flex items-center justify-between text-xs text-slate-700 font-semibold mt-1">
+                                    <span>Barangay {user?.barangay || 'Pianing'}</span>
+                                    <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-mono">Locked</span>
+                                  </div>
                                 </>
                               )}
                             </div>
                           </div>
 
+                          {/* Staff Identity & Institutional Designation Row */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-xs font-semibold">Staff Badge / Employee ID No.</Label>
+                              <Input
+                                value={newUserEmployeeId}
+                                onChange={e => setNewUserEmployeeId(e.target.value)}
+                                placeholder="e.g. STAFF-2026-004"
+                                className="h-9 text-xs font-mono mt-1 uppercase"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold">Designation / Department</Label>
+                              <Input
+                                value={newUserJobTitle}
+                                onChange={e => setNewUserJobTitle(e.target.value)}
+                                placeholder="e.g. Document Records Officer"
+                                className="h-9 text-xs mt-1"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Password & Security Credentials Container with 1-Click Generator */}
+                          <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs font-bold text-slate-800">Account Access Password <span className="text-red-500">*</span></Label>
+                              <button
+                                type="button"
+                                onClick={generateSecureStaffPassword}
+                                className="text-[11px] text-indigo-700 hover:text-indigo-900 font-bold flex items-center gap-1 bg-white hover:bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded shadow-xs cursor-pointer transition-all"
+                                title="Generate random secure password and copy to clipboard"
+                              >
+                                <Sparkles size={12} className="text-amber-500" />
+                                <span>Generate Secure Password</span>
+                              </button>
+                            </div>
+
+                            <div className="relative">
+                              <Input
+                                type={showNewUserPass ? "text" : "password"}
+                                value={newUserPassword}
+                                onChange={e => setNewUserPassword(e.target.value)}
+                                placeholder="Type or generate account password"
+                                autoComplete="new-password"
+                                required
+                                minLength={6}
+                                className="h-9 text-xs font-mono pr-16 bg-white"
+                              />
+                              <div className="absolute right-2 top-2 flex items-center gap-1.5">
+                                {newUserPassword && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard?.writeText(newUserPassword);
+                                      toast.success('Password copied to clipboard!');
+                                    }}
+                                    className="text-slate-400 hover:text-indigo-600 cursor-pointer"
+                                    title="Copy password"
+                                  >
+                                    <Copy size={14} />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setShowNewUserPass(!showNewUserPass)}
+                                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                  tabIndex={-1}
+                                  title={showNewUserPass ? "Hide password" : "Show password"}
+                                >
+                                  {showNewUserPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                                </button>
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-slate-500">
+                              Must contain at least 6 characters with uppercase, lowercase, number, and special character.
+                            </p>
+                          </div>
+
                           <DialogFooter className="pt-2">
-                            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs w-full cursor-pointer">
-                              Create Account
+                            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold w-full h-9 shadow-xs cursor-pointer">
+                              Authorize &amp; Create Staff Account
                             </Button>
                           </DialogFooter>
                         </form>
@@ -4275,7 +4382,19 @@ export default function AdminDashboard() {
                                   >
                                     {u.name}
                                   </button>
-                                  {u.role === 'superadmin' && <span className="text-[10px] text-violet-600 font-medium">City Administrator</span>}
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {u.employee_id && (
+                                      <span className="text-[9px] bg-slate-100 text-slate-700 font-mono px-1 rounded font-bold border border-slate-200">
+                                        {u.employee_id}
+                                      </span>
+                                    )}
+                                    {u.job_title && (
+                                      <span className="text-[10px] text-slate-500 font-medium">
+                                        {u.job_title}
+                                      </span>
+                                    )}
+                                    {u.role === 'superadmin' && <span className="text-[10px] text-violet-600 font-medium">City Administrator</span>}
+                                  </div>
                                 </div>
                               </div>
                             </TableCell>

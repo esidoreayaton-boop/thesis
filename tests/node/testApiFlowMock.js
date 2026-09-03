@@ -118,13 +118,15 @@ async function runApiFlowMockTests() {
 
   // 11. Optional ID Registration Flow
   await test('POST /api/auth/register strictly requires valid ID photo', async () => {
-    const uniqueEmail = `test.resident.${Date.now()}@gmail.com`;
+    const testTimestamp = Date.now();
+    const uniqueEmail = `test.resident.${testTimestamp}@gmail.com`;
+    const uniqueFirstName = `AutoTest${testTimestamp % 10000}`;
     // 1. Attempt registration WITHOUT ID photo (Must be rejected)
     const rejectRes = await fetch(`${BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        first_name: 'AutoTest',
+        first_name: uniqueFirstName,
         last_name: 'Resident',
         email: uniqueEmail,
         password: 'Password123!',
@@ -147,7 +149,7 @@ async function runApiFlowMockTests() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        first_name: 'AutoTest',
+        first_name: uniqueFirstName,
         last_name: 'Resident',
         email: uniqueEmail,
         password: 'Password123!',
