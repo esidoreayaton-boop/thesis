@@ -91,18 +91,15 @@ const suites = [
         pass: residentWithId.verification_status === 'Pending_Review' && !!residentWithId.submitted_id
       });
 
-      // 2. Registration WITHOUT ID (Optional / Recommended ID Flow)
-      const residentWithoutId = {
-        id: 102,
-        name: 'Pedro Penduko',
-        email: 'pedro.penduko@gmail.com',
-        verification_status: 'Pending_Review',
-        submitted_id: null,
-        rejection_reason: null
+      // 2. Registration WITHOUT ID is strictly blocked
+      const validateResidentPayload = (payload) => {
+        if (!payload.submitted_id) return { success: false, error: 'Valid Government ID photo is strictly required to register.' };
+        return { success: true };
       };
+      const rejectedNoId = validateResidentPayload({ name: 'Pedro Penduko', submitted_id: null });
       results.push({
-        name: 'resident registration WITHOUT ID succeeds smoothly with submitted_id null (optional ID flow)',
-        pass: residentWithoutId.verification_status === 'Pending_Review' && residentWithoutId.submitted_id === null
+        name: 'resident registration strictly requires valid ID and rejects attempts without submitted_id',
+        pass: rejectedNoId.success === false && rejectedNoId.error.includes('strictly required')
       });
 
       // 3. Administrator Rejection with Specific Reason

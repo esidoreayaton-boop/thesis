@@ -517,6 +517,26 @@ export const apiService = {
     return await res.json();
   },
 
+  async createCategory(data: { name: string; department?: string; description?: string }): Promise<ServiceCategory> {
+    const res = await fetch(`${API_BASE}/categories`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.message || 'Failed to create category');
+    return result;
+  },
+
+  async deleteCategory(name: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/categories/${encodeURIComponent(name)}`, {
+      method: 'DELETE'
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.message || 'Failed to delete category');
+    return result;
+  },
+
   // Audit & Activity History Logs
   async getActivityLogs(params?: { barangay?: string; action_type?: string; search?: string; role?: string }): Promise<ActivityLog[]> {
     const query = new URLSearchParams();

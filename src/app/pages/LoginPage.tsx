@@ -279,6 +279,16 @@ export default function LoginPage() {
       return;
     }
 
+    if (!regIdType) {
+      toast.error('Government ID Type Required', { description: 'Please select a valid Government ID type to continue registration.' });
+      return;
+    }
+
+    if (!regIdPhoto) {
+      toast.error('Valid ID Photo Required', { description: 'You cannot proceed without uploading a valid Government ID photo.' });
+      return;
+    }
+
     const fullAddress = `${regPurok.trim()}, Barangay ${regBarangay.trim()}, Butuan City`;
     const fullName = `${regFirstName.trim()}${regMiddleName.trim() ? ' ' + regMiddleName.trim() : ''} ${regLastName.trim()}`;
 
@@ -297,7 +307,7 @@ export default function LoginPage() {
         phone: cleanPhone,
         address: fullAddress,
         role: 'resident',
-        submitted_id: regIdPhoto || null,
+        submitted_id: regIdPhoto,
         barangay: regBarangay.trim()
       });
 
@@ -317,22 +327,16 @@ export default function LoginPage() {
         city: 'Butuan City',
         purok: regPurok.trim(),
         role: 'resident',
-        verification_status: regIdPhoto ? 'Pending_Review' : 'Pending_Review',
-        submitted_id: regIdPhoto || null,
+        verification_status: 'Pending_Review',
+        submitted_id: regIdPhoto,
         years_of_residency: regResidencyYears.trim() || undefined
       };
 
       localStorage.setItem('barangay_user', JSON.stringify(user));
 
-      if (regIdPhoto) {
-        toast.warning('Account Created (ID Under Review)', {
-          description: 'Your resident account and ID have been submitted! Please wait for Admin approval to unlock official clearance requests.'
-        });
-      } else {
-        toast.success('Account Created Successfully! 🎉', {
-          description: 'Welcome to the Barangay Portal! You can upload your Government ID anytime in Profile Settings to unlock official clearance requests.'
-        });
-      }
+      toast.warning('Account Created (ID Under Review)', {
+        description: 'Your resident account and ID have been submitted! Please wait for Admin approval to unlock official clearance requests.'
+      });
 
       clearForm();
       setIsChoiceModalOpen(true);
@@ -701,14 +705,15 @@ export default function LoginPage() {
               <div className="space-y-2.5 pt-1">
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                    Valid Government ID Type <span className="text-slate-400 font-normal text-[10px]">(Optional / Recommended)</span>
+                    Valid Government ID Type <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={regIdType}
                     onChange={(e) => setRegIdType(e.target.value)}
+                    required
                     className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none transition-all cursor-pointer"
                   >
-                    <option value="">Select Government ID Type (Optional)</option>
+                    <option value="">Select Government ID Type *</option>
                     {ID_TYPES.map((t) => (
                       <option key={t} value={t}>{t}</option>
                     ))}
@@ -718,18 +723,18 @@ export default function LoginPage() {
                 {/* ID Photo Upload Area */}
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                    Government ID Photo <span className="text-slate-400 font-normal text-[10px]">(Optional / Recommended)</span>
+                    Government ID Photo <span className="text-red-500">*</span>
                   </label>
                   {!regIdPhoto ? (
                     <div
                       onClick={() => fileInputRef.current?.click()}
-                      className="border border-dashed border-slate-300 hover:border-blue-500 bg-slate-50 hover:bg-blue-50/20 rounded-xl p-3 text-center cursor-pointer transition-all group"
+                      className="border border-dashed border-red-300 hover:border-red-500 bg-red-50/15 hover:bg-red-50/30 rounded-xl p-3 text-center cursor-pointer transition-all group"
                     >
                       <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-1 group-hover:scale-105 transition-transform">
                         <Camera size={16} />
                       </div>
-                      <p className="text-xs font-semibold text-slate-700">Click to choose or capture valid ID photo</p>
-                      <p className="text-[9px] text-slate-400 mt-0.5">PNG, JPG, or JPEG up to 5MB (Optional)</p>
+                      <p className="text-xs font-semibold text-slate-700">Click to choose or capture valid ID photo <span className="text-red-500">*</span></p>
+                      <p className="text-[9px] text-slate-500 mt-0.5">PNG, JPG, or JPEG up to 5MB (Strictly Required)</p>
                     </div>
                   ) : (
                     <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between gap-3">
@@ -743,8 +748,8 @@ export default function LoginPage() {
                           <p className="text-xs font-bold text-blue-950 truncate">
                             {regIdFileName || `${regIdType || 'Government ID'}`}
                           </p>
-                          <span className="text-[10px] text-blue-700 font-medium flex items-center gap-1">
-                            <CheckCircle2 size={12} className="text-blue-600" /> Photo attached
+                          <span className="text-[10px] text-emerald-700 font-medium flex items-center gap-1">
+                            <CheckCircle2 size={12} className="text-emerald-600" /> Valid ID Photo Attached
                           </span>
                         </div>
                       </div>
@@ -759,11 +764,11 @@ export default function LoginPage() {
                     </div>
                   )}
 
-                  {/* Recommendation Tip Banner */}
-                  <div className="mt-1.5 p-2 bg-blue-50/80 border border-blue-200/70 rounded-lg flex items-start gap-2">
-                    <span className="text-blue-600 text-xs mt-0.5 shrink-0">💡</span>
-                    <p className="text-[10.5px] text-blue-900 leading-tight">
-                      <strong>Recommended:</strong> Uploading your ID now allows faster account verification. You can also proceed without a photo now and upload it later in your Profile.
+                  {/* Strict Requirement Notice Banner */}
+                  <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                    <span className="text-amber-600 text-xs mt-0.5 shrink-0">🔒</span>
+                    <p className="text-[10.5px] text-amber-900 leading-tight">
+                      <strong>Strictly Required:</strong> A clear photo of your valid Government ID is required to register. You cannot proceed without uploading a valid ID.
                     </p>
                   </div>
 

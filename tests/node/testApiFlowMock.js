@@ -117,31 +117,54 @@ async function runApiFlowMockTests() {
   });
 
   // 11. Optional ID Registration Flow
-  await test('POST /api/auth/register allows resident creation WITHOUT ID photo', async () => {
+  await test('POST /api/auth/register strictly requires valid ID photo', async () => {
     const uniqueEmail = `test.resident.${Date.now()}@gmail.com`;
-    const regPayload = {
-      first_name: 'AutoTest',
-      last_name: 'Resident',
-      email: uniqueEmail,
-      password: 'Password123!',
-      phone: '09179998877',
-      date_of_birth: '1995-05-15',
-      gender: 'Male',
-      civil_status: 'Single',
-      address: 'Purok 1, Barangay Pianing, Butuan City',
-      barangay: 'Pianing',
-      role: 'resident',
-      submitted_id: null // Testing Optional ID registration
-    };
-    const res = await fetch(`${BASE_URL}/auth/register`, {
+    // 1. Attempt registration WITHOUT ID photo (Must be rejected)
+    const rejectRes = await fetch(`${BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(regPayload)
+      body: JSON.stringify({
+        first_name: 'AutoTest',
+        last_name: 'Resident',
+        email: uniqueEmail,
+        password: 'Password123!',
+        phone: '09179998877',
+        date_of_birth: '1995-05-15',
+        gender: 'Male',
+        civil_status: 'Single',
+        address: 'Purok 1, Barangay Pianing, Butuan City',
+        barangay: 'Pianing',
+        role: 'resident',
+        submitted_id: null
+      })
     });
-    if (res.status !== 201 && res.status !== 200) {
-      throw new Error(`HTTP ${res.status}`);
+    if (rejectRes.status !== 400) {
+      throw new Error(`Expected HTTP 400 for registration without ID, got ${rejectRes.status}`);
     }
-    const result = await res.json();
+
+    // 2. Registration WITH valid ID photo (Must succeed)
+    const acceptRes = await fetch(`${BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        first_name: 'AutoTest',
+        last_name: 'Resident',
+        email: uniqueEmail,
+        password: 'Password123!',
+        phone: '09179998877',
+        date_of_birth: '1995-05-15',
+        gender: 'Male',
+        civil_status: 'Single',
+        address: 'Purok 1, Barangay Pianing, Butuan City',
+        barangay: 'Pianing',
+        role: 'resident',
+        submitted_id: 'data:image/png;base64,SAMPLE_VALID_ID_PHOTO'
+      })
+    });
+    if (acceptRes.status !== 201 && acceptRes.status !== 200) {
+      throw new Error(`HTTP ${acceptRes.status}`);
+    }
+    const result = await acceptRes.json();
     if (!result.success && !result.user) {
       throw new Error('Registration response did not indicate success');
     }

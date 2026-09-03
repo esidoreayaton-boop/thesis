@@ -222,11 +222,7 @@ async function migrateDatabase() {
         { name: 'Business Retirement Certificate', department: 'Barangay', description: 'Official certification for closure or retirement of business' },
         { name: 'Certificate of Employment', department: 'Barangay', description: 'Barangay employment certificate & first time jobseeker aid' },
         { name: 'Certificate of Land Occupancy', department: 'Barangay', description: 'Proof of actual physical occupancy & lot possession' },
-        { name: 'Barangay Activity Permit', department: 'Barangay', description: 'Permit for events, product sampling, promotions & gatherings' },
-        { name: 'Medical Certificate', department: 'Health Center', description: 'Physician physical fitness and medical diagnosis' },
-        { name: 'Health Clearance Certificate', department: 'Health Center', description: 'Sanitary and occupational health assessment' },
-        { name: 'Immunization Card / Record', department: 'Health Center', description: 'Child infant immunization history' },
-        { name: 'Maternal & Child Health Card', department: 'Health Center', description: 'Prenatal and postnatal pregnancy records' }
+        { name: 'Barangay Activity Permit', department: 'Barangay', description: 'Permit for events, product sampling, promotions & gatherings' }
       ];
 
       for (const cat of defaultCategories) {
@@ -388,11 +384,7 @@ const DEFAULT_CATEGORIES = [
   { id: 6, name: 'Business Retirement Certificate', department: 'Barangay', description: 'Official certification for closure or retirement of business', status: 'Active' },
   { id: 7, name: 'Certificate of Employment', department: 'Barangay', description: 'Barangay employment certificate & first time jobseeker aid', status: 'Active' },
   { id: 8, name: 'Certificate of Land Occupancy', department: 'Barangay', description: 'Proof of actual physical occupancy & lot possession', status: 'Active' },
-  { id: 9, name: 'Barangay Activity Permit', department: 'Barangay', description: 'Permit for events, product sampling, promotions & gatherings', status: 'Active' },
-  { id: 10, name: 'Medical Certificate', department: 'Health Center', description: 'Physician physical fitness and medical diagnosis', status: 'Active' },
-  { id: 11, name: 'Health Clearance Certificate', department: 'Health Center', description: 'Sanitary and occupational health assessment', status: 'Active' },
-  { id: 12, name: 'Immunization Card / Record', department: 'Health Center', description: 'Child infant immunization history', status: 'Active' },
-  { id: 13, name: 'Maternal & Child Health Card', department: 'Health Center', description: 'Prenatal and postnatal pregnancy records', status: 'Active' }
+  { id: 9, name: 'Barangay Activity Permit', department: 'Barangay', description: 'Permit for events, product sampling, promotions & gatherings', status: 'Active' }
 ];
 let inMemoryCategories = [...DEFAULT_CATEGORIES];
 
@@ -400,13 +392,58 @@ app.get('/api/categories', async (req, res) => {
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
-      const [rows] = await pool.query("SELECT * FROM document_categories ORDER BY department ASC, id ASC");
+      const [rows] = await pool.query("SELECT * FROM document_categories WHERE department != 'Health Center' ORDER BY department ASC, id ASC");
       if (rows && rows.length > 0) return res.json(rows);
     } catch (err) {
       console.warn('MySQL categories fetch error:', err.message);
     }
   }
   return res.json(inMemoryCategories);
+});
+
+app.post('/api/categories', async (req, res) => {
+  const { name, department, description } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ success: false, message: 'Category name is required.' });
+  }
+
+  const cleanName = name.trim();
+  const cleanDept = 'Barangay';
+  const cleanDesc = (description || '').trim();
+
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      const [existing] = await pool.query("SELECT id FROM document_categories WHERE LOWER(name) = LOWER(?)", [cleanName]);
+      if (existing.length > 0) {
+        return res.status(409).json({ success: false, message: `Category '${cleanName}' already exists.` });
+      }
+      const [result] = await pool.query(
+        "INSERT INTO document_categories (name, department, description, status) VALUES (?, ?, ?, 'Active')",
+        [cleanName, cleanDept, cleanDesc]
+      );
+      await logActivity({
+        user_name: 'Super Admin',
+        user_role: 'superadmin',
+        action: `Created Category: ${cleanName}`,
+        action_type: 'Category',
+        barangay: 'All (City-Wide)',
+        details: `Super Administrator added new document category: ${cleanName}`
+      });
+      return res.status(201).json({ success: true, id: result.insertId, name: cleanName, department: cleanDept, description: cleanDesc, status: 'Active' });
+    } catch (err) {
+      console.warn('MySQL create category error:', err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+
+  const exists = inMemoryCategories.find(c => c.name.toLowerCase() === cleanName.toLowerCase());
+  if (exists) {
+    return res.status(409).json({ success: false, message: `Category '${cleanName}' already exists.` });
+  }
+  const newCat = { id: Date.now(), name: cleanName, department: cleanDept, description: cleanDesc, status: 'Active' };
+  inMemoryCategories.push(newCat);
+  return res.status(201).json({ success: true, ...newCat });
 });
 
 app.put('/api/categories/:name', async (req, res) => {
@@ -432,6 +469,31 @@ app.put('/api/categories/:name', async (req, res) => {
     cat.status = cleanStatus;
   }
   return res.json({ success: true, message: `Category '${name}' is now ${cleanStatus}.` });
+});
+
+app.delete('/api/categories/:name', async (req, res) => {
+  const { name } = req.params;
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      await pool.query("DELETE FROM document_categories WHERE LOWER(name) = LOWER(?)", [name]);
+      await logActivity({
+        user_name: 'Super Admin',
+        user_role: 'superadmin',
+        action: `Deleted Category: ${name}`,
+        action_type: 'Category',
+        barangay: 'All (City-Wide)',
+        details: `Super Administrator removed document category: ${name}`
+      });
+      return res.json({ success: true, message: `Category '${name}' removed successfully.` });
+    } catch (err) {
+      console.warn('MySQL delete category error:', err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+
+  inMemoryCategories = inMemoryCategories.filter(c => c.name.toLowerCase() !== name.toLowerCase());
+  return res.json({ success: true, message: `Category '${name}' removed successfully.` });
 });
 
 // -------------------------------------------------------------
@@ -695,6 +757,15 @@ app.post('/api/auth/register', async (req, res) => {
 
   if (!firstName || !lastName || !email) {
     return res.status(400).json({ success: false, message: 'First name, last name, and email are required.' });
+  }
+
+  if (role === 'resident' || !role) {
+    if (!submitted_id || !String(submitted_id).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid Government ID photo is strictly required to register. Residents cannot proceed without uploading a valid ID.'
+      });
+    }
   }
 
   if (password) {

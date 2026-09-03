@@ -64,7 +64,6 @@ import DocumentPrintModal from '../components/DocumentPrintModal';
 import DocumentInfoModal from '../components/DocumentInfoModal';
 import PendingApplicantReviewModal from '../components/PendingApplicantReviewModal';
 import ImageViewerModal from '../components/ImageViewerModal';
-import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
 import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
 import { BUTUAN_BARANGAYS } from '../../utils/barangays';
 import { PIANING_LOGO_BASE64, BUTUAN_LOGO_BASE64 } from '../components/officialLogos';
@@ -81,6 +80,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
@@ -393,11 +393,17 @@ export default function AdminDashboard() {
     { id: 3, name: 'Certificate of Indigency', department: 'Barangay', description: 'Financial, educational, and medical assistance', status: 'Active' },
     { id: 4, name: 'Business Permit', department: 'Barangay', description: 'Commercial sari-sari store & local business operations', status: 'Active' },
     { id: 5, name: 'Barangay ID', department: 'Barangay', description: 'Official community resident identification card', status: 'Active' },
-    { id: 6, name: 'Medical Certificate', department: 'Health Center', description: 'Physician physical fitness and medical diagnosis', status: 'Active' },
-    { id: 7, name: 'Health Clearance Certificate', department: 'Health Center', description: 'Sanitary and occupational health assessment', status: 'Active' },
-    { id: 8, name: 'Immunization Card / Record', department: 'Health Center', description: 'Child infant immunization history', status: 'Active' },
-    { id: 9, name: 'Maternal & Child Health Card', department: 'Health Center', description: 'Prenatal and postnatal pregnancy records', status: 'Active' }
+    { id: 6, name: 'Good Moral Clearance', department: 'Barangay', description: 'Official character clearance for PRC board exams & school', status: 'Active' },
+    { id: 7, name: 'Business Clearance', department: 'Barangay', description: 'Barangay commercial permit for sari-sari stores & businesses', status: 'Active' },
+    { id: 8, name: 'Business Retirement Certificate', department: 'Barangay', description: 'Official certification for closure or retirement of business', status: 'Active' },
+    { id: 9, name: 'Certificate of Employment', department: 'Barangay', description: 'Barangay employment certificate & first time jobseeker aid', status: 'Active' },
+    { id: 10, name: 'Certificate of Land Occupancy', department: 'Barangay', description: 'Proof of actual physical occupancy & lot possession', status: 'Active' },
+    { id: 11, name: 'Barangay Activity Permit', department: 'Barangay', description: 'Permit for events, product sampling, promotions & gatherings', status: 'Active' }
   ]);
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryDesc, setNewCategoryDesc] = useState('');
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
 
   const handleToggleCategoryStatus = async (catName: string, currentStatus: string) => {
     const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
@@ -407,6 +413,42 @@ export default function AdminDashboard() {
       toast.success(`Category '${catName}' is now ${newStatus}`);
     } catch (err) {
       toast.error('Failed to update category status');
+    }
+  };
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) {
+      toast.error('Category name is required');
+      return;
+    }
+    setIsCreatingCategory(true);
+    try {
+      const created = await apiService.createCategory({
+        name: newCategoryName.trim(),
+        department: 'Barangay',
+        description: newCategoryDesc.trim() || undefined
+      });
+      setCategories(prev => [...prev, created]);
+      toast.success(`Category '${newCategoryName.trim()}' created successfully`);
+      setIsAddCategoryOpen(false);
+      setNewCategoryName('');
+      setNewCategoryDesc('');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to create category');
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  };
+
+  const handleDeleteCategory = async (cat: any) => {
+    if (!window.confirm(`Are you sure you want to remove the category '${cat.name}'?`)) return;
+    try {
+      await apiService.deleteCategory(cat.name);
+      setCategories(prev => prev.filter(c => c.name !== cat.name));
+      toast.success(`Category '${cat.name}' removed successfully`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete category');
     }
   };
 
@@ -434,7 +476,7 @@ export default function AdminDashboard() {
       if (schedData) setClinicSchedules(schedData);
       if (aptsData) setAppointments(aptsData);
       if (catData && catData.length > 0) {
-        setCategories(catData);
+        setCategories(catData.filter((c: any) => c.department !== 'Health Center'));
       }
       if (logsData && logsData.length > 0) {
         setActivityLogs(logsData);
@@ -1650,15 +1692,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex flex-col font-sans">
-      {/* Super Admin Unified Ecosystem Switcher */}
-      <SuperAdminNavigationDock
-        currentRole={user?.role}
-        onSelectUsersTab={user?.role === 'superadmin' ? () => setActiveTab('users') : undefined}
-        onSelectCategoryTab={user?.role === 'superadmin' ? () => setActiveTab('categories') : undefined}
-        onSelectLogsTab={user?.role === 'superadmin' ? () => setActiveTab('logs') : undefined}
-        onLogout={handleLogout}
-      />
-
       {/* Top Navbar matching clean branding on pure white background (#FFFFFF) */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 sm:px-6 py-2.5 shadow-xs">
         <div className="flex items-center justify-between w-full">
@@ -1749,16 +1782,6 @@ export default function AdminDashboard() {
                   <span className="text-[10px] text-blue-600 font-medium">Administrator</span>
                 </div>
                 <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-700 ml-1" />
-              </button>
-
-              {/* Dedicated Top Navbar Log Out Button */}
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer ml-1 shadow-xs"
-                title="Log out of account"
-              >
-                <LogOut size={14} className="text-rose-500" />
-                <span className="hidden sm:inline">Log Out</span>
               </button>
             </div>
           </div>
@@ -1913,14 +1936,6 @@ export default function AdminDashboard() {
                       >
                         <Tag size={14} />
                         Categories
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={handleLogout}
-                        className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-md cursor-pointer border border-rose-400/40"
-                      >
-                        <LogOut size={14} />
-                        Log Out
                       </Button>
                     </div>
                   </div>
@@ -4553,165 +4568,253 @@ export default function AdminDashboard() {
           )}
 
           {/* TAB 8: CATEGORY MANAGER (SUPER ADMIN EXCLUSIVE) */}
-          {activeTab === 'categories' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="bg-purple-100 text-purple-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md border border-purple-300">
-                      SUPER ADMIN EXCLUSIVE
-                    </span>
-                    <span className="text-xs text-slate-500 font-mono">Live Service Configuration</span>
+          {activeTab === 'categories' && (() => {
+            const barangayCategories = categories.filter(c => c.department !== 'Health Center');
+            return (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="bg-purple-100 text-purple-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md border border-purple-300">
+                        SUPER ADMIN EXCLUSIVE
+                      </span>
+                      <span className="text-xs text-slate-500 font-mono">Live Service Configuration</span>
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white mt-1">
+                      Document &amp; Service Category Manager
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      Create, activate, or deactivate official barangay document clearance categories. When deactivated, residents cannot request that document type.
+                    </p>
                   </div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white mt-1">
-                    Document &amp; Service Category Manager
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Activate or deactivate document clearance categories and health services across the ecosystem. When deactivated, residents and staff cannot request that document type.
-                  </p>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => {
+                        setNewCategoryName('');
+                        setNewCategoryDesc('');
+                        setIsAddCategoryOpen(true);
+                      }}
+                      size="sm"
+                      className="h-8 text-xs gap-1.5 bg-purple-600 hover:bg-purple-700 text-white cursor-pointer shadow-xs"
+                    >
+                      <PlusCircle size={14} /> Add Category
+                    </Button>
+                    <Button
+                      onClick={loadData}
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs gap-1.5 border-slate-300 cursor-pointer"
+                    >
+                      <RefreshCcw size={13} className={loading ? "animate-spin" : ""} /> Refresh Status
+                    </Button>
+                  </div>
                 </div>
 
-                <Button
-                  onClick={loadData}
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs gap-1.5 border-slate-300 cursor-pointer"
-                >
-                  <RefreshCcw size={13} className={loading ? "animate-spin" : ""} /> Refresh Status
-                </Button>
+                {/* Summary Stats */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Card className="border-purple-200 bg-purple-50/50">
+                    <CardContent className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-[11px] font-bold text-purple-700 uppercase">Total Services</p>
+                        <p className="text-2xl font-bold text-purple-900">{barangayCategories.length}</p>
+                      </div>
+                      <Tag size={28} className="text-purple-500 opacity-60" />
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-emerald-200 bg-emerald-50/50">
+                    <CardContent className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-[11px] font-bold text-emerald-700 uppercase">Active Categories</p>
+                        <p className="text-2xl font-bold text-emerald-900">
+                          {barangayCategories.filter(c => c.status === 'Active').length}
+                        </p>
+                      </div>
+                      <CheckCircle size={28} className="text-emerald-500 opacity-60" />
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-rose-200 bg-rose-50/50">
+                    <CardContent className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-[11px] font-bold text-rose-700 uppercase">Deactivated Categories</p>
+                        <p className="text-2xl font-bold text-rose-900">
+                          {barangayCategories.filter(c => c.status === 'Inactive').length}
+                        </p>
+                      </div>
+                      <AlertTriangle size={28} className="text-rose-500 opacity-60" />
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Categories Table */}
+                <Card className="border-slate-200 bg-white shadow-xs">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Tag className="text-purple-600" size={18} />
+                      Barangay Document Categories Directory
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Manage official document types available to residents. Deactivated documents are blocked from resident portals.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50 text-xs">
+                          <TableHead className="font-bold">Service Category Name</TableHead>
+                          <TableHead className="font-bold">Department / Portal</TableHead>
+                          <TableHead className="font-bold">Description / Purpose</TableHead>
+                          <TableHead className="font-bold text-center">Status</TableHead>
+                          <TableHead className="font-bold text-right">Quick Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {barangayCategories.map((cat, idx) => {
+                          const isActive = cat.status === 'Active';
+                          return (
+                            <TableRow key={`cat-${cat.id || idx}-${cat.name}`} className="text-xs hover:bg-slate-50/80">
+                              <TableCell className="font-semibold text-slate-900 flex items-center gap-2 py-3">
+                                <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                  isActive ? 'bg-purple-100 text-purple-700' : 'bg-slate-200 text-slate-500'
+                                }`}>
+                                  <FileText size={14} />
+                                </div>
+                                <div>
+                                  <p className="font-bold text-xs">{cat.name}</p>
+                                  <p className="text-[10px] text-slate-400 font-mono">ID: #{cat.id || idx + 1}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 border-indigo-300">
+                                  {cat.department || 'Barangay'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-slate-600 max-w-xs truncate text-[11px]">
+                                {cat.description || 'Standard public document issuance.'}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                  isActive
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : 'bg-rose-100 text-rose-800 border border-rose-300'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                                  {isActive ? 'Active' : 'Deactivated'}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  {isActive ? (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleToggleCategoryStatus(cat.name, cat.status)}
+                                      className="h-7 px-2.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 cursor-pointer text-[11px] font-semibold gap-1"
+                                      title="Deactivate service"
+                                    >
+                                      <UserX size={12} />
+                                      Deactivate
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleToggleCategoryStatus(cat.name, cat.status)}
+                                      className="h-7 px-2.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 cursor-pointer text-[11px] font-semibold gap-1"
+                                      title="Activate service"
+                                    >
+                                      <CheckCircle size={12} />
+                                      Activate
+                                    </Button>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDeleteCategory(cat)}
+                                    className="h-7 px-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer text-[11px]"
+                                    title={`Delete category '${cat.name}'`}
+                                  >
+                                    <Trash2 size={13} />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+
+                {/* Add Category Modal */}
+                <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
+                  <DialogContent className="bg-white max-w-md">
+                    <DialogHeader>
+                      <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <Tag className="text-purple-600" size={18} />
+                        Add Document Clearance Category
+                      </DialogTitle>
+                      <DialogDescription className="text-xs text-slate-500">
+                        Add a new official document clearance or certificate type for barangay residents to request.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleCreateCategory} className="space-y-4 py-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Document / Category Name <span className="text-red-500">*</span></Label>
+                        <Input
+                          value={newCategoryName}
+                          onChange={e => setNewCategoryName(e.target.value)}
+                          placeholder="e.g. Certificate of Low Income"
+                          required
+                          className="h-9 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Department / Jurisdiction</Label>
+                        <Input
+                          value="Barangay"
+                          disabled
+                          className="h-9 text-xs bg-slate-100 text-slate-600 cursor-not-allowed"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Description / Purpose</Label>
+                        <Textarea
+                          value={newCategoryDesc}
+                          onChange={e => setNewCategoryDesc(e.target.value)}
+                          placeholder="e.g. Certificate for educational, medical, utility subsidies and local financial assistance"
+                          rows={3}
+                          className="text-xs"
+                        />
+                      </div>
+                      <DialogFooter className="gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsAddCategoryOpen(false)}
+                          className="text-xs cursor-pointer"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          disabled={isCreatingCategory}
+                          className="bg-purple-600 hover:bg-purple-700 text-white text-xs gap-1.5 cursor-pointer"
+                        >
+                          {isCreatingCategory ? <RefreshCcw size={13} className="animate-spin" /> : <PlusCircle size={13} />}
+                          <span>Save Category</span>
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
               </div>
-
-              {/* Summary Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Card className="border-purple-200 bg-purple-50/50">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-[11px] font-bold text-purple-700 uppercase">Total Services</p>
-                      <p className="text-2xl font-bold text-purple-900">{categories.length}</p>
-                    </div>
-                    <Tag size={28} className="text-purple-500 opacity-60" />
-                  </CardContent>
-                </Card>
-
-                <Card className="border-emerald-200 bg-emerald-50/50">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-[11px] font-bold text-emerald-700 uppercase">Active Categories</p>
-                      <p className="text-2xl font-bold text-emerald-900">
-                        {categories.filter(c => c.status === 'Active').length}
-                      </p>
-                    </div>
-                    <CheckCircle size={28} className="text-emerald-500 opacity-60" />
-                  </CardContent>
-                </Card>
-
-                <Card className="border-rose-200 bg-rose-50/50">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-[11px] font-bold text-rose-700 uppercase">Deactivated Categories</p>
-                      <p className="text-2xl font-bold text-rose-900">
-                        {categories.filter(c => c.status === 'Inactive').length}
-                      </p>
-                    </div>
-                    <AlertTriangle size={28} className="text-rose-500 opacity-60" />
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Categories Table */}
-              <Card className="border-slate-200 bg-white shadow-xs">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <Tag className="text-purple-600" size={18} />
-                    Service Categories Directory
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Toggle individual document types on or off. Deactivated services will be locked and unavailable on resident portals.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50 text-xs">
-                        <TableHead className="font-bold">Service Category Name</TableHead>
-                        <TableHead className="font-bold">Department / Portal</TableHead>
-                        <TableHead className="font-bold">Description / Purpose</TableHead>
-                        <TableHead className="font-bold text-center">Status</TableHead>
-                        <TableHead className="font-bold text-right">Quick Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {categories.map((cat, idx) => {
-                        const isActive = cat.status === 'Active';
-                        return (
-                          <TableRow key={`cat-${cat.id || idx}-${cat.name}`} className="text-xs hover:bg-slate-50/80">
-                            <TableCell className="font-semibold text-slate-900 flex items-center gap-2 py-3">
-                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                                isActive ? 'bg-purple-100 text-purple-700' : 'bg-slate-200 text-slate-500'
-                              }`}>
-                                <FileText size={14} />
-                              </div>
-                              <div>
-                                <p className="font-bold text-xs">{cat.name}</p>
-                                <p className="text-[10px] text-slate-400 font-mono">ID: #{cat.id || idx + 1}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={`text-[10px] font-semibold ${
-                                cat.department === 'Health Center'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                                  : 'bg-indigo-50 text-indigo-700 border-indigo-300'
-                              }`}>
-                                {cat.department || 'Barangay'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-slate-600 max-w-xs truncate text-[11px]">
-                              {cat.description || 'Standard public document issuance.'}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                                isActive
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                  : 'bg-rose-100 text-rose-800 border border-rose-300'
-                              }`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                                {isActive ? 'Active' : 'Deactivated'}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {isActive ? (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleToggleCategoryStatus(cat.name, cat.status)}
-                                  className="h-7 px-2.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 cursor-pointer text-[11px] font-semibold gap-1"
-                                  title="Deactivate service (hide and block from resident portals)"
-                                >
-                                  <UserX size={12} />
-                                  Deactivate
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleToggleCategoryStatus(cat.name, cat.status)}
-                                  className="h-7 px-2.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 cursor-pointer text-[11px] font-semibold gap-1"
-                                  title="Activate service (enable for resident requests)"
-                                >
-                                  <CheckCircle size={12} />
-                                  Activate
-                                </Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+            );
+          })()}
 
           {/* TAB: AUDIT TRAIL & ACTIVITY HISTORY LOGS (Admin / Super Admin Only) */}
           {activeTab === 'logs' && !isStaff && (
