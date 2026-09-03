@@ -764,5 +764,80 @@ export const apiService = {
     if (!res.ok) throw new Error('Failed to delete clinic schedule');
     return await res.json();
   },
+
+  // ───────────────────────────────────────────────────────────────
+  // Population & Demographics API
+  // ───────────────────────────────────────────────────────────────
+  async getPopulationStats(barangay?: string): Promise<PopulationStats> {
+    const q = barangay && barangay.toLowerCase() !== 'all' ? `?barangay=${encodeURIComponent(barangay)}` : '';
+    const res = await fetch(`${API_BASE}/stats/population${q}`);
+    if (!res.ok) throw new Error('Failed to fetch population demographics');
+    return await res.json();
+  },
+
+  // ───────────────────────────────────────────────────────────────
+  // Super Admin: 86-Barangay Municipal Hub API
+  // ───────────────────────────────────────────────────────────────
+  async getBarangaysOverview(): Promise<BarangayOverviewItem[]> {
+    const res = await fetch(`${API_BASE}/system/barangays`);
+    if (!res.ok) throw new Error('Failed to fetch barangays overview');
+    return await res.json();
+  },
+
+  // ───────────────────────────────────────────────────────────────
+  // Super Admin: System Diagnostics & Maintenance API
+  // ───────────────────────────────────────────────────────────────
+  async getDatabaseStats(): Promise<{ success: boolean; connected: boolean; tables: { table: string; count: number; status: string }[] }> {
+    const res = await fetch(`${API_BASE}/system/database/stats`);
+    if (!res.ok) throw new Error('Failed to fetch database stats');
+    return await res.json();
+  },
+
+  async getGatewaysHealth(): Promise<any> {
+    const res = await fetch(`${API_BASE}/system/gateways`);
+    if (!res.ok) throw new Error('Failed to fetch gateway health');
+    return await res.json();
+  },
+
+  async getMaintenanceMode(): Promise<{ enabled: boolean; message: string; updated_at: string }> {
+    const res = await fetch(`${API_BASE}/system/maintenance`);
+    if (!res.ok) throw new Error('Failed to fetch maintenance status');
+    return await res.json();
+  },
+
+  async toggleMaintenanceMode(enabled: boolean, message?: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/system/maintenance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, message }),
+    });
+    if (!res.ok) throw new Error('Failed to toggle maintenance mode');
+    return await res.json();
+  }
 };
+
+export interface PopulationStats {
+  success: boolean;
+  barangay: string;
+  total_population: number;
+  online_registered: number;
+  adoption_rate: number;
+  registered_voters: number;
+  senior_citizens: number;
+  minors_children: number;
+  gender: { male: number; female: number; other: number };
+  purok_distribution: { purok: string; count: number }[];
+}
+
+export interface BarangayOverviewItem {
+  id: number;
+  name: string;
+  status: 'Active' | 'Unstaffed';
+  admin: { id: number; name: string; email: string; phone: string } | null;
+  total_residents: number;
+  pending_approvals: number;
+  total_documents: number;
+  office_address: string;
+  hotline: string;
+}
 

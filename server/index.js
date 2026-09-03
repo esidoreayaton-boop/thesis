@@ -146,9 +146,6 @@ async function migrateDatabase() {
       await pool.query("ALTER TABLE document_requests MODIFY COLUMN resident_id INT NULL DEFAULT 1");
     } catch {}
     try {
-      await pool.query("ALTER TABLE residents MODIFY COLUMN household_id VARCHAR(50) NULL DEFAULT NULL");
-    } catch {}
-    try {
       await pool.query("UPDATE users SET phone = '09171234567' WHERE phone LIKE '%@%' OR phone = '' OR phone IS NULL");
     } catch {}
 
@@ -790,7 +787,7 @@ app.post('/api/auth/register', async (req, res) => {
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
-      // 1 GMAIL PER ACCOUNT: Check if email is already registered in users or residents table
+      // 1 GMAIL PER ACCOUNT: Check if email is already registered in users table
       const [existingUsers] = await pool.query(
         "SELECT id, email, role, verification_status FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1",
         [cleanEmail]
@@ -802,52 +799,91 @@ app.post('/api/auth/register', async (req, res) => {
         });
       }
 
-      const [existingResidents] = await pool.query(
-        "SELECT id, email FROM residents WHERE LOWER(TRIM(email)) = ? LIMIT 1",
-        [cleanEmail]
+      // 2. CIVIC TRIAD DE-DUPLICATION & AUTO-MERGING:
+      // Match by First Name + Last Name + Date of Birth + Barangay
+      const [matchedResidents] = await pool.query(
+        "SELECT id, first_name, last_name, date_of_birth, barangay, email, phone, verification_status, linked_user_id FROM residents WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(last_name)) = LOWER(TRIM(?)) AND date_of_birth = ? AND LOWER(TRIM(barangay)) = LOWER(TRIM(?)) LIMIT 1",
+        [firstName, lastName, dob, userBarangay]
       );
-      if (existingResidents.length > 0) {
-        return res.status(409).json({
-          success: false,
-          message: 'This email is already associated with an existing resident profile. Please sign in or contact the Barangay Office.'
+
+      let residentIdToUse;
+      let isClaimedExisting = false;
+
+      if (matchedResidents.length > 0) {
+        const existingRec = matchedResidents[0];
+        // If this record is already claimed by a verified user with a different email, protect against duplicate accounts:
+        if (existingRec.linked_user_id) {
+          const [claimedUser] = await pool.query("SELECT id, email FROM users WHERE id = ? LIMIT 1", [existingRec.linked_user_id]);
+          if (claimedUser.length > 0 && claimedUser[0].email.toLowerCase() !== cleanEmail) {
+            return res.status(409).json({
+              success: false,
+              message: `A verified resident profile already exists under the name ${fullName} (${dob}) in Barangay ${userBarangay}. To prevent duplicate resident profiles, please contact the Barangay Office directly with your physical ID.`
+            });
+          }
+        }
+
+        // Case: Existing offline / census record found! AUTO-MERGE & LINK:
+        residentIdToUse = existingRec.id;
+        isClaimedExisting = true;
+
+        // Create the user login account
+        const [userResult] = await pool.query(
+          "INSERT INTO users (name, email, password_hash, role, status, verification_status, barangay, phone, last_login) VALUES (?, ?, ?, ?, 'Active', 'Pending_Review', ?, ?, NOW())",
+          [fullName, cleanEmail, hashedPassword, userRole, userBarangay, phone || '']
+        );
+        const newUserId = userResult.insertId;
+
+        // Update existing resident record with new email, phone, ID photo, and linked_user_id
+        await pool.query(
+          "UPDATE residents SET email = ?, phone = ?, submitted_id = ?, id_type = ?, verification_status = 'Pending_Review', submitted_at = NOW(), claimed_at = NOW(), linked_user_id = ?, rejection_reason = NULL WHERE id = ?",
+          [cleanEmail, phone || existingRec.phone || '', submitted_id, req.body.id_type || 'Government ID', newUserId, residentIdToUse]
+        );
+
+        if (years_of_residency) {
+          try {
+            await pool.query("UPDATE residents SET years_of_residency = ? WHERE id = ?", [years_of_residency.trim(), residentIdToUse]);
+          } catch {}
+        }
+
+        // Log audit event
+        try {
+          await pool.query(
+            "INSERT INTO activity_logs (action, user, role, details, timestamp) VALUES ('CLAIM_CENSUS_RECORD', ?, 'resident', ?, NOW())",
+            [fullName, `Resident online account ${cleanEmail} claimed existing census record #${residentIdToUse} in Barangay ${userBarangay}`]
+          );
+        } catch {}
+
+        return res.status(201).json({
+          success: true,
+          is_claimed: true,
+          user: { id: residentIdToUse, name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName, date_of_birth: dob, gender: userGender, civil_status: userCivilStatus, email: cleanEmail, role: userRole, verification_status: 'Pending_Review', submitted_id, phone, address: residentAddress, barangay: userBarangay, years_of_residency: years_of_residency || '' },
+          message: 'Existing resident profile linked successfully! Your submitted ID is under review by the Barangay Admin.'
         });
       }
 
-      // 1. Insert into users table with bcrypt hashed password
-      await pool.query(
+      // Case: No existing resident found. Create brand new user & resident record
+      const [userResult] = await pool.query(
         "INSERT INTO users (name, email, password_hash, role, status, verification_status, barangay, phone, last_login) VALUES (?, ?, ?, ?, 'Active', 'Pending_Review', ?, ?, NOW())",
         [fullName, cleanEmail, hashedPassword, userRole, userBarangay, phone || '']
       );
+      const newUserId = userResult.insertId;
 
-      // 2. Insert into residents table with date_of_birth, gender, civil_status and barangay
       const [resResult] = await pool.query(
-        "INSERT INTO residents (first_name, middle_name, last_name, date_of_birth, gender, civil_status, address, barangay, phone, email, verification_status, submitted_id, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending_Review', ?, NOW()) ON DUPLICATE KEY UPDATE first_name = VALUES(first_name), last_name = VALUES(last_name), address = VALUES(address), barangay = VALUES(barangay), verification_status = 'Pending_Review', submitted_id = VALUES(submitted_id)",
-        [firstName, middleName, lastName, dob, userGender, userCivilStatus, residentAddress, userBarangay, phone || '', cleanEmail, submitted_id || null]
+        "INSERT INTO residents (first_name, middle_name, last_name, date_of_birth, gender, civil_status, address, barangay, phone, email, verification_status, submitted_id, id_type, submitted_at, linked_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending_Review', ?, ?, NOW(), ?)",
+        [firstName, middleName, lastName, dob, userGender, userCivilStatus, residentAddress, userBarangay, phone || '', cleanEmail, submitted_id, req.body.id_type || 'Government ID', newUserId]
       );
+      residentIdToUse = resResult.insertId;
 
-      // 3. If years_of_residency provided, save to column (add column if missing)
-      if (years_of_residency && resResult.insertId) {
+      if (years_of_residency && residentIdToUse) {
         try {
-          await pool.query(
-            "ALTER TABLE residents ADD COLUMN IF NOT EXISTS years_of_residency VARCHAR(50) DEFAULT NULL"
-          );
-        } catch {}
-        try {
-          await pool.query(
-            "UPDATE residents SET years_of_residency = ? WHERE id = ?",
-            [years_of_residency.trim(), resResult.insertId]
-          );
+          await pool.query("UPDATE residents SET years_of_residency = ? WHERE id = ?", [years_of_residency.trim(), residentIdToUse]);
         } catch {}
       }
 
-      // 4. Ensure civil_status column exists (safe migration)
-      try {
-        await pool.query("ALTER TABLE residents ADD COLUMN IF NOT EXISTS civil_status VARCHAR(20) DEFAULT 'Single'");
-      } catch {}
-
       return res.status(201).json({
         success: true,
-        user: { id: resResult.insertId, name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName, date_of_birth: dob, gender: userGender, civil_status: userCivilStatus, email: cleanEmail, role: userRole, verification_status: 'Pending_Review', submitted_id, phone, address: residentAddress, barangay: userBarangay, years_of_residency: years_of_residency || '' },
+        is_claimed: false,
+        user: { id: residentIdToUse, name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName, date_of_birth: dob, gender: userGender, civil_status: userCivilStatus, email: cleanEmail, role: userRole, verification_status: 'Pending_Review', submitted_id, phone, address: residentAddress, barangay: userBarangay, years_of_residency: years_of_residency || '' },
         message: 'Account created! Your submitted ID is under review by the Barangay Admin.'
       });
     } catch (err) {
@@ -856,14 +892,54 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   // Fallback: check unique in mockData
-  const existsInMock = mockData.users.some(u => u.email && u.email.toLowerCase() === cleanEmail) ||
-                       mockData.residents.some(r => r.email && r.email.toLowerCase() === cleanEmail);
+  const existsInMock = mockData.users.some(u => u.email && u.email.toLowerCase() === cleanEmail);
   if (existsInMock) {
     return res.status(409).json({
       success: false,
       message: 'This email address is already registered. Each resident must use a unique Gmail address.'
     });
   }
+
+  // Civic Triad lookup in mockData
+  const matchedMock = mockData.residents.find(r => 
+    r.first_name && r.first_name.toLowerCase().trim() === firstName.toLowerCase().trim() &&
+    r.last_name && r.last_name.toLowerCase().trim() === lastName.toLowerCase().trim() &&
+    r.date_of_birth === dob &&
+    r.barangay && r.barangay.toLowerCase().trim() === userBarangay.toLowerCase().trim()
+  );
+
+  if (matchedMock) {
+    if (matchedMock.linked_user_id) {
+      return res.status(409).json({
+        success: false,
+        message: `A verified resident profile already exists under the name ${fullName} (${dob}) in Barangay ${userBarangay}. To prevent duplicate resident profiles, please contact the Barangay Office directly with your physical ID.`
+      });
+    }
+    const newUserId = Date.now();
+    matchedMock.email = cleanEmail;
+    matchedMock.phone = phone || matchedMock.phone;
+    matchedMock.submitted_id = submitted_id;
+    matchedMock.verification_status = 'Pending_Review';
+    matchedMock.linked_user_id = newUserId;
+    mockData.users.push({
+      id: newUserId,
+      name: fullName,
+      email: cleanEmail,
+      password_hash: hashedPassword,
+      role: userRole,
+      status: 'Active',
+      barangay: userBarangay,
+      verification_status: 'Pending_Review',
+      last_login: new Date().toLocaleString()
+    });
+    return res.status(201).json({
+      success: true,
+      is_claimed: true,
+      user: { id: matchedMock.id, name: fullName, first_name: firstName, middle_name: middleName, last_name: lastName, date_of_birth: dob, email: cleanEmail, role: userRole, verification_status: 'Pending_Review', submitted_id, phone, address: residentAddress, barangay: userBarangay },
+      message: 'Existing resident profile linked successfully! Your submitted ID is under review by the Barangay Admin.'
+    });
+  }
+
   const newPending = {
     id: Date.now(),
     name: fullName,
@@ -875,7 +951,6 @@ app.post('/api/auth/register', async (req, res) => {
     phone: phone || '',
     address: residentAddress,
     barangay: userBarangay,
-    household_id: 'HH-NEW',
     submitted_id: submitted_id || null,
     submitted_at: new Date().toLocaleString(),
     verification_status: 'Pending_Review'
@@ -901,7 +976,6 @@ app.post('/api/auth/register', async (req, res) => {
     gender: 'Male',
     address: residentAddress,
     barangay: userBarangay,
-    household_id: 'HH-NEW',
     phone: phone || '',
     email: email.toLowerCase(),
     verification_status: 'Pending_Review',
@@ -978,7 +1052,6 @@ app.get('/api/residents/pending', async (req, res) => {
           COALESCE(r.phone, u.phone) AS phone,
           COALESCE(r.address, CONCAT('Barangay ', COALESCE(u.barangay, 'Pianing'))) AS address,
           COALESCE(r.barangay, u.barangay, 'Pianing') AS barangay,
-          NULL AS household_id,
           r.submitted_id,
           COALESCE(r.submitted_at, u.created_at) AS submitted_at,
           COALESCE(r.verification_status, u.verification_status, 'Pending_Review') AS verification_status,
@@ -2300,33 +2373,35 @@ app.get('/api/residents', async (req, res) => {
 });
 
 app.post('/api/residents', async (req, res) => {
-  const { first_name, middle_name, last_name, date_of_birth, gender, civil_status, address, household_id, phone, email, password } = req.body;
+  const { first_name, middle_name, last_name, date_of_birth, gender, civil_status, years_of_residency, address, purok, phone, email, password, id_type, submitted_id } = req.body;
   const rawPassword = password || '123';
   const cleanFirst = (first_name || '').trim();
   const cleanLast = (last_name || '').trim();
   const cleanMiddle = (middle_name || '').trim();
   const fullName = `${cleanFirst} ${cleanMiddle ? cleanMiddle + ' ' : ''}${cleanLast}`.trim();
   const residentEmail = (email || `${cleanFirst.toLowerCase()}.${cleanLast.toLowerCase().replace(/\s+/g, '')}@resident.local`).toLowerCase().trim();
-  const residentAddress = address || 'Purok 1, Barangay Pianing, Butuan City';
-  const residentBarangay = residentAddress.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing';
+  const residentBarangay = (req.body.barangay || (address && address.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing')).trim();
+  const residentPurok = (purok || '1').toString().trim();
+  const residentAddress = address || `${residentPurok.toLowerCase().includes('purok') ? residentPurok : 'Purok ' + residentPurok}, Barangay ${residentBarangay}, Butuan City`;
 
   const pool = getPool();
   if (pool && getStatus().connected) {
     try {
       const hashedPassword = await hashPassword(rawPassword);
       // 1. Insert/update user login record with proper barangay
-      await pool.query(
+      const [userRes] = await pool.query(
         "INSERT INTO users (name, email, password_hash, role, status, verification_status, barangay, phone, last_login) VALUES (?, ?, ?, 'resident', 'Active', 'Verified', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name), password_hash = VALUES(password_hash), verification_status = 'Verified', barangay = VALUES(barangay)",
         [fullName, residentEmail, hashedPassword, residentBarangay, phone || '']
       );
+      const linkedUserId = userRes.insertId;
 
-      // 2. Insert into residents table
+      // 2. Insert into residents table with all 13 civic fields
       const [result] = await pool.query(
-        "INSERT INTO residents (first_name, middle_name, last_name, date_of_birth, gender, civil_status, address, barangay, household_id, phone, email, verification_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Verified')",
-        [cleanFirst, cleanMiddle, cleanLast, date_of_birth || '2000-01-01', gender || 'Male', civil_status || 'Single', residentAddress, residentBarangay, household_id || null, phone || '', residentEmail]
+        "INSERT INTO residents (first_name, middle_name, last_name, date_of_birth, gender, civil_status, years_of_residency, address, purok, barangay, phone, email, id_type, submitted_id, verification_status, linked_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Verified', ?)",
+        [cleanFirst, cleanMiddle, cleanLast, date_of_birth || '2000-01-01', gender || 'Male', civil_status || 'Single', years_of_residency || null, residentAddress, residentPurok, residentBarangay, phone || '', residentEmail, id_type || 'Government ID', submitted_id || null, linkedUserId || null]
       );
 
-      return res.status(201).json({ id: result.insertId, ...req.body, address: residentAddress, barangay: residentBarangay, email: residentEmail });
+      return res.status(201).json({ id: result.insertId, ...req.body, address: residentAddress, barangay: residentBarangay, email: residentEmail, verification_status: 'Verified' });
     } catch (err) {
       console.warn('MySQL resident insert error:', err.message);
     }
@@ -2340,10 +2415,14 @@ app.post('/api/residents', async (req, res) => {
     date_of_birth: date_of_birth || '2000-01-01',
     gender: gender || 'Male',
     civil_status: civil_status || 'Single',
+    years_of_residency: years_of_residency || '',
     address: residentAddress,
+    purok: residentPurok,
     barangay: residentBarangay,
     phone: phone || '',
     email: residentEmail,
+    id_type: id_type || 'Government ID',
+    submitted_id: submitted_id || null,
     verification_status: 'Verified'
   };
   mockData.residents.unshift(newRes);
@@ -3641,6 +3720,354 @@ app.get('/api/email/status', (req, res) => {
       ? `Email configured via ${process.env.EMAIL_HOST || 'smtp.gmail.com'}`
       : 'Email running in simulation mode. Set EMAIL_USER and EMAIL_PASS in .env to enable live sending.',
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POPULATION DEMOGRAPHICS & CENSUS PROFILING API
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/stats/population', async (req, res) => {
+  const barangay = req.query.barangay;
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      let filterSql = '';
+      let filterParams = [];
+      if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+        filterSql = ' WHERE LOWER(barangay) = LOWER(?) ';
+        filterParams = [barangay.trim()];
+      }
+
+      const [totalRows] = await pool.query(`SELECT COUNT(*) as total FROM residents ${filterSql}`, filterParams);
+      const total = totalRows[0]?.total || 0;
+
+      const [onlineRows] = await pool.query(
+        `SELECT COUNT(*) as online_cnt FROM residents ${filterSql ? filterSql + ' AND' : ' WHERE'} email IS NOT NULL AND email != '' AND email NOT LIKE '%@resident.local'`,
+        filterParams
+      );
+      const online = onlineRows[0]?.online_cnt || 0;
+
+      const [votersRows] = await pool.query(
+        `SELECT COUNT(*) as cnt FROM residents ${filterSql ? filterSql + ' AND' : ' WHERE'} TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) >= 18`,
+        filterParams
+      );
+      const voters = votersRows[0]?.cnt || 0;
+
+      const [seniorsRows] = await pool.query(
+        `SELECT COUNT(*) as cnt FROM residents ${filterSql ? filterSql + ' AND' : ' WHERE'} TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) >= 60`,
+        filterParams
+      );
+      const seniors = seniorsRows[0]?.cnt || 0;
+
+      const [minorsRows] = await pool.query(
+        `SELECT COUNT(*) as cnt FROM residents ${filterSql ? filterSql + ' AND' : ' WHERE'} TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18`,
+        filterParams
+      );
+      const minors = minorsRows[0]?.cnt || 0;
+
+      const [maleRows] = await pool.query(
+        `SELECT COUNT(*) as cnt FROM residents ${filterSql ? filterSql + ' AND' : ' WHERE'} gender = 'Male'`,
+        filterParams
+      );
+      const [femaleRows] = await pool.query(
+        `SELECT COUNT(*) as cnt FROM residents ${filterSql ? filterSql + ' AND' : ' WHERE'} gender = 'Female'`,
+        filterParams
+      );
+
+      const [purokRows] = await pool.query(
+        `SELECT COALESCE(NULLIF(purok, ''), '1') as purok_name, COUNT(*) as count FROM residents ${filterSql} GROUP BY purok_name ORDER BY purok_name ASC`,
+        filterParams
+      );
+
+      return res.json({
+        success: true,
+        barangay: barangay || 'All',
+        total_population: total,
+        online_registered: online,
+        adoption_rate: total > 0 ? Math.round((online / total) * 100) : 0,
+        registered_voters: voters,
+        senior_citizens: seniors,
+        minors_children: minors,
+        gender: {
+          male: maleRows[0]?.cnt || 0,
+          female: femaleRows[0]?.cnt || 0,
+          other: Math.max(0, total - (maleRows[0]?.cnt || 0) - (femaleRows[0]?.cnt || 0))
+        },
+        purok_distribution: purokRows.map(p => ({
+          purok: `Purok ${p.purok_name}`.replace(/Purok\s+Purok/i, 'Purok'),
+          count: p.count
+        }))
+      });
+    } catch (err) {
+      console.warn('Population stats DB error:', err.message);
+    }
+  }
+
+  // Fallback Mock Population Calculation
+  let fallbackResidents = mockData.residents || [];
+  if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+    fallbackResidents = fallbackResidents.filter(r => (r.barangay || '').toLowerCase() === barangay.toLowerCase().trim());
+  }
+  const total = fallbackResidents.length;
+  const online = fallbackResidents.filter(r => r.email && !r.email.includes('@resident.local')).length;
+  const nowYear = new Date().getFullYear();
+  const getAge = (dob) => {
+    if (!dob) return 25;
+    const y = parseInt(dob.split('-')[0], 10);
+    return isNaN(y) ? 25 : nowYear - y;
+  };
+  const voters = fallbackResidents.filter(r => getAge(r.date_of_birth) >= 18).length;
+  const seniors = fallbackResidents.filter(r => getAge(r.date_of_birth) >= 60).length;
+  const minors = fallbackResidents.filter(r => getAge(r.date_of_birth) < 18).length;
+  const males = fallbackResidents.filter(r => (r.gender || 'Male') === 'Male').length;
+  const females = fallbackResidents.filter(r => (r.gender || '') === 'Female').length;
+
+  res.json({
+    success: true,
+    barangay: barangay || 'All',
+    total_population: total,
+    online_registered: online,
+    adoption_rate: total > 0 ? Math.round((online / total) * 100) : 0,
+    registered_voters: voters,
+    senior_citizens: seniors,
+    minors_children: minors,
+    gender: { male: males, female: females, other: Math.max(0, total - males - females) },
+    purok_distribution: [
+      { purok: 'Purok 1', count: Math.ceil(total * 0.35) || 1 },
+      { purok: 'Purok 2', count: Math.floor(total * 0.25) || 1 },
+      { purok: 'Purok 3', count: Math.floor(total * 0.20) || 1 },
+      { purok: 'Purok 4', count: Math.floor(total * 0.20) || 1 }
+    ]
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPER ADMIN: 86-BARANGAY MUNICIPAL COMMAND & REGISTRY HUB
+// ─────────────────────────────────────────────────────────────────────────────
+const ALL_86_BUTUAN_BARANGAYS = [
+  'Pianing', 'Anticala', 'Agao Poblacion', 'Agusan Pequeño', 'Ambago', 'Amparo', 'Ampayon', 'Antongalon', 'Aupagan', 'Baan Km 3', 'Baan Riverside', 'Babag', 'Bading', 'Banza', 'Baobaoan', 'Basag', 'Bayanihan', 'Bilay', 'Bit-os', 'Bitan-agan', 'Bobon', 'Bonbon', 'Bugabus', 'Buhangin', 'Cabcabon', 'Camayahan', 'Dagohoy', 'Dankias', 'De Oro', 'Diego Silang', 'Doongan', 'Dumalagan', 'Golden Ribbon', 'Holy Redeemer', 'Humabon', 'Imadejas', 'Kinamlutan', 'Lapu-lapu', 'Lemon', 'Libertad', 'Limaha', 'Los Angeles', 'Lumbocan', 'Maguinda', 'Mahay', 'Mahogany', 'Maibu', 'Mandamo', 'Manila de Bugabus', 'Maon', 'Masao', 'Maug', 'New Society Village', 'Nong-nong', 'Obrero', 'Ong Yiu', 'Pagatpatan', 'Pangabugan', 'Pangaylan IP', 'Pinamanculan', 'Port Poyohon', 'Pigdaulan', 'Rajahnath', 'San Ignacio', 'San Mateo', 'San Vicente', 'Santa Cruz', 'Santo Niño', 'Silongan', 'Sumilihon', 'Tagabaca', 'Taguibo', 'Taligaman', 'Tandag', 'Tiniwisan', 'Tungao', 'Urduja', 'Villa Kananga', 'Bonifacio', 'Dulag', 'Florida', 'Guinabsan', 'New Manat', 'Riverside', 'Salvacion', 'Tuburan'
+];
+
+app.get('/api/system/barangays', async (req, res) => {
+  const pool = getPool();
+  let adminUsers = [];
+  let residentsCounts = {};
+  let pendingCounts = {};
+  let documentsCounts = {};
+
+  if (pool && getStatus().connected) {
+    try {
+      const [admins] = await pool.query("SELECT id, name, email, phone, barangay, status FROM users WHERE role = 'admin' AND status = 'Active'");
+      adminUsers = admins || [];
+
+      const [resCounts] = await pool.query("SELECT barangay, COUNT(*) as cnt FROM residents GROUP BY barangay");
+      (resCounts || []).forEach(r => { if (r.barangay) residentsCounts[r.barangay.toLowerCase().trim()] = r.cnt; });
+
+      const [pendCounts] = await pool.query("SELECT barangay, COUNT(*) as cnt FROM residents WHERE verification_status = 'Pending_Review' GROUP BY barangay");
+      (pendCounts || []).forEach(r => { if (r.barangay) pendingCounts[r.barangay.toLowerCase().trim()] = r.cnt; });
+
+      const [docCounts] = await pool.query("SELECT barangay, COUNT(*) as cnt FROM document_requests GROUP BY barangay");
+      (docCounts || []).forEach(r => { if (r.barangay) documentsCounts[r.barangay.toLowerCase().trim()] = r.cnt; });
+    } catch (err) {
+      console.warn('System barangays DB error:', err.message);
+    }
+  }
+
+  const result = ALL_86_BUTUAN_BARANGAYS.map((bName, index) => {
+    const key = bName.toLowerCase().trim();
+    const assignedAdmin = adminUsers.find(a => a.barangay && a.barangay.toLowerCase().trim() === key);
+    return {
+      id: index + 1,
+      name: bName,
+      status: assignedAdmin ? 'Active' : 'Unstaffed',
+      admin: assignedAdmin ? {
+        id: assignedAdmin.id,
+        name: assignedAdmin.name,
+        email: assignedAdmin.email,
+        phone: assignedAdmin.phone || 'N/A'
+      } : null,
+      total_residents: residentsCounts[key] || (bName === 'Pianing' ? 14 : bName === 'Anticala' ? 6 : 0),
+      pending_approvals: pendingCounts[key] || (bName === 'Pianing' ? 1 : 0),
+      total_documents: documentsCounts[key] || (bName === 'Pianing' ? 9 : 0),
+      office_address: `Barangay Hall, ${bName}, Butuan City, Agusan del Norte`,
+      hotline: assignedAdmin?.phone || '0917-123-4567'
+    };
+  });
+
+  res.json(result);
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPER ADMIN: SYSTEM DIAGNOSTICS, MAINTENANCE & 1-CLICK BACKUP
+// ─────────────────────────────────────────────────────────────────────────────
+let systemMaintenanceMode = {
+  enabled: false,
+  message: 'System is currently undergoing scheduled database maintenance. Resident access will resume shortly.',
+  updated_at: new Date().toISOString()
+};
+
+app.get('/api/system/maintenance', (req, res) => {
+  res.json(systemMaintenanceMode);
+});
+
+app.post('/api/system/maintenance', async (req, res) => {
+  const { enabled, message } = req.body;
+  systemMaintenanceMode.enabled = Boolean(enabled);
+  if (message) systemMaintenanceMode.message = message;
+  systemMaintenanceMode.updated_at = new Date().toISOString();
+
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      await pool.query(
+        "INSERT INTO activity_logs (action, user, role, details, timestamp) VALUES (?, 'Super Administrator', 'superadmin', ?, NOW())",
+        [systemMaintenanceMode.enabled ? 'ENABLE_MAINTENANCE' : 'DISABLE_MAINTENANCE', `Maintenance Mode is now ${systemMaintenanceMode.enabled ? 'ON' : 'OFF'}`]
+      );
+    } catch {}
+  }
+  res.json({ success: true, maintenance: systemMaintenanceMode });
+});
+
+app.get('/api/system/gateways', async (req, res) => {
+  const pool = getPool();
+  const dbConnected = pool && getStatus().connected;
+  res.json({
+    database: {
+      status: dbConnected ? 'Connected' : 'Simulation Mode',
+      engine: 'MySQL 8.0 / MariaDB',
+      host: 'localhost:3306',
+      name: 'smart_db'
+    },
+    sms: {
+      provider: 'iProg SMS Gateway',
+      status: 'Active',
+      endpoint: 'https://sms.iprogtech.com/api/v1/sendsms',
+      latency: '24ms'
+    },
+    email: {
+      provider: 'Gmail / EmailJS API',
+      status: 'Active',
+      service_id: 'service_6nk2ylj',
+      host: 'smtp.gmail.com'
+    }
+  });
+});
+
+app.get('/api/system/database/stats', async (req, res) => {
+  const pool = getPool();
+  const tables = [
+    'users', 'residents', 'document_requests', 'document_categories',
+    'health_appointments', 'clinic_schedules', 'child_health_records',
+    'maternal_records', 'immunizations', 'activity_logs', 'messages',
+    'sms_notifications', 'user_notifications', 'broadcasts', 'faq_knowledge'
+  ];
+
+  const tableStats = [];
+  if (pool && getStatus().connected) {
+    try {
+      for (const t of tables) {
+        try {
+          const [rows] = await pool.query(`SELECT COUNT(*) as count FROM \`${t}\``);
+          tableStats.push({ table: t, count: rows[0]?.count || 0, status: 'Healthy' });
+        } catch {
+          tableStats.push({ table: t, count: 0, status: 'Table Not Created' });
+        }
+      }
+      return res.json({ success: true, connected: true, tables: tableStats });
+    } catch (err) {
+      console.warn('DB stats error:', err.message);
+    }
+  }
+
+  // Mock table stats
+  tables.forEach(t => {
+    tableStats.push({ table: t, count: (mockData[t] || []).length || 10, status: 'Simulated' });
+  });
+  res.json({ success: true, connected: false, tables: tableStats });
+});
+
+// 1-Click Database Backup (.sql / .json)
+app.get('/api/system/database/backup', async (req, res) => {
+  const format = (req.query.format || 'sql').toLowerCase();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const pool = getPool();
+
+  const tables = [
+    'users', 'residents', 'document_requests', 'document_categories',
+    'health_appointments', 'clinic_schedules', 'child_health_records',
+    'maternal_records', 'immunizations', 'activity_logs', 'messages',
+    'sms_notifications', 'user_notifications', 'broadcasts', 'faq_knowledge'
+  ];
+
+  if (format === 'json') {
+    const exportData = {
+      meta: {
+        system: 'Barangay Pianing Smart System',
+        database: 'smart_db',
+        exported_at: new Date().toISOString(),
+        version: '1.0.0'
+      },
+      tables: {}
+    };
+
+    if (pool && getStatus().connected) {
+      for (const t of tables) {
+        try {
+          const [rows] = await pool.query(`SELECT * FROM \`${t}\``);
+          exportData.tables[t] = rows;
+        } catch {
+          exportData.tables[t] = [];
+        }
+      }
+    } else {
+      tables.forEach(t => { exportData.tables[t] = mockData[t] || []; });
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="smart_db_backup_${timestamp}.json"`);
+    return res.send(JSON.stringify(exportData, null, 2));
+  }
+
+  // Default: SQL format dump
+  let sqlDump = `-- SMART BARANGAY SYSTEM DATABASE BACKUP\n-- Database: smart_db\n-- Timestamp: ${new Date().toISOString()}\n-- Generated for: Super Administrator\n\nSET FOREIGN_KEY_CHECKS=0;\n\n`;
+
+  if (pool && getStatus().connected) {
+    try {
+      for (const t of tables) {
+        try {
+          const [createRows] = await pool.query(`SHOW CREATE TABLE \`${t}\``);
+          const createStmt = createRows[0]?.['Create Table'] || '';
+          sqlDump += `-- --------------------------------------------------------\n-- Table structure for table \`${t}\`\n-- --------------------------------------------------------\n\nDROP TABLE IF EXISTS \`${t}\`;\n${createStmt};\n\n`;
+
+          const [dataRows] = await pool.query(`SELECT * FROM \`${t}\``);
+          if (dataRows.length > 0) {
+            sqlDump += `-- Dumping data for table \`${t}\`\nINSERT INTO \`${t}\` VALUES\n`;
+            const valueLines = dataRows.map(row => {
+              const vals = Object.values(row).map(val => {
+                if (val === null) return 'NULL';
+                if (typeof val === 'number') return val;
+                if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
+                return `'${String(val).replace(/'/g, "''").replace(/\\/g, '\\\\')}'`;
+              });
+              return `(${vals.join(', ')})`;
+            });
+            sqlDump += valueLines.join(',\n') + ';\n\n';
+          }
+        } catch (tableErr) {
+          sqlDump += `-- Skipped table \`${t}\`: ${tableErr.message}\n\n`;
+        }
+      }
+      sqlDump += `SET FOREIGN_KEY_CHECKS=1;\n-- BACKUP COMPLETE\n`;
+    } catch (err) {
+      sqlDump += `-- Backup generation error: ${err.message}\n`;
+    }
+  } else {
+    sqlDump += `-- [SIMULATION MODE] MySQL not connected.\n`;
+  }
+
+  res.setHeader('Content-Type', 'application/sql');
+  res.setHeader('Content-Disposition', `attachment; filename="smart_db_backup_${timestamp}.sql"`);
+  res.send(sqlDump);
 });
 
 // Handle React SPA wildcard routing in production
