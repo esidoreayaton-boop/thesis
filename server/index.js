@@ -4092,6 +4092,386 @@ app.get('/api/system/database/backup', async (req, res) => {
   res.send(sqlDump);
 });
 
+// -------------------------------------------------------------
+// Automated 1-Day Advance Scheduler (SMS & Email Reminders)
+// -------------------------------------------------------------
+async function runOneDayAdvanceScheduler() {
+  const pool = getPool();
+  let dispatchedCount = 0;
+  if (!pool || !getStatus().connected) return { dispatchedCount };
+
+  try {
+    // 1. Appointments tomorrow
+    const [apts] = await pool.query(`
+      SELECT * FROM health_appointments 
+      WHERE (DATE(preferred_date) = CURDATE() + INTERVAL 1 DAY OR DATE(scheduled_date) = CURDATE() + INTERVAL 1 DAY)
+        AND (one_day_alert_sent = 0 OR one_day_alert_sent IS NULL)
+        AND status IN ('Approved', 'Scheduled', 'Pending')
+    `);
+
+    for (const apt of apts) {
+      const patientPhone = apt.resident_phone;
+      const patientName = apt.resident_name;
+      const service = apt.service_type || 'Consultation';
+      const time = apt.scheduled_time || apt.preferred_time || 'Morning';
+      
+      const smsText = `Barangay Pianing Health Center: Reminder! Your ${service} appointment is TOMORROW at ${time}. Please bring your ID and health records.`;
+      
+      if (patientPhone) {
+        await sendLiveSms(patientPhone, smsText).catch(() => {});
+        await pool.query(
+          "INSERT INTO sms_notifications (recipient_name, recipient_phone, type, message, status, sent_at) VALUES (?, ?, '1-Day Advance Reminder', ?, 'Sent', NOW())",
+          [patientName, patientPhone, smsText]
+        ).catch(() => {});
+      }
+      
+      if (apt.resident_email && apt.resident_email.includes('@')) {
+        sendImmunizationReminderEmail({
+          to: apt.resident_email,
+          childName: patientName,
+          parentName: patientName,
+          vaccineName: service,
+          doseNumber: 1,
+          dueDate: 'Tomorrow'
+        }).catch(() => {});
+      }
+
+      await pool.query("UPDATE health_appointments SET one_day_alert_sent = 1 WHERE id = ?", [apt.id]).catch(() => {});
+      dispatchedCount++;
+    }
+
+    // 2. Maternal records with next_visit_date tomorrow
+    const [matList] = await pool.query(`
+      SELECT * FROM maternal_records 
+      WHERE DATE(next_visit_date) = CURDATE() + INTERVAL 1 DAY
+        AND (one_day_alert_sent = 0 OR one_day_alert_sent IS NULL)
+    `);
+
+    for (const mat of matList) {
+      const patientPhone = mat.contact_number;
+      const patientName = mat.mother_name;
+      const smsText = `Barangay Health Center: Dear ${patientName}, your Prenatal Check-up is TOMORROW. Please bring your Mother-Baby Book. Stay safe!`;
+
+      if (patientPhone) {
+        await sendLiveSms(patientPhone, smsText).catch(() => {});
+        await pool.query(
+          "INSERT INTO sms_notifications (recipient_name, recipient_phone, type, message, status, sent_at) VALUES (?, ?, '1-Day Advance Reminder', ?, 'Sent', NOW())",
+          [patientName, patientPhone, smsText]
+        ).catch(() => {});
+      }
+      await pool.query("UPDATE maternal_records SET one_day_alert_sent = 1 WHERE id = ?", [mat.id]).catch(() => {});
+      dispatchedCount++;
+    }
+
+    // 3. Immunizations due tomorrow
+    const [immList] = await pool.query(`
+      SELECT * FROM immunizations 
+      WHERE DATE(due_date) = CURDATE() + INTERVAL 1 DAY
+        AND status = 'Scheduled'
+        AND (one_day_alert_sent = 0 OR one_day_alert_sent IS NULL)
+    `);
+
+    for (const imm of immList) {
+      const patientPhone = imm.parent_phone;
+      const childName = imm.child_name;
+      const vaccine = imm.vaccine_name;
+      const dose = imm.dose_number || 1;
+      const smsText = `Barangay Health Center: Reminder! ${childName}'s ${vaccine} (Dose ${dose}) is due TOMORROW. Free immunization available at the Health Center.`;
+
+      if (patientPhone) {
+        await sendLiveSms(patientPhone, smsText).catch(() => {});
+        await pool.query(
+          "INSERT INTO sms_notifications (recipient_name, recipient_phone, type, message, status, sent_at) VALUES (?, ?, '1-Day Advance Reminder', ?, 'Sent', NOW())",
+          [childName, patientPhone, smsText]
+        ).catch(() => {});
+      }
+      await pool.query("UPDATE immunizations SET one_day_alert_sent = 1 WHERE id = ?", [imm.id]).catch(() => {});
+      dispatchedCount++;
+    }
+
+    // 4. Family planning resupply tomorrow
+    const [fpList] = await pool.query(`
+      SELECT * FROM family_planning_records 
+      WHERE DATE(next_supply_date) = CURDATE() + INTERVAL 1 DAY
+        AND status = 'Active'
+    `);
+
+    for (const fp of fpList) {
+      const patientPhone = fp.contact_number;
+      const patientName = fp.patient_name;
+      const method = fp.method_chosen;
+      const smsText = `Barangay Health Center: Dear ${patientName}, your Family Planning (${method}) resupply/injection is scheduled for TOMORROW. Free supplies ready.`;
+
+      if (patientPhone) {
+        await sendLiveSms(patientPhone, smsText).catch(() => {});
+        await pool.query(
+          "INSERT INTO sms_notifications (recipient_name, recipient_phone, type, message, status, sent_at) VALUES (?, ?, '1-Day Advance Reminder', ?, 'Sent', NOW())",
+          [patientName, patientPhone, smsText]
+        ).catch(() => {});
+      }
+      dispatchedCount++;
+    }
+
+  } catch (err) {
+    console.warn('[1-Day Scheduler] Error:', err.message);
+  }
+
+  return { dispatchedCount };
+}
+
+// Run scheduler every 6 hours automatically
+setInterval(() => {
+  runOneDayAdvanceScheduler().catch(() => {});
+}, 6 * 60 * 60 * 1000);
+
+// -------------------------------------------------------------
+// Returning Patient Search & History Endpoint
+// -------------------------------------------------------------
+app.get('/api/patients/search', async (req, res) => {
+  const query = (req.query.q || '').trim().toLowerCase();
+  const pool = getPool();
+
+  if (!query) {
+    return res.json({ patients: [] });
+  }
+
+  if (pool && getStatus().connected) {
+    try {
+      // Find matching residents or past clinical encounter patients
+      const [residents] = await pool.query(`
+        SELECT id, first_name, middle_name, last_name, gender, date_of_birth, civil_status, address, purok, phone, email
+        FROM residents
+        WHERE LOWER(CONCAT(first_name, ' ', COALESCE(middle_name, ''), ' ', last_name)) LIKE ?
+           OR phone LIKE ?
+        LIMIT 10
+      `, [`%${query}%`, `%${query}%`]);
+
+      const formatted = [];
+      for (const r of residents) {
+        const fullName = `${r.first_name} ${r.middle_name ? r.middle_name + ' ' : ''}${r.last_name}`.trim();
+        // Lookup most recent past clinical encounter
+        const [recentEncounter] = await pool.query(`
+          SELECT * FROM clinical_encounters 
+          WHERE LOWER(patient_name) = LOWER(?)
+          ORDER BY encounter_date DESC, id DESC LIMIT 1
+        `, [fullName]);
+
+        formatted.push({
+          id: r.id,
+          name: fullName,
+          first_name: r.first_name,
+          middle_name: r.middle_name,
+          last_name: r.last_name,
+          gender: r.gender || 'Female',
+          date_of_birth: r.date_of_birth,
+          civil_status: r.civil_status || 'Single',
+          address: r.address || r.purok || 'Purok 1',
+          purok: r.purok || 'Purok 1',
+          phone: r.phone || '',
+          email: r.email || '',
+          previous_encounter: recentEncounter.length > 0 ? recentEncounter[0] : null
+        });
+      }
+
+      return res.json({ patients: formatted });
+    } catch (err) {
+      console.warn('MySQL patient search error:', err.message);
+    }
+  }
+
+  // Fallback mock search
+  const mockMatches = (mockData.residents || [])
+    .filter(r => `${r.first_name} ${r.last_name}`.toLowerCase().includes(query) || (r.phone && r.phone.includes(query)))
+    .slice(0, 10)
+    .map(r => ({
+      id: r.id,
+      name: `${r.first_name} ${r.last_name}`.trim(),
+      gender: r.gender || 'Female',
+      date_of_birth: r.date_of_birth,
+      civil_status: r.civil_status || 'Single',
+      address: r.address || 'Pianing',
+      purok: r.purok || 'Purok 1',
+      phone: r.phone || '',
+      email: r.email || '',
+      previous_encounter: null
+    }));
+
+  res.json({ patients: mockMatches });
+});
+
+// -------------------------------------------------------------
+// Unified Clinical Intake Endpoint (Vitals + 4 Programs)
+// -------------------------------------------------------------
+app.post('/api/patients/intake', async (req, res) => {
+  const {
+    patient_name,
+    contact_number,
+    age,
+    gender,
+    civil_status,
+    purok,
+    barangay,
+    email,
+    bp,
+    temp,
+    weight,
+    height,
+    heart_rate,
+    program_type,
+    // Consultation
+    chief_complaint,
+    diagnosis,
+    treatment,
+    prescribed_meds,
+    // Prenatal
+    lmp,
+    edd,
+    aog_weeks,
+    gravida,
+    para,
+    fetal_heart_rate,
+    fundic_height,
+    // Family Planning
+    method_chosen,
+    client_type,
+    next_supply_date,
+    // NIP
+    vaccine_name,
+    dose_number,
+    due_date,
+    // Follow-up
+    next_visit_date,
+    attending_worker
+  } = req.body;
+
+  if (!patient_name || !program_type) {
+    return res.status(400).json({ success: false, message: 'Patient name and program type are required.' });
+  }
+
+  const pool = getPool();
+  const worker = attending_worker || 'Healthcare Worker';
+  const brgy = barangay || 'Pianing';
+
+  if (pool && getStatus().connected) {
+    try {
+      // 1. Insert into clinical_encounters (EHR encounter log)
+      const [result] = await pool.query(`
+        INSERT INTO clinical_encounters 
+        (patient_name, contact_number, age, gender, civil_status, barangay, purok, program_type, bp, temp, weight, height, heart_rate, chief_complaint, diagnosis, treatment, prescribed_meds, attending_worker, encounter_date, next_visit_date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, 'Completed')
+      `, [
+        patient_name.trim(), contact_number || '', age || '', gender || 'Female', civil_status || 'Single', brgy, purok || 'Purok 1',
+        program_type, bp || '120/80', temp || '36.5', weight || '', height || '', heart_rate || '',
+        chief_complaint || '', diagnosis || '', treatment || '', prescribed_meds || '', worker, next_visit_date || null
+      ]);
+
+      const encounterId = result.insertId;
+
+      // 2. Program-specific persistence
+      if (program_type === 'Prenatal') {
+        await pool.query(`
+          INSERT INTO maternal_records 
+          (mother_name, contact_number, age, barangay, gravida, para, lmp, edd, aog_weeks, bp, weight, temp, fetal_heart_rate, fundic_height, next_visit_date, attending_nurse)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          patient_name.trim(), contact_number || '', age || '', brgy, gravida || 1, para || 0,
+          lmp || '2026-01-01', edd || '2026-10-01', aog_weeks || '', bp || '', weight || '', temp || '',
+          fetal_heart_rate || '', fundic_height || '', next_visit_date || null, worker
+        ]).catch(() => {});
+      } else if (program_type === 'NIP Immunization') {
+        await pool.query(`
+          INSERT INTO immunizations 
+          (child_name, parent_phone, vaccine_name, dose_number, status, date_administered, due_date, administered_by)
+          VALUES (?, ?, ?, ?, 'Completed', CURDATE(), ?, ?)
+        `, [
+          patient_name.trim(), contact_number || '', vaccine_name || 'Pentavalent', dose_number || 1,
+          due_date || next_visit_date || null, worker
+        ]).catch(() => {});
+      } else if (program_type === 'Family Planning') {
+        await pool.query(`
+          INSERT INTO family_planning_records 
+          (patient_name, contact_number, age, barangay, purok, method_chosen, client_type, date_given, next_supply_date, attending_worker)
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?)
+        `, [
+          patient_name.trim(), contact_number || '', age || '', brgy, purok || 'Purok 1',
+          method_chosen || 'DMPA Injectable', client_type || 'Current User', next_supply_date || next_visit_date || '2026-12-01', worker
+        ]).catch(() => {});
+      }
+
+      // 3. Live SMS Dispatch
+      if (contact_number) {
+        let smsText = `Barangay Pianing Health Center: Hello ${patient_name}, your ${program_type} on ${new Date().toLocaleDateString()} has been recorded.`;
+        if (next_visit_date) {
+          smsText += ` Next visit scheduled: ${next_visit_date}.`;
+        }
+        sendLiveSms(contact_number, smsText).catch(() => {});
+        pool.query(
+          "INSERT INTO sms_notifications (recipient_name, recipient_phone, type, message, status, sent_at) VALUES (?, ?, ?, ?, 'Sent', NOW())",
+          [patient_name, contact_number, `${program_type} Confirmation`, smsText]
+        ).catch(() => {});
+      }
+
+      return res.status(201).json({
+        success: true,
+        encounterId,
+        message: `Clinical intake for ${patient_name} completed successfully.`,
+        patient_name,
+        program_type
+      });
+    } catch (err) {
+      console.warn('MySQL intake error:', err.message);
+    }
+  }
+
+  // In-memory fallback
+  res.status(201).json({
+    success: true,
+    encounterId: Date.now(),
+    message: `Clinical intake for ${patient_name} recorded (in-memory mode).`,
+    patient_name,
+    program_type
+  });
+});
+
+// -------------------------------------------------------------
+// Archives Hub Endpoint
+// -------------------------------------------------------------
+app.get('/api/archives/clinical', async (req, res) => {
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      const [consultations] = await pool.query(
+        "SELECT * FROM clinical_encounters ORDER BY encounter_date DESC, id DESC LIMIT 100"
+      );
+      const [maternal] = await pool.query(
+        "SELECT * FROM maternal_records ORDER BY id DESC LIMIT 100"
+      );
+      const [immunizations] = await pool.query(
+        "SELECT * FROM immunizations WHERE status = 'Completed' ORDER BY id DESC LIMIT 100"
+      );
+      const [schedules] = await pool.query(
+        "SELECT * FROM clinic_schedules ORDER BY id DESC LIMIT 50"
+      );
+      return res.json({ consultations, maternal, immunizations, schedules });
+    } catch (err) {
+      console.warn('MySQL clinical archives fetch error:', err.message);
+    }
+  }
+
+  res.json({
+    consultations: [],
+    maternal: mockData.maternal || [],
+    immunizations: (mockData.immunizations || []).filter(i => i.status === 'Completed'),
+    schedules: mockData.clinicSchedules || []
+  });
+});
+
+// Manual 1-Day Scheduler Trigger (for testing & immediate dispatch)
+app.post('/api/scheduler/run-1day-reminders', async (req, res) => {
+  const result = await runOneDayAdvanceScheduler();
+  res.json({ success: true, ...result });
+});
+
 // Handle React SPA wildcard routing in production
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();

@@ -8,9 +8,14 @@ import {
 } from 'lucide-react';
 import {
   apiService, ImmunizationRecord, MaternalRecord,
-  HealthAppointment, ClinicSchedule, Resident
+  HealthAppointment, ClinicSchedule, Resident, SmsNotification
 } from '../../services/api';
 import PatientDetailModal, { PatientRecordData } from '../components/PatientDetailModal';
+import SmartClinicalIntakeModal from '../components/SmartClinicalIntakeModal';
+import GmailNotificationHub from '../components/GmailNotificationHub';
+import ClinicalArchivesHub from '../components/ClinicalArchivesHub';
+import ProfileSettingsModal from '../components/ProfileSettingsModal';
+import SmsDetailsModal from '../components/SmsDetailsModal';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -134,6 +139,17 @@ export default function NurseDashboard() {
   // API Data States
   const [appointments, setAppointments] = useState<HealthAppointment[]>([]);
 
+  // Clinical Intake, Notifications & Profile Modal States
+  const [isIntakeOpen, setIsIntakeOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [notifications, setNotifications] = useState<SmsNotification[]>([]);
+  const [selectedSms, setSelectedSms] = useState<SmsNotification | null>(null);
+  const [isSendSmsModalOpen, setIsSendSmsModalOpen] = useState(false);
+  const [composeRecipient, setComposeRecipient] = useState('');
+  const [composePhone, setComposePhone] = useState('');
+  const [composeMessage, setComposeMessage] = useState('');
+  const [composeType, setComposeType] = useState('Health Alert');
+
   // 360 Patient Modal
   const [selectedPatientModal, setSelectedPatientModal] = useState<PatientRecordData | null>(null);
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
@@ -228,15 +244,42 @@ export default function NurseDashboard() {
   const [sDay, setSDay] = useState('Every Monday'); const [sTime, setSTime] = useState('8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM');
   const [sLocation, setSLocation] = useState(`Barangay ${nurseBarangay} Health Center`);
 
+  const handleSendCustomSms = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!composeRecipient || !composePhone || !composeMessage) {
+      toast.error('Recipient name, phone, and message are required');
+      return;
+    }
+    try {
+      await apiService.sendNotification({
+        recipient_name: composeRecipient,
+        recipient_phone: composePhone,
+        type: composeType,
+        message: composeMessage,
+        status: 'Sent'
+      });
+      toast.success(`SMS alert dispatched to ${composeRecipient}!`);
+      setIsSendSmsModalOpen(false);
+      setComposeRecipient('');
+      setComposePhone('');
+      setComposeMessage('');
+      loadData();
+    } catch {
+      toast.error('Failed to dispatch SMS');
+    }
+  };
+
   // Load API data
   const loadData = async () => {
     setLoading(true);
     try {
-      const [apts, schedules] = await Promise.all([
+      const [apts, schedules, notifs] = await Promise.all([
         apiService.getAppointments({ barangay: nurseBarangay }).catch(() => []),
-        apiService.getClinicSchedules(nurseBarangay).catch(() => [])
+        apiService.getClinicSchedules(nurseBarangay).catch(() => []),
+        apiService.getNotifications().catch(() => [])
       ]);
       setAppointments(apts);
+      setNotifications(notifs);
       if (schedules && schedules.length > 0) {
         setWeeklySchedules(schedules.map((s: any) => ({
           id: s.id,
@@ -567,8 +610,8 @@ export default function NurseDashboard() {
     { id: 'immunizations', label: 'EPI Immunizations', icon: Baby },
     { id: 'schedule', label: 'Weekly Schedule', icon: CalendarCheck },
     { id: 'inventory', label: 'Vaccines & Medicine Supply', icon: Pill },
-    { id: 'archives', label: 'Encounters Archive', icon: Archive },
-    { id: 'sms', label: 'SMS Notifications', icon: Bell },
+    { id: 'archives', label: 'Clinical Archives & EHR', icon: Archive },
+    { id: 'sms', label: 'Gmail Notification Hub', icon: Bell },
   ];
 
   const totalAlerts = overduePrenatal.length + overdueImmun.length + upcomingPrenatal.length + upcomingImmun.length;
@@ -597,15 +640,33 @@ export default function NurseDashboard() {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 text-teal-800 border border-teal-200 rounded-full text-xs font-semibold">
+            {/* Primary Action: Add Patient / Clinical Intake */}
+            <Button
+              size="sm"
+              onClick={() => setIsIntakeOpen(true)}
+              className="bg-teal-700 hover:bg-teal-800 text-white text-xs gap-1.5 font-bold shadow-xs cursor-pointer h-8 px-3 rounded-xl"
+            >
+              <PlusCircle size={14} />
+              <span>+ Add Patient</span>
+            </Button>
+
+            {/* Profile Settings Trigger */}
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 rounded-full text-xs font-semibold cursor-pointer transition-colors"
+              title="Click to manage profile and credentials"
+            >
               <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
-              {nurseName}
-            </span>
-            <Button variant="outline" size="sm" onClick={loadData} className="text-xs gap-1.5 border-slate-200 cursor-pointer">
+              <span>{nurseName}</span>
+              <User size={12} className="text-teal-600" />
+            </button>
+
+            <Button variant="outline" size="sm" onClick={loadData} className="text-xs gap-1.5 border-slate-200 cursor-pointer h-8">
               <RefreshCcw size={13} className={loading ? 'animate-spin text-teal-600' : ''} />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
-            <Button variant="destructive" size="sm" onClick={() => { localStorage.removeItem('barangay_user'); navigate('/login'); }} className="text-xs gap-1 bg-red-600 hover:bg-red-700 cursor-pointer">
+
+            <Button variant="destructive" size="sm" onClick={() => { localStorage.removeItem('barangay_user'); navigate('/login'); }} className="text-xs gap-1 bg-red-600 hover:bg-red-700 cursor-pointer h-8">
               <LogOut size={13} /> <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
@@ -1109,91 +1170,48 @@ export default function NurseDashboard() {
 
           {/* ═══ HISTORICAL ARCHIVES ═════════════════════════════════════════ */}
           {activeTab === 'archives' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Archive className="text-teal-700" size={20} /> Clinical Encounters & Historical Archives</h2>
-                  <p className="text-xs text-slate-500">Permanent transaction history of all completed consultations, vaccinations, and maternal visits</p>
-                </div>
-              </div>
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Patient Name</TableHead>
-                        <TableHead className="text-xs">Contact</TableHead>
-                        <TableHead className="text-xs">Encounter Type</TableHead>
-                        <TableHead className="text-xs">Clinical Summary</TableHead>
-                        <TableHead className="text-xs">Encounter Date</TableHead>
-                        <TableHead className="text-xs">Attending Staff</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {archives.map((a, idx) => (
-                        <TableRow key={`arch-${a.id}-${idx}`} className="text-xs">
-                          <TableCell className="font-bold text-slate-800">{a.patient_name}</TableCell>
-                          <TableCell className="font-mono text-slate-600">{a.contact_number}</TableCell>
-                          <TableCell><Badge className="bg-teal-100 text-teal-800 border-0 text-[10px]">{a.encounter_type}</Badge></TableCell>
-                          <TableCell className="text-slate-600 text-[11px]">{a.details}</TableCell>
-                          <TableCell className="text-slate-400">{a.date}</TableCell>
-                          <TableCell className="text-slate-500">{a.attending}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </div>
+            <ClinicalArchivesHub
+              barangay={nurseBarangay}
+              onSelectPatient={(name, phone) => openPatient360(name, phone || '')}
+            />
           )}
 
-          {/* ═══ SMS NOTIFICATIONS ══════════════════════════════════════════ */}
+          {/* ═══ GMAIL-STYLE SMS NOTIFICATIONS ═════════════════════════════════ */}
           {activeTab === 'sms' && (
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Bell className="text-amber-500" size={20} /> Automated SMS Reminders & Alerts</h2>
-                <Button onClick={handleSendDueSmsAll} className="bg-amber-500 hover:bg-amber-600 text-white text-xs gap-1.5 cursor-pointer">
-                  <Send size={14} /> Send All Due SMS Reminders
-                </Button>
-              </div>
-
-              {overduePrenatal.length > 0 && (
-                <Card className="border-red-200">
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-bold text-red-800 flex items-center gap-2"><AlertTriangle size={16} />Overdue Prenatal Check-ups ({overduePrenatal.length})</CardTitle></CardHeader>
-                  <CardContent className="space-y-2">
-                    {overduePrenatal.map((r, idx) => (
-                      <div key={`od-p-${idx}`} className="flex items-center justify-between bg-red-50 rounded-lg px-3 py-2.5 border border-red-200">
-                        <div>
-                          <p className="text-xs font-bold text-slate-800 cursor-pointer hover:underline" onClick={() => openPatient360(r.patient_name, r.contact_number)}>{r.patient_name}</p>
-                          <p className="text-[11px] text-red-600">Due: {r.next_visit_date} · Contact: {r.contact_number}</p>
-                        </div>
-                        <Button size="sm" onClick={() => handleSendSmsReminder(r.patient_name, r.contact_number, `URGENT: Dear ${r.patient_name}, your prenatal visit was due on ${r.next_visit_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`, 'Prenatal Overdue')} className="bg-red-600 hover:bg-red-700 text-white text-[10px] gap-1 cursor-pointer">
-                          <Send size={10} /> Send SMS
-                        </Button>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
+              {/* Overdue Urgent Action Banner (if any) */}
+              {(overduePrenatal.length > 0 || overdueImmun.length > 0) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="text-amber-600 shrink-0" size={20} />
+                    <div>
+                      <p className="text-xs font-bold text-amber-900">
+                        {overduePrenatal.length + overdueImmun.length} Patients Have Overdue Visits
+                      </p>
+                      <p className="text-[11px] text-amber-700">
+                        {overduePrenatal.length} prenatal check-ups and {overdueImmun.length} child immunizations require immediate follow-up.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleSendDueSmsAll}
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <Send size={13} /> Batch Send Overdue SMS
+                  </Button>
+                </div>
               )}
 
-              {overdueImmun.length > 0 && (
-                <Card className="border-orange-200">
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-bold text-orange-800 flex items-center gap-2"><Syringe size={16} />Overdue Child Immunizations ({overdueImmun.length})</CardTitle></CardHeader>
-                  <CardContent className="space-y-2">
-                    {overdueImmun.map((r, idx) => (
-                      <div key={`od-i-${idx}`} className="flex items-center justify-between bg-orange-50 rounded-lg px-3 py-2.5 border border-orange-200">
-                        <div>
-                          <p className="text-xs font-bold text-slate-800 cursor-pointer hover:underline" onClick={() => openPatient360(r.child_name, r.contact_number)}>{r.child_name}</p>
-                          <p className="text-[11px] text-orange-600">{r.vaccine_given} ({r.dose_number}) due: {r.next_due_date} · Contact: {r.contact_number}</p>
-                        </div>
-                        <Button size="sm" onClick={() => handleSendSmsReminder(r.child_name, r.contact_number, `Reminder: ${r.child_name}'s ${r.vaccine_given} was due on ${r.next_due_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`, 'Immunization Overdue')} className="bg-orange-600 hover:bg-orange-700 text-white text-[10px] gap-1 cursor-pointer">
-                          <Send size={10} /> Send SMS
-                        </Button>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
+              {/* Gmail-Style Notification Center */}
+              <GmailNotificationHub
+                notifications={notifications}
+                onRefresh={loadData}
+                onOpenDetails={n => setSelectedSms(n)}
+                onOpenCompose={() => setIsSendSmsModalOpen(true)}
+                currentUserRole="nurse"
+                barangay={nurseBarangay}
+              />
             </div>
           )}
 
@@ -1480,6 +1498,98 @@ export default function NurseDashboard() {
         onSendSmsSuccess={() => toast.success('SMS notification sent to patient')}
         onLogReturnVisit={handleLogReturnVisitFromModal}
       />
+
+      {/* Dynamic Smart Clinical Intake Modal */}
+      <SmartClinicalIntakeModal
+        isOpen={isIntakeOpen}
+        onClose={() => setIsIntakeOpen(false)}
+        onSuccess={loadData}
+        barangay={nurseBarangay}
+        attendingWorker={nurseName}
+        workerRole="nurse"
+      />
+
+      {/* Official Nurse Profile Settings Modal */}
+      <ProfileSettingsModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={user}
+      />
+
+      {/* SMS Details & View Modal */}
+      <SmsDetailsModal
+        isOpen={!!selectedSms}
+        onClose={() => setSelectedSms(null)}
+        notification={selectedSms}
+      />
+
+      {/* Compose Custom SMS Alert Modal */}
+      <Dialog open={isSendSmsModalOpen} onOpenChange={setIsSendSmsModalOpen}>
+        <DialogContent className="bg-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900">
+              <Send className="text-teal-600" size={18} />
+              Compose SMS Alert / Notification
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Directly dispatch a live SMS text message to a patient's mobile phone.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSendCustomSms} className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs font-semibold">Recipient Patient Name <span className="text-red-500">*</span></Label>
+              <Input
+                value={composeRecipient}
+                onChange={e => setComposeRecipient(e.target.value)}
+                placeholder="e.g. Maria Clara Santos"
+                required
+                className="h-9 text-xs mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Mobile Phone (11 Digits) <span className="text-red-500">*</span></Label>
+              <Input
+                value={composePhone}
+                onChange={e => setComposePhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                placeholder="09XXXXXXXXX"
+                required
+                maxLength={11}
+                className="h-9 text-xs font-mono mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Notification Category</Label>
+              <Select value={composeType} onValueChange={setComposeType}>
+                <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Health Alert">Health Alert / Consultation Notice</SelectItem>
+                  <SelectItem value="Prenatal Checkup Alert">Prenatal Checkup Alert</SelectItem>
+                  <SelectItem value="Immunization Reminder">Immunization Reminder</SelectItem>
+                  <SelectItem value="Family Planning Supply">Family Planning Supply Notice</SelectItem>
+                  <SelectItem value="Clinic Schedule Notice">Clinic Schedule Notice</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Message Text <span className="text-red-500">*</span></Label>
+              <textarea
+                value={composeMessage}
+                onChange={e => setComposeMessage(e.target.value)}
+                rows={3}
+                required
+                placeholder="Barangay Pianing Health Center: Reminder regarding your clinic appointment..."
+                className="w-full border border-slate-200 rounded-md p-2.5 text-xs focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsSendSmsModalOpen(false)} className="text-xs">Cancel</Button>
+              <Button type="submit" className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold gap-1.5 cursor-pointer">
+                <Send size={13} /> Dispatch SMS
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

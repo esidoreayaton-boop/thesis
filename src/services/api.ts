@@ -815,6 +815,37 @@ export const apiService = {
     });
     if (!res.ok) throw new Error('Failed to toggle maintenance mode');
     return await res.json();
+  },
+
+  async searchPatients(query: string): Promise<{ patients: any[] }> {
+    const res = await fetch(`${API_BASE}/patients/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error('Failed to search patients');
+    return await res.json();
+  },
+
+  async submitClinicalIntake(payload: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/patients/intake`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Failed to record clinical intake');
+    return await res.json();
+  },
+
+  async getClinicalArchives(): Promise<{ consultations: any[]; maternal: any[]; immunizations: any[]; schedules: any[] }> {
+    const res = await fetch(`${API_BASE}/archives/clinical`);
+    if (!res.ok) throw new Error('Failed to fetch clinical archives');
+    return await res.json();
+  },
+
+  async runOneDayScheduler(): Promise<any> {
+    const res = await fetch(`${API_BASE}/scheduler/run-1day-reminders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error('Failed to run 1-day scheduler');
+    return await res.json();
   }
 };
 

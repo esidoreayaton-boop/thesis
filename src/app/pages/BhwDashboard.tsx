@@ -30,7 +30,9 @@ import {
   Users,
   CheckCircle,
   Clock,
-  Sparkles
+  Sparkles,
+  Archive,
+  User
 } from 'lucide-react';
 import { apiService, ImmunizationRecord, MaternalRecord, SmsNotification, DocumentRequest, HealthAppointment, ClinicSchedule } from '../../services/api';
 import SystemMessenger from '../components/SystemMessenger';
@@ -39,6 +41,10 @@ import DocumentPrintModal from '../components/DocumentPrintModal';
 import DocumentInfoModal from '../components/DocumentInfoModal';
 import SmsDetailsModal from '../components/SmsDetailsModal';
 import SuperAdminNavigationDock from '../components/SuperAdminNavigationDock';
+import SmartClinicalIntakeModal from '../components/SmartClinicalIntakeModal';
+import GmailNotificationHub from '../components/GmailNotificationHub';
+import ClinicalArchivesHub from '../components/ClinicalArchivesHub';
+import ProfileSettingsModal from '../components/ProfileSettingsModal';
 import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -67,6 +73,10 @@ export default function BhwDashboard() {
   const [documents, setDocuments] = useState<DocumentRequest[]>([]);
   const [appointments, setAppointments] = useState<HealthAppointment[]>([]);
   const [clinicSchedules, setClinicSchedules] = useState<ClinicSchedule[]>([]);
+
+  // Clinical Intake & Profile Modal States
+  const [isIntakeOpen, setIsIntakeOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   // Appointments & Schedules Sub-View & Filters
   const [apptSearch, setApptSearch] = useState('');
@@ -473,7 +483,8 @@ export default function BhwDashboard() {
     { id: 'appointments', label: 'Appointments & Schedules', icon: CalendarCheck },
     { id: 'immunization', label: 'Immunization Tracking', icon: Syringe },
     { id: 'maternal', label: 'Maternal Health', icon: Heart },
-    { id: 'notifications', label: 'SMS & Health Alerts', icon: Bell },
+    { id: 'archives', label: 'Clinical Archives & EHR', icon: Archive },
+    { id: 'notifications', label: 'Gmail Notification Hub', icon: Bell },
     { id: 'reports', label: 'Health Reports', icon: BarChart },
   ];
 
@@ -586,11 +597,32 @@ export default function BhwDashboard() {
               )}
             </div>
 
+            {/* Primary Action: Add Patient / Clinical Intake */}
+            <Button
+              size="sm"
+              onClick={() => setIsIntakeOpen(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 font-bold shadow-xs cursor-pointer h-8 px-3 rounded-xl"
+            >
+              <PlusCircle size={14} />
+              <span>+ Add Patient</span>
+            </Button>
+
+            {/* Profile Settings Trigger */}
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 rounded-full text-xs font-semibold cursor-pointer transition-colors"
+              title="Click to manage profile and credentials"
+            >
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <span>{user?.name || 'BHW Health Worker'}</span>
+              <User size={12} className="text-blue-600" />
+            </button>
+
             <Button
               variant="outline"
               size="sm"
               onClick={loadData}
-              className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 border-slate-200"
+              className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 border-slate-200 h-8"
             >
               <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
               Refresh
@@ -599,7 +631,7 @@ export default function BhwDashboard() {
               variant="destructive"
               size="sm"
               onClick={handleLogout}
-              className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700"
+              className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 h-8"
             >
               <LogOut size={14} />
               <span className="hidden sm:inline">Logout</span>
@@ -1628,242 +1660,24 @@ export default function BhwDashboard() {
             </div>
           )}
 
-          {/* TAB 4: SMS NOTIFICATIONS */}
+          {/* TAB 4: CLINICAL ARCHIVES & EHR */}
+          {activeTab === 'archives' && (
+            <ClinicalArchivesHub
+              barangay={user?.barangay || 'Pianing'}
+            />
+          )}
+
+          {/* TAB 5: GMAIL-STYLE SMS NOTIFICATIONS */}
           {activeTab === 'notifications' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">SMS Notification Dispatch</h2>
-                    <Badge className="bg-blue-600 text-white text-[10px]">
-                      {notifications.length} Sent
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Live record of all SMS alerts dispatched to residents for clearances, immunization reminders, and maternal visits.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <Button
-                    onClick={() => {
-                      printOfficialReport({
-                        title: 'SMS Health Notification Dispatch Log',
-                        subtitle: `All SMS alerts dispatched — ${new Date().toLocaleDateString()}`,
-                        preparedBy: user?.name || 'BHW Health Worker',
-                        preparedByTitle: 'Barangay Health Worker',
-                        department: 'Barangay Health Center',
-                        stats: [{ label: 'Total Dispatched', value: notifications.length, color: '#2563eb' }],
-                        tables: [{
-                          title: 'SMS Dispatch Log',
-                          headers: ['Recipient', 'Phone', 'Alert Type', 'Status', 'Dispatched At'],
-                          rows: notifications.map(n => [n.recipient_name, n.recipient_phone, n.type || 'General', n.status || 'Sent', n.sent_at || 'Recent'])
-                        }]
-                      });
-                      toast.success('SMS dispatch log opened as PDF');
-                    }}
-                    variant="outline"
-                    size="sm"
-                    className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
-                  >
-                    <Download size={14} /> Export Log
-                  </Button>
-
-                  <Dialog open={isSendSmsOpen} onOpenChange={setIsSendSmsOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow-sm h-9 font-semibold">
-                        <Send size={15} />
-                        Compose SMS Alert
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="bg-white">
-                      <DialogHeader>
-                        <DialogTitle>Send SMS Notification</DialogTitle>
-                        <DialogDescription className="text-xs">
-                          Directly dispatch an SMS alert to a resident mobile phone.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleSendSms} className="space-y-3 py-2">
-                        <div>
-                          <Label className="text-xs">Recipient Name</Label>
-                          <Input value={smsRecipientName} onChange={e => setSmsRecipientName(e.target.value)} required placeholder="e.g. Sofia Martinez" />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Mobile Phone Number</Label>
-                          <Input value={smsPhone} onChange={e => setSmsPhone(e.target.value)} required placeholder="09226789012" />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Alert Type</Label>
-                          <Select value={smsType} onValueChange={setSmsType}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Immunization Reminder">Immunization Reminder</SelectItem>
-                              <SelectItem value="Maternal Checkup Alert">Maternal Checkup Alert</SelectItem>
-                              <SelectItem value="Document Ready">Document Ready</SelectItem>
-                              <SelectItem value="Account Verified">Account Verified</SelectItem>
-                              <SelectItem value="Barangay Announcement">Barangay Announcement</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label className="text-xs">SMS Message</Label>
-                          <textarea
-                            value={smsMessage}
-                            onChange={e => setSmsMessage(e.target.value)}
-                            rows={3}
-                            className="w-full border rounded-md p-2.5 text-xs border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 leading-relaxed"
-                            placeholder="Reminder: Baby Sofia is scheduled for MMR vaccine at Barangay Health Center tomorrow."
-                            required
-                          />
-                        </div>
-                        <DialogFooter>
-                          <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
-                            <Send size={14} className="mr-1.5" />
-                            Dispatch SMS Alert
-                          </Button>
-                        </DialogFooter>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </div>
-
-              {/* Search & Filters */}
-              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                  <Input
-                    placeholder="Search by recipient name, phone number, or message text..."
-                    value={smsSearch}
-                    onChange={e => setSmsSearch(e.target.value)}
-                    className="pl-9 h-9 text-xs"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Select value={smsFilterType} onValueChange={setSmsFilterType}>
-                    <SelectTrigger className="w-44 h-9 text-xs">
-                      <SelectValue placeholder="All Alert Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Alert Types</SelectItem>
-                      <SelectItem value="Immunization">Immunization</SelectItem>
-                      <SelectItem value="Maternal">Maternal Checkup</SelectItem>
-                      <SelectItem value="Document">Document Ready</SelectItem>
-                      <SelectItem value="Verified">Account Verified</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={loadData}
-                    className="h-9 px-2.5 text-slate-600 hover:bg-slate-100"
-                    title="Refresh SMS records"
-                  >
-                    <RefreshCcw size={14} />
-                  </Button>
-                </div>
-              </div>
-
-              {/* SMS Records Table */}
-              <Card className="border-slate-200 bg-white shadow-xs">
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50 text-slate-600">
-                        <TableHead className="text-xs font-semibold w-4" />
-                        <TableHead className="text-xs font-semibold">Recipient</TableHead>
-                        <TableHead className="text-xs font-semibold">Mobile Phone</TableHead>
-                        <TableHead className="text-xs font-semibold">Alert Type</TableHead>
-                        <TableHead className="text-xs font-semibold">Message Preview (Click to View)</TableHead>
-                        <TableHead className="text-xs font-semibold">Status</TableHead>
-                        <TableHead className="text-xs font-semibold">Sent Timestamp</TableHead>
-                        <TableHead className="text-xs font-semibold text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredNotifications.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="text-center text-xs py-12 text-slate-400">
-                            <Bell size={28} className="mx-auto mb-2 opacity-40 text-blue-500" />
-                            No SMS notifications found matching your search.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        filteredNotifications.map(n => (
-                          <TableRow
-                            key={n.id}
-                            className={`text-xs cursor-pointer transition-colors group ${!n.is_read ? 'bg-blue-50/50 hover:bg-blue-100/60 font-semibold' : 'hover:bg-slate-50/60'}`}
-                            onClick={() => openSmsDetails(n)}
-                          >
-                            <TableCell className="pl-3 pr-1">
-                              <div className={`w-2 h-2 rounded-full ${!n.is_read ? 'bg-blue-500' : 'bg-transparent'}`} />
-                            </TableCell>
-                            <TableCell className={`${!n.is_read ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'} group-hover:text-blue-700`}>
-                              {n.recipient_name || 'Resident'}
-                            </TableCell>
-                            <TableCell className="font-mono font-medium text-slate-600">
-                              {n.recipient_phone || 'N/A'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  (n.type || '').includes('Immunization')
-                                    ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                    : (n.type || '').includes('Maternal')
-                                    ? 'bg-pink-50 border-pink-200 text-pink-700'
-                                    : (n.type || '').includes('Document')
-                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                                    : (n.type || '').includes('Verified')
-                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                                    : 'bg-slate-50 border-slate-200 text-slate-700'
-                                }
-                              >
-                                {n.type || 'General'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-slate-600 max-w-[260px]">
-                              <p className="truncate">{n.message}</p>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className="bg-emerald-600 hover:bg-emerald-600 text-[10px] gap-1 px-2 py-0.5">
-                                <Check size={11} />
-                                {n.status || 'Sent'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-mono text-slate-400 text-[11px]">
-                              {n.sent_at ? new Date(n.sent_at).toLocaleDateString() + ' ' + new Date(n.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                            </TableCell>
-                            <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-1">
-                                {!n.is_read && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleMarkRead(n.id)}
-                                    className="h-7 text-[10px] gap-1 text-blue-600 hover:bg-blue-50 px-2"
-                                  >
-                                    Mark Read
-                                  </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => openSmsDetails(n)}
-                                  className="h-7 text-xs gap-1 text-blue-600 hover:bg-blue-50 font-medium px-2.5"
-                                >
-                                  <Eye size={13} />
-                                  <span>View</span>
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+            <div className="space-y-4">
+              <GmailNotificationHub
+                notifications={notifications}
+                onRefresh={loadData}
+                onOpenDetails={openSmsDetails}
+                onOpenCompose={() => setIsSendSmsOpen(true)}
+                currentUserRole="bhw"
+                barangay={user?.barangay || 'Pianing'}
+              />
             </div>
           )}
 
@@ -2195,6 +2009,91 @@ export default function BhwDashboard() {
           setIsSendSmsOpen(true);
         }}
       />
+
+      {/* Dynamic Smart Clinical Intake Modal */}
+      <SmartClinicalIntakeModal
+        isOpen={isIntakeOpen}
+        onClose={() => setIsIntakeOpen(false)}
+        onSuccess={loadData}
+        barangay={user?.barangay || 'Pianing'}
+        attendingWorker={user?.name || 'Barangay Health Worker'}
+        workerRole="bhw"
+      />
+
+      {/* Official BHW Profile Settings Modal */}
+      <ProfileSettingsModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={user}
+      />
+
+      {/* Compose SMS Notification Dialog */}
+      <Dialog open={isSendSmsOpen} onOpenChange={setIsSendSmsOpen}>
+        <DialogContent className="bg-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900">
+              <Send className="text-blue-600" size={18} />
+              Compose SMS Alert
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Directly dispatch an SMS alert to a resident mobile phone.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSendSms} className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Recipient Name <span className="text-red-500">*</span></Label>
+              <Input
+                value={smsRecipientName}
+                onChange={e => setSmsRecipientName(e.target.value)}
+                required
+                placeholder="e.g. Sofia Martinez"
+                className="h-9 text-xs mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Mobile Phone Number <span className="text-red-500">*</span></Label>
+              <Input
+                value={smsPhone}
+                onChange={e => setSmsPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                required
+                placeholder="09226789012"
+                maxLength={11}
+                className="h-9 text-xs font-mono mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Alert Type</Label>
+              <Select value={smsType} onValueChange={setSmsType}>
+                <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Immunization Reminder">Immunization Reminder</SelectItem>
+                  <SelectItem value="Maternal Checkup Alert">Maternal Checkup Alert</SelectItem>
+                  <SelectItem value="Document Ready">Document Ready</SelectItem>
+                  <SelectItem value="Account Verified">Account Verified</SelectItem>
+                  <SelectItem value="Barangay Announcement">Barangay Announcement</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">SMS Message <span className="text-red-500">*</span></Label>
+              <textarea
+                value={smsMessage}
+                onChange={e => setSmsMessage(e.target.value)}
+                rows={3}
+                className="w-full border rounded-md p-2.5 text-xs border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 leading-relaxed"
+                placeholder="Reminder: Baby Sofia is scheduled for MMR vaccine at Barangay Health Center tomorrow."
+                required
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsSendSmsOpen(false)} className="text-xs">Cancel</Button>
+              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs gap-1.5 cursor-pointer">
+                <Send size={13} /> Dispatch SMS Alert
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
