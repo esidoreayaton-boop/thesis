@@ -322,13 +322,16 @@ export default function HealthCenterPortal() {
             )}
             <button
               onClick={() => navigate('/resident/barangay')}
-              className="hidden md:flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 h-8 rounded-xl transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 sm:px-3 h-8 rounded-xl transition-colors cursor-pointer"
+              title="Switch to Barangay Documents Portal"
             >
-              <Building2 size={13} /> Documents <ArrowRight size={11} />
+              <Building2 size={13} className="shrink-0" />
+              <span className="hidden xs:inline sm:inline">Documents</span>
+              <ArrowRight size={11} className="hidden md:inline" />
             </button>
             <button
               onClick={() => { toast.info('Logged out'); navigate('/login'); }}
-              className="flex items-center gap-1.5 text-xs font-semibold text-red-600 hover:text-white bg-red-50 hover:bg-red-600 border border-red-200 hover:border-red-600 px-3 h-8 rounded-xl transition-all cursor-pointer"
+              className="flex items-center gap-1.5 text-xs font-semibold text-red-600 hover:text-white bg-red-50 hover:bg-red-600 border border-red-200 hover:border-red-600 px-2.5 sm:px-3 h-8 rounded-xl transition-all cursor-pointer"
             >
               <LogOut size={13} />
               <span className="hidden sm:inline">Logout</span>
@@ -344,7 +347,7 @@ export default function HealthCenterPortal() {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Health Center & Clinic Helpdesk
+                  Barangay {user?.barangay || 'Pianing'} Clinic Helpdesk
                 </span>
                 <span className="text-slate-300 text-[11px] flex items-center gap-1">
                   <Clock size={12} className="text-emerald-400" /> Mon - Fri: 8:00 AM - 5:00 PM

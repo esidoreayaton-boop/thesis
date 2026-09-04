@@ -235,7 +235,7 @@ export default function ResidentPortal() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="bg-teal-500/20 text-teal-300 border border-teal-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    Official LGU Helpdesk
+                    Barangay {residentBrgy} Official Helpdesk
                   </span>
                   <span className="text-slate-300 text-[11px] flex items-center gap-1">
                     <Clock size={12} className="text-teal-400" /> Mon - Fri: 8:00 AM - 5:00 PM

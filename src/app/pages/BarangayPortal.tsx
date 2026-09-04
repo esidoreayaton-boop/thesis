@@ -542,18 +542,19 @@ export default function BarangayPortal() {
               variant="outline"
               size="sm"
               onClick={() => navigate('/resident/health')}
-              className="text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50 hidden sm:flex items-center gap-1.5"
+              className="flex items-center gap-1.5 text-xs border-emerald-300 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100/70 h-8 px-2.5 sm:px-3 rounded-xl cursor-pointer"
+              title="Switch to Health Center Portal"
             >
-              <Heart size={13} />
-              Health Center Portal
-              <ArrowRight size={12} />
+              <Heart size={13} className="shrink-0 text-emerald-600" />
+              <span className="hidden xs:inline sm:inline">Health Center</span>
+              <ArrowRight size={12} className="hidden md:inline" />
             </Button>
 
             <Button
               variant="destructive"
               size="sm"
               onClick={() => { toast.info('Logged out'); navigate('/login'); }}
-              className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700"
+              className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 h-8 px-2.5 sm:px-3 cursor-pointer"
             >
               <LogOut size={14} />
               <span className="hidden sm:inline">Logout</span>
@@ -569,7 +570,7 @@ export default function BarangayPortal() {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Official LGU Helpdesk
+                  Barangay {userBarangay} Official Helpdesk
                 </span>
                 <span className="text-slate-300 text-[11px] flex items-center gap-1">
                   <Clock size={12} className="text-indigo-400" /> Mon - Fri: 8:00 AM - 5:00 PM

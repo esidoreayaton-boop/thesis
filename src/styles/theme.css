@@ -179,3 +179,23 @@
     line-height: 1.5;
   }
 }
+
+/* ── Mobile CP, Tablet & iOS / Android Touch Ergonomics ── */
+@media screen and (max-width: 768px) {
+  /* Prevent iOS Safari from jarringly zooming the entire page when tapping input/select/textarea */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Smooth momentum scrolling for mobile overflow containers */
+.overflow-x-auto, .overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Accessible tap target styling */
+button, a, [role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+

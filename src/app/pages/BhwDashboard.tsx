@@ -59,6 +59,7 @@ import { toast } from 'sonner';
 export default function BhwDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // User session state
@@ -527,25 +528,39 @@ export default function BhwDashboard() {
       <SuperAdminNavigationDock currentRole={user?.role} />
 
       {/* Top Navbar */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 sm:px-6 py-2.5 shadow-xs">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-3 sm:px-6 py-2.5 shadow-xs">
         <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-blue-200 flex items-center justify-center">
-              <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
-            </div>
-            <div>
-              <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay Pianing</h1>
-              <span className="text-xs text-blue-600 font-semibold">BHW Health Portal</span>
+          {/* Left: Mobile Burger Button + Barangay Logo */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Burger menu button: visible ONLY on cellphone and tablet (< 1024px) */}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 rounded-xl cursor-pointer lg:hidden focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+              aria-label="Open BHW navigation menu"
+              title="Navigation Menu"
+            >
+              <Menu size={22} />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-blue-200 flex items-center justify-center shrink-0">
+                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
+              </div>
+              <div>
+                <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay Pianing</h1>
+                <span className="text-xs text-blue-600 font-semibold">BHW Health Portal</span>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             {user?.role === 'superadmin' && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => navigate('/admin')}
-                className="flex items-center gap-1.5 text-xs text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 font-semibold cursor-pointer animate-pulse"
+                className="hidden sm:flex items-center gap-1.5 text-xs text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 font-semibold cursor-pointer animate-pulse"
               >
                 <Shield size={14} />
                 Switch to Admin Portal
@@ -556,7 +571,7 @@ export default function BhwDashboard() {
             <div className="relative">
               <button
                 onClick={() => setShowNotifDropdown(v => !v)}
-                className="relative p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+                className="relative p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
               >
                 <Bell size={18} />
                 {notifications.filter(n => !n.is_read).length > 0 && (
@@ -626,10 +641,11 @@ export default function BhwDashboard() {
             <Button
               size="sm"
               onClick={() => setIsIntakeOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 font-bold shadow-xs cursor-pointer h-8 px-3 rounded-xl"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 font-bold shadow-xs cursor-pointer h-8 px-2.5 sm:px-3 rounded-xl"
             >
               <PlusCircle size={14} />
-              <span>+ Add Patient</span>
+              <span className="hidden xs:inline sm:inline">+ Add Patient</span>
+              <span className="xs:hidden sm:hidden">Intake</span>
             </Button>
 
             {/* Profile Settings Trigger */}
@@ -656,7 +672,7 @@ export default function BhwDashboard() {
               variant="destructive"
               size="sm"
               onClick={handleLogout}
-              className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 h-8"
+              className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 h-8 px-2 sm:px-3 cursor-pointer"
             >
               <LogOut size={14} />
               <span className="hidden sm:inline">Logout</span>
@@ -665,10 +681,80 @@ export default function BhwDashboard() {
         </div>
       </header>
 
+      {/* Mobile / Tablet Slide-over Navigation Drawer with Backdrop */}
+      {mobileMenuOpen && (
+        <div
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs lg:hidden transition-opacity"
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-white dark:bg-slate-900 shadow-2xl flex flex-col py-4 border-r border-slate-200 dark:border-slate-800 lg:hidden transform transition-transform duration-300 ease-in-out ${
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between px-4 pb-3 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full overflow-hidden bg-white border border-blue-200 flex items-center justify-center shrink-0">
+              <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
+            </div>
+            <div>
+              <span className="text-xs font-bold text-slate-900 dark:text-white block">Barangay Pianing</span>
+              <span className="text-[10px] text-blue-600 font-semibold">BHW Health Portal</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(false)}
+            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg cursor-pointer"
+            aria-label="Close navigation"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
+          {menuItems.map((item) => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id);
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-[#EBF5FF] text-[#2563EB] shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <item.icon size={18} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="mt-auto pt-3 px-3 border-t border-slate-200 dark:border-slate-800">
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              handleLogout();
+            }}
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
+          >
+            <LogOut size={18} className="shrink-0 text-rose-500" />
+            <span>Logout</span>
+          </button>
+        </div>
+      </aside>
+
       {/* Full-width container flush to the left of the viewport (no side margin gap) */}
       <div className="flex-1 flex w-full">
-        {/* Permanent Desktop Sidebar pinned to left edge */}
-        <aside className="w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col py-4 sticky top-[57px] h-[calc(100vh-57px)]">
+        {/* Permanent Desktop Sidebar pinned to left edge (hidden on mobile/tablet) */}
+        <aside className="hidden lg:flex w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col py-4 sticky top-[57px] h-[calc(100vh-57px)]">
           <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto">
             {menuItems.map((item) => {
               const isActive = activeTab === item.id;
