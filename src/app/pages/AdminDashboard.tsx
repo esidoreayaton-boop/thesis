@@ -39,6 +39,7 @@ import {
   UserCircle,
   MapPin,
   Phone,
+  Mail,
   KeyRound,
   MessageSquare,
   Send,
@@ -59,9 +60,10 @@ import {
   HardDrive,
   Layers,
   Server,
-  Copy
+  Copy,
+  UserCog
 } from 'lucide-react';
-import { apiService, DocumentRequest, Resident, SystemUser, PendingResident, ActivityLog, ClinicSchedule, HealthAppointment, PopulationStats, BarangayOverviewItem } from '../../services/api';
+import { apiService, DocumentRequest, Resident, SystemUser, PendingResident, ActivityLog, ClinicSchedule, HealthAppointment, PopulationStats, BarangayOverviewItem, HouseholdGroup, CensusAnalytics } from '../../services/api';
 import { ID_TYPES } from '../../utils/idTypes';
 import { validatePasswordComplexity } from '../../utils/passwordValidation';
 import SystemMessenger from '../components/SystemMessenger';
@@ -70,8 +72,8 @@ import DocumentPrintModal from '../components/DocumentPrintModal';
 import DocumentInfoModal from '../components/DocumentInfoModal';
 import PendingApplicantReviewModal from '../components/PendingApplicantReviewModal';
 import ImageViewerModal from '../components/ImageViewerModal';
-import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
-import { BUTUAN_BARANGAYS } from '../../utils/barangays';
+import { exportToCsv, printOfficialReport, downloadOfficialPdf } from '../../utils/exportCsv';
+import { BUTUAN_BARANGAYS, getBarangayContact, getBarangayEmail } from '../../utils/barangays';
 import { PIANING_LOGO_BASE64, BUTUAN_LOGO_BASE64 } from '../components/officialLogos';
 import {
   sendResidentApprovalEmail,
@@ -94,10 +96,22 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 
+const getDynamicAge = (dobString?: string): number => {
+  if (!dobString) return 0;
+  const dob = new Date(dobString);
+  if (isNaN(dob.getTime())) return 0;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age >= 0 ? age : 0;
+};
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
 
   // User session state — initialized synchronously from localStorage to prevent session flash/reset on refresh
@@ -114,8 +128,15 @@ export default function AdminDashboard() {
   // Barangay isolation & role helpers
   const userBarangay = user?.barangay || (user?.email?.toLowerCase().includes('anticala') ? 'Anticala' : user?.address?.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing');
   const currentAdminBarangay = (user?.barangay || (user?.email?.toLowerCase().includes('anticala') ? 'Anticala' : user?.address?.toLowerCase().includes('anticala') ? 'Anticala' : 'Pianing')).toLowerCase().trim();
-  const isSuperAdmin = user?.role === 'superadmin';
+  const isSuperAdmin = user?.role === 'superadmin' || user?.role?.toLowerCase() === 'superadmin' || user?.email?.toLowerCase().includes('superadmin');
   const isStaff = user?.role === 'staff';
+
+  const getGreetingTime = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  };
 
   // Dynamic Data States
   const [documents, setDocuments] = useState<DocumentRequest[]>([]);
@@ -215,20 +236,32 @@ export default function AdminDashboard() {
   const [newResFirstName, setNewResFirstName] = useState('');
   const [newResMiddleName, setNewResMiddleName] = useState('');
   const [newResLastName, setNewResLastName] = useState('');
+  const [newResBarangay, setNewResBarangay] = useState<string>(user?.barangay || 'Pianing');
   const [newResDOB, setNewResDOB] = useState('');
   const [newResPurok, setNewResPurok] = useState('');
   const [newResGender, setNewResGender] = useState<'Male' | 'Female'>('Male');
   const [newResPhone, setNewResPhone] = useState('');
-  const [newResPassword, setNewResPassword] = useState('');
-  const [newResEmail, setNewResEmail] = useState('');
   const [newResCivilStatus, setNewResCivilStatus] = useState('Single');
   const [newResYearsOfResidency, setNewResYearsOfResidency] = useState('');
   const [newResIdType, setNewResIdType] = useState('Philippine National ID (PhilSys)');
   const [newResIdPhoto, setNewResIdPhoto] = useState<string | null>(null);
   const [newResIdFileName, setNewResIdFileName] = useState('');
 
-  // Population Demographics State
+  // Population Demographics & Census State
   const [populationStats, setPopulationStats] = useState<PopulationStats | null>(null);
+  const [selectedCensusPurok, setSelectedCensusPurok] = useState<string>('all');
+  const [censusStats, setCensusStats] = useState<CensusAnalytics | null>(null);
+  const [censusHouseholds, setCensusHouseholds] = useState<HouseholdGroup[]>([]);
+  const [censusViewMode, setCensusViewMode] = useState<'households' | 'table'>('households');
+  const [expandedHouseholds, setExpandedHouseholds] = useState<Record<string, boolean>>({});
+
+  // Add Resident / Household Modal Extension
+  const [addResidentMode, setAddResidentMode] = useState<'new_household' | 'existing_household'>('new_household');
+  const [newResHouseholdNum, setNewResHouseholdNum] = useState('');
+  const [newResFamilyName, setNewResFamilyName] = useState('');
+  const [newResIsHead, setNewResIsHead] = useState(true);
+  const [newResRelationship, setNewResRelationship] = useState('Head');
+  const [newResEmployment, setNewResEmployment] = useState('Employed');
 
   // Super Admin 86-Barangay Command Hub State
   const [barangaysOverview, setBarangaysOverview] = useState<BarangayOverviewItem[]>([]);
@@ -509,9 +542,9 @@ export default function AdminDashboard() {
     if (showLoading) setLoading(true);
     try {
       const activeBarangayParam = isSuperAdmin ? undefined : userBarangay;
-      const [docsData, resData, usersData, statsData, pendingData, catData, logsData, schedData, aptsData, popData] = await Promise.all([
+      const [docsData, resData, usersData, statsData, pendingData, catData, logsData, schedData, aptsData, popData, cStats, hhData] = await Promise.all([
         apiService.getDocuments(activeBarangayParam),
-        apiService.getResidents(activeBarangayParam),
+        apiService.getResidents(activeBarangayParam, selectedCensusPurok),
         apiService.getUsers(),
         apiService.getAdminStats(activeBarangayParam),
         apiService.getPendingResidents(activeBarangayParam),
@@ -519,7 +552,9 @@ export default function AdminDashboard() {
         apiService.getActivityLogs().catch(() => []),
         apiService.getClinicSchedules(activeBarangayParam).catch(() => []),
         apiService.getAppointments({ barangay: activeBarangayParam }).catch(() => []),
-        apiService.getPopulationStats(activeBarangayParam).catch(() => null)
+        apiService.getPopulationStats(activeBarangayParam).catch(() => null),
+        apiService.getCensusStats(activeBarangayParam, selectedCensusPurok).catch(() => null),
+        apiService.getHouseholds(activeBarangayParam, selectedCensusPurok).catch(() => [])
       ]);
       setDocuments(docsData);
       setResidents(resData);
@@ -527,12 +562,14 @@ export default function AdminDashboard() {
       setStats(statsData);
       setPendingResidents(pendingData || []);
       if (popData) setPopulationStats(popData);
+      if (cStats) setCensusStats(cStats);
+      if (hhData) setCensusHouseholds(hhData);
       if (schedData) setClinicSchedules(schedData);
       if (aptsData) setAppointments(aptsData);
       if (catData && catData.length > 0) {
         setCategories(catData.filter((c: any) => c.department !== 'Health Center'));
       }
-      if (logsData && logsData.length > 0) {
+      if (logsData) {
         setActivityLogs(logsData);
       }
 
@@ -801,6 +838,27 @@ export default function AdminDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (activeTab === 'records') {
+      const activeBarangayParam = isSuperAdmin ? undefined : userBarangay;
+      apiService.getCensusStats(activeBarangayParam, selectedCensusPurok).then(data => {
+        if (data) setCensusStats(data);
+      }).catch(() => {});
+      apiService.getHouseholds(activeBarangayParam, selectedCensusPurok).then(data => {
+        if (data) setCensusHouseholds(data);
+      }).catch(() => {});
+      apiService.getResidents(activeBarangayParam, selectedCensusPurok).then(data => {
+        if (data) setResidents(data);
+      }).catch(() => {});
+    }
+  }, [selectedCensusPurok, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'logs' || (activeTab === 'overview' && isSuperAdmin)) {
+      loadLogs();
+    }
+  }, [activeTab, isSuperAdmin]);
+
   const setNewDocField = (key: string, val: string) => {
     setNewDocExtraFields(prev => ({ ...prev, [key]: val }));
   };
@@ -960,16 +1018,16 @@ export default function AdminDashboard() {
       setDocuments(documents.map(d => d.id === id ? { ...d, status: nextStatus as any, processed_at: new Date().toLocaleTimeString(), processed_by: user?.name || 'Admin Juan' } : d));
       
       if (nextStatus === 'Completed') {
-        toast.success(`Document Completed & Archived!`, {
-          description: `${resName}'s document has been marked as claimed and moved to archive.`
+        toast.success(`Document Completed & Archived`, {
+          description: `Archived for ${resName}`
         });
       } else if (nextStatus === 'Ready for Pickup') {
-        toast.success(`Document Ready for Pickup! 🎉`, {
-          description: `📲 SMS sent to ${resName}: "Your document is signed & ready for release at the Barangay Hall."`
+        toast.success(`Document Ready for Pickup`, {
+          description: `Signed & prepared for ${resName}`
         });
       } else {
-        toast.info(`Document is now being Processed`, {
-          description: `📲 SMS sent to ${resName}: "Your document is now being processed by ${user?.name || 'Barangay Staff'}."`
+        toast.info(`Document in Processing`, {
+          description: `Preparing clearance for ${resName}`
         });
       }
 
@@ -1232,9 +1290,15 @@ export default function AdminDashboard() {
       toast.error('Contact Number is required');
       return;
     }
-    const cleanPhone = newResPhone.replace(/\D/g, '');
+    const rawPhone = newResPhone.trim().replace(/\D/g, '');
+    let cleanPhone = rawPhone;
+    if (cleanPhone.startsWith('639')) {
+      cleanPhone = '0' + cleanPhone.slice(2);
+    } else if (cleanPhone.startsWith('9') && cleanPhone.length === 10) {
+      cleanPhone = '0' + cleanPhone;
+    }
     if (!/^09\d{9}$/.test(cleanPhone)) {
-      toast.error('Invalid Contact Number format (must be 11 digits starting with 09)');
+      toast.error('Please enter a valid Philippine mobile contact number (e.g. 09XXXXXXXXX)');
       return;
     }
     if (!newResPurok.trim()) {
@@ -1242,32 +1306,39 @@ export default function AdminDashboard() {
       return;
     }
 
-    // Auto-build address from dynamic purok + admin's current barangay
-    const adminBarangay = user?.barangay || 'Pianing';
+    // Auto-build address from dynamic purok + selected barangay
+    const adminBarangay = newResBarangay || user?.barangay || 'Pianing';
     const autoAddress = `${newResPurok.trim()}, Barangay ${adminBarangay}, Butuan City`;
     try {
+      const cleanPurokNum = (newResPurok || '1').replace(/purok\s*/i, '').trim();
       await apiService.createResident({
         first_name: newResFirstName.trim(),
         middle_name: newResMiddleName.trim(),
         last_name: newResLastName.trim(),
+        barangay: adminBarangay,
         date_of_birth: newResDOB,
         gender: newResGender,
         civil_status: newResCivilStatus,
         years_of_residency: newResYearsOfResidency.trim() || undefined,
         address: autoAddress,
-        purok: newResPurok.trim(),
+        purok: cleanPurokNum,
         phone: cleanPhone,
-        email: newResEmail.trim() || undefined,
-        password: newResPassword.trim() || undefined,
         id_type: newResIdType || 'Philippine National ID (PhilSys)',
-        submitted_id: newResIdPhoto || undefined
-      } as any);
+        submitted_id: newResIdPhoto || undefined,
+        household_number: newResHouseholdNum.trim() || undefined,
+        family_name: newResFamilyName.trim() || newResLastName.trim(),
+        is_head_of_household: newResIsHead,
+        relationship_to_head: newResRelationship.trim() || (newResIsHead ? 'Head' : 'Member'),
+        employment_status: newResEmployment as any
+      });
       // Reload to avoid duplicates (never manually push)
-      const freshResidents = await apiService.getResidents();
+      const freshResidents = await apiService.getResidents(user?.barangay, selectedCensusPurok);
       setResidents(freshResidents);
       setStats(prev => ({ ...prev, totalResidents: freshResidents.length }));
+      apiService.getCensusStats(user?.barangay, selectedCensusPurok).then(data => { if (data) setCensusStats(data); }).catch(() => {});
+      apiService.getHouseholds(user?.barangay, selectedCensusPurok).then(data => { if (data) setCensusHouseholds(data); }).catch(() => {});
       apiService.getPopulationStats(user?.barangay).then(p => { if (p) setPopulationStats(p); }).catch(() => {});
-      toast.success('Resident registered successfully');
+      toast.success('Resident registered in Population Census successfully');
       setIsAddResidentOpen(false);
       setNewResFirstName('');
       setNewResMiddleName('');
@@ -1275,10 +1346,13 @@ export default function AdminDashboard() {
       setNewResDOB('');
       setNewResPurok('');
       setNewResPhone('');
-      setNewResPassword('');
-      setNewResEmail('');
       setNewResCivilStatus('Single');
       setNewResYearsOfResidency('');
+      setNewResHouseholdNum('');
+      setNewResFamilyName('');
+      setNewResIsHead(true);
+      setNewResRelationship('Head');
+      setNewResEmployment('Employed');
       setNewResIdType('Philippine National ID (PhilSys)');
       setNewResIdPhoto(null);
       setNewResIdFileName('');
@@ -1289,14 +1363,45 @@ export default function AdminDashboard() {
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
-    toast.loading('Refreshing barangay data...', { id: 'manual-refresh' });
     try {
       await loadData();
-      toast.success('Barangay records are up to date!', { id: 'manual-refresh' });
     } catch {
-      toast.error('Could not refresh data. Please check connection.', { id: 'manual-refresh' });
+      toast.error('Could not refresh data. Please check connection.');
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const [isRefreshingMetrics, setIsRefreshingMetrics] = useState(false);
+  const handleRefreshMetrics = async () => {
+    setIsRefreshingMetrics(true);
+    try {
+      const p = await apiService.getPopulationStats(isSuperAdmin ? undefined : user?.barangay).catch(() => null);
+      if (p) setPopulationStats(p);
+    } catch {
+      toast.error('Could not refresh metrics');
+    } finally {
+      setIsRefreshingMetrics(false);
+    }
+  };
+
+  const [isRefreshingCensus, setIsRefreshingCensus] = useState(false);
+  const handleRefreshCensus = async () => {
+    setIsRefreshingCensus(true);
+    try {
+      const freshResidents = await apiService.getResidents(user?.barangay, selectedCensusPurok);
+      setResidents(freshResidents);
+      setStats(prev => ({ ...prev, totalResidents: freshResidents.length }));
+      const [cStats, cHouseholds] = await Promise.all([
+        apiService.getCensusStats(user?.barangay, selectedCensusPurok).catch(() => null),
+        apiService.getHouseholds(user?.barangay, selectedCensusPurok).catch(() => [])
+      ]);
+      if (cStats) setCensusStats(cStats);
+      if (cHouseholds) setCensusHouseholds(cHouseholds);
+    } catch {
+      toast.error('Could not refresh census records');
+    } finally {
+      setIsRefreshingCensus(false);
     }
   };
 
@@ -1307,14 +1412,18 @@ export default function AdminDashboard() {
       return;
     }
 
-    const cleanPhone = newUserPhone.trim().replace(/\D/g, '');
+    let cleanPhone = newUserPhone.trim().replace(/\D/g, '');
+    if (cleanPhone.startsWith('639')) {
+      cleanPhone = '0' + cleanPhone.slice(2);
+    } else if (cleanPhone.startsWith('9') && cleanPhone.length === 10) {
+      cleanPhone = '0' + cleanPhone;
+    }
     if (!cleanPhone) {
-      toast.error('Mobile Phone Number is required. Enter an 11-digit PH mobile number.');
+      toast.error('Mobile Phone Number is required.');
       return;
     }
-
     if (!/^09\d{9}$/.test(cleanPhone)) {
-      toast.error('Invalid Philippine mobile number format! Must be exactly 11 digits starting with 09 (e.g. 09171234567).');
+      toast.error('Please enter a valid Philippine mobile contact number (e.g. 09XXXXXXXXX).');
       return;
     }
 
@@ -1491,13 +1600,18 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!editingUser) return;
 
-    const cleanEditPhone = editUserPhone.trim().replace(/\D/g, '');
+    let cleanEditPhone = editUserPhone.trim().replace(/\D/g, '');
+    if (cleanEditPhone.startsWith('639')) {
+      cleanEditPhone = '0' + cleanEditPhone.slice(2);
+    } else if (cleanEditPhone.startsWith('9') && cleanEditPhone.length === 10) {
+      cleanEditPhone = '0' + cleanEditPhone;
+    }
     if (!cleanEditPhone) {
       toast.error('Mobile Phone Number is required.');
       return;
     }
     if (!/^09\d{9}$/.test(cleanEditPhone)) {
-      toast.error('Invalid Philippine mobile number format! Must be exactly 11 digits starting with 09 (e.g. 09171234567).');
+      toast.error('Please enter a valid Philippine mobile contact number (e.g. 09XXXXXXXXX).');
       return;
     }
 
@@ -1614,18 +1728,21 @@ export default function AdminDashboard() {
         Last_Login: (u as any).last_login ? new Date((u as any).last_login).toLocaleString() : 'Never',
         Verification: (u as any).verification_status || 'Verified'
       }));
-    printOfficialReport({
+    downloadOfficialPdf({
       title: 'Barangay User Directory',
-      subtitle: `Exported on ${new Date().toLocaleDateString()} — All system user accounts`,
+      subtitle: `Official System User Directory — Barangay ${user?.barangay || 'Pianing'}`,
+      filename: `Barangay_User_Directory_${new Date().toISOString().slice(0, 10)}`,
+      barangay: user?.barangay || 'Pianing',
+      orientation: 'landscape',
       preparedBy: user?.name || 'Administrator',
       preparedByTitle: user?.role === 'superadmin' ? 'Super Administrator' : user?.role === 'staff' ? 'Barangay Staff' : 'Barangay Administrator',
       tables: [{
-        title: 'User Account Directory',
+        title: 'Authorized User Accounts',
         headers: ['ID', 'Name', 'Email', 'Role', 'Barangay', 'Status', 'Last Login'],
         rows: dataToExport.map(u => [u.ID, u.Name, u.Email, u.Role, u.Barangay, u.Status, u.Last_Login])
       }]
     });
-    toast.success('User directory opened as printable PDF report');
+    toast.success('User directory PDF downloaded');
   };
 
   const handleLogout = () => {
@@ -1758,14 +1875,13 @@ export default function AdminDashboard() {
 
   const menuItems = [
     { id: 'overview', label: 'Dashboard', icon: Home },
-    ...(!isStaff ? [{ id: 'users', label: 'User Management', icon: Users }] : []),
-    ...(isSuperAdmin ? [{ id: 'barangays', label: 'Barangay Hub', icon: Building2 }] : []),
+    ...(!isStaff ? [{ id: 'users', label: 'User Management', icon: UserCog }] : []),
     ...(!isSuperAdmin ? [{ id: 'approvals', label: 'Pending Approvals', icon: UserCheck }] : []),
     ...(!isSuperAdmin ? [{ id: 'documents', label: 'Document Processing', icon: InboxIcon }] : []),
-    ...(!isSuperAdmin ? [{ id: 'records', label: 'Resident Records', icon: FolderOpen }] : []),
+    ...(!isSuperAdmin ? [{ id: 'records', label: 'Populations', icon: Users }] : []),
     { id: 'reports', label: 'System Reports', icon: BarChart },
     { id: 'archive', label: 'Archive', icon: Archive },
-    ...(!isStaff ? [{ id: 'logs', label: isSuperAdmin ? 'System Audit & History Logs' : 'Activity History Logs', icon: History }] : []),
+    ...(isSuperAdmin ? [{ id: 'logs', label: 'System Audit & History Logs', icon: History }] : []),
     ...(isSuperAdmin ? [{ id: 'categories', label: 'Category Manager', icon: Tag }] : []),
     ...(isSuperAdmin ? [{ id: 'system', label: 'System & Backup', icon: Database }] : []),
   ];
@@ -1775,23 +1891,14 @@ export default function AdminDashboard() {
       {/* Top Navbar matching clean branding on pure white background (#FFFFFF) */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 sm:px-6 py-2.5 shadow-xs">
         <div className="flex items-center justify-between w-full">
-          {/* Left: Hamburger & Official Barangay Logo Branding Component */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-              title="Toggle sidebar"
-            >
-              {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-            <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab('overview')}>
-              <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center shrink-0">
-                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
-              </div>
-              <div>
-                <span className="text-sm sm:text-base font-bold text-slate-900 block leading-tight">Barangay Pianing</span>
-                <span className="text-[10px] sm:text-xs text-slate-500 font-medium hidden sm:block">Smart Barangay Portal — Butuan City</span>
-              </div>
+          {/* Left: Official Barangay Logo Branding Component */}
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab('overview')}>
+            <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center shrink-0">
+              <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
+            </div>
+            <div>
+              <span className="text-sm sm:text-base font-bold text-slate-900 block leading-tight">Barangay Pianing</span>
+              <span className="text-[10px] sm:text-xs text-slate-500 font-medium hidden sm:block">Smart Barangay Portal — Butuan City</span>
             </div>
           </div>
 
@@ -1830,15 +1937,17 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            {/* Silent Activity Log Link (non-intrusive notification) */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('logs')}
-              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
-              title="System Activity Logs"
-            >
-              <History size={18} />
-            </button>
+            {/* Silent Activity Log Link (Super Admin only) */}
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('logs')}
+                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                title="System Activity Logs"
+              >
+                <History size={18} />
+              </button>
+            )}
 
             {/* User Avatar Profile Menu */}
             <div className="relative flex items-center gap-1.5 pl-2 border-l border-slate-200">
@@ -1875,42 +1984,10 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Mobile Drawer Backdrop */}
-        {sidebarOpen && (
-          <div
-            onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
-            aria-hidden="true"
-          />
-        )}
-
-        {/* Responsive Drawer & Desktop Sidebar Navigation */}
-        <aside
-          className={`
-            fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-all duration-300 flex flex-col py-4 shadow-2xl lg:shadow-none
-            lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:translate-x-0
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-16'}
-            ${sidebarOpen ? 'lg:w-64' : 'lg:w-16'}
-          `}
-        >
-          {/* Mobile Drawer Header with Close Button */}
-          <div className="flex items-center justify-between px-4 pb-3 mb-2 border-b border-slate-100 lg:hidden">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center">
-                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
-              </div>
-              <span className="text-xs font-bold text-slate-900">Admin Navigation</span>
-            </div>
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              title="Close menu"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
+      {/* Full-width container flush to the left of the viewport (no side margin gap) */}
+      <div className="flex-1 flex w-full">
+        {/* Permanent Sidebar Navigation - Flush to the left edge */}
+        <aside className="w-64 shrink-0 bg-white border-r border-slate-200 flex flex-col py-4 sticky top-[57px] h-[calc(100vh-57px)]">
           <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto">
             {menuItems.map((item) => {
               const isActive = activeTab === item.id;
@@ -1924,7 +2001,6 @@ export default function AdminDashboard() {
                     } else {
                       setActiveTab(item.id);
                     }
-                    if (window.innerWidth < 1024) setSidebarOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     isActive
@@ -1932,10 +2008,12 @@ export default function AdminDashboard() {
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  <item.icon size={18} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
-                  {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
-                    <span className="truncate">{item.label}</span>
+                  {item.icon ? (
+                    <item.icon size={18} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
+                  ) : (
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ml-1 mr-0.5 ${isActive ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
                   )}
+                  <span className="truncate">{item.label}</span>
                 </button>
               );
             })}
@@ -1949,9 +2027,7 @@ export default function AdminDashboard() {
               title="Sign out of account"
             >
               <LogOut size={18} className="shrink-0 text-rose-500 group-hover:text-rose-700" />
-              {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && (
-                <span>Logout</span>
-              )}
+              <span>Logout</span>
             </button>
           </div>
         </aside>
@@ -1962,22 +2038,27 @@ export default function AdminDashboard() {
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              {/* Super Admin Unified Ecosystem Command Banner */}
-              {user?.role === 'superadmin' && (
+              {/* Super Admin Unified Ecosystem Command Banner with Warm Welcome */}
+              {isSuperAdmin && (
                 <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-5 text-white shadow-xl border border-indigo-500/40 relative overflow-hidden">
                   <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 relative z-10">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-extrabold px-2 py-0.5 rounded-md flex items-center gap-1">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md flex items-center gap-1">
                           👑 SUPER ADMINISTRATOR COMMAND CENTER
                         </span>
                         <span className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Full Access Active
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Full City Access Active
+                        </span>
+                        <span className="text-[11px] text-indigo-300/80 font-mono">
+                          • {new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                         </span>
                       </div>
-                      <h3 className="text-lg font-bold text-white">System-Wide Super Administrator Control</h3>
-                      <p className="text-xs text-indigo-200/80 max-w-2xl">
-                        Comprehensive administrative oversight across all system users, account permissions, activity tracking, and system audit logs.
+                      <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                        {getGreetingTime()}, {user?.name || 'Super Administrator'}! 👋
+                      </h3>
+                      <p className="text-xs text-indigo-200/80 max-w-2xl leading-relaxed">
+                        Comprehensive municipal oversight across all 86 Barangays in Butuan City. System audit streams, administrative permissions, and centralized database catalogs are active.
                       </p>
                     </div>
 
@@ -2003,11 +2084,11 @@ export default function AdminDashboard() {
                       </Button>
                       <Button
                         size="sm"
-                        onClick={() => setActiveTab('users')}
+                        onClick={() => setActiveTab('logs')}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-md cursor-pointer border border-indigo-400/40"
                       >
-                        <Users size={14} />
-                        User Directory
+                        <History size={14} />
+                        Audit History
                       </Button>
                       <Button
                         size="sm"
@@ -2022,9 +2103,60 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* Header Title & Quick Actions */}
+              {/* Barangay Admin & Staff Welcome Banner */}
+              {!isSuperAdmin && (
+                <div className="bg-gradient-to-r from-blue-900 via-indigo-950 to-slate-900 rounded-2xl p-5 text-white shadow-md border border-blue-500/30 relative overflow-hidden">
+                  <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 relative z-10">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="bg-blue-400/20 text-blue-200 border border-blue-400/30 text-[10px] font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                          🛡️ {isStaff ? 'BARANGAY STAFF / CLERK' : 'BARANGAY ADMINISTRATOR'}
+                        </span>
+                        <span className="text-[11px] text-emerald-300 font-mono flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Active Local Jurisdiction
+                        </span>
+                        <span className="text-[11px] text-blue-200/80 font-mono">
+                          • Barangay {userBarangay}, Butuan City
+                        </span>
+                      </div>
+                      <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                        {getGreetingTime()}, {user?.name || (isStaff ? 'Barangay Staff' : 'Administrator')}! 👋
+                      </h3>
+                      <p className="text-xs text-blue-100/80 max-w-2xl leading-relaxed">
+                        Welcome to your official Barangay {userBarangay} administrative command deck. You have {myPendingResidents.length} pending resident {myPendingResidents.length === 1 ? 'applicant' : 'applicants'} and {brgyPendingDocsCount} active clearance {brgyPendingDocsCount === 1 ? 'request' : 'requests'} ready for processing.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        onClick={() => setActiveTab('approvals')}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-md cursor-pointer border border-emerald-400/40"
+                      >
+                        <UserCheck size={14} />
+                        Review Applicants ({myPendingResidents.length})
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setActiveTab('documents')}
+                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-md cursor-pointer border border-blue-400/40"
+                      >
+                        <InboxIcon size={14} />
+                        Process Documents
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Dashboard Sub-Header with Jurisdiction Badge & Quick Actions */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Dashboard</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Dashboard Overview</h2>
+                  <Badge variant="outline" className="text-xs bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 border-slate-300">
+                    {isSuperAdmin ? 'City-Wide (86 Barangays)' : `Barangay ${userBarangay}`}
+                  </Badge>
+                </div>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -2186,87 +2318,168 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                {/* Right Column: Recent Document Requests Table */}
+                {/* Right Column: Dynamic Role Content (Super Admin Audit Stream vs Barangay Document Processing) */}
                 <div className="flex-1 min-w-0 w-full">
-                  <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-100">
-                    <div className="flex items-center justify-between mb-5">
-                      <h3 className="text-base font-bold text-slate-900">Recent Document Requests</h3>
-                      <button
-                        onClick={() => setActiveTab('documents')}
-                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
-                      >
-                        View portal
-                      </button>
-                    </div>
+                  {isSuperAdmin ? (
+                    <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-100">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                        <div>
+                          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                            <History size={18} className="text-indigo-600" />
+                            Live System Activity &amp; Audit Stream
+                          </h3>
+                          <p className="text-xs text-slate-500">Real-time chronicle of logins, registrations, approvals, and certificate issuances across Butuan City.</p>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab('logs')}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          View Full Audit Log
+                        </button>
+                      </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="bg-slate-50/90 text-slate-600 font-semibold">
-                            <th className="py-3 px-4 rounded-l-lg">Request ID</th>
-                            <th className="py-3 px-4">Resident Name</th>
-                            <th className="py-3 px-4">Document Type</th>
-                            <th className="py-3 px-4">Date</th>
-                            <th className="py-3 px-4 rounded-r-lg text-right">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {barangayDocs.length === 0 ? (
-                            <tr>
-                              <td colSpan={5} className="py-8 text-center text-slate-400">
-                                No document requests available.
-                              </td>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="bg-slate-50/90 text-slate-600 font-semibold">
+                              <th className="py-3 px-4 rounded-l-lg">User / Actor</th>
+                              <th className="py-3 px-4">Action &amp; Details</th>
+                              <th className="py-3 px-4">Barangay</th>
+                              <th className="py-3 px-4 rounded-r-lg text-right">Timestamp</th>
                             </tr>
-                          ) : (
-                            barangayDocs.slice(0, 8).map((doc, idx) => {
-                              const isCompleted = doc.status === 'Completed';
-                              const displayDate = doc.requested_at
-                                ? new Date(doc.requested_at).toLocaleDateString('en-GB')
-                                : '03/03/2024';
-                              const displayCode = doc.request_code.replace('DOC-', '') || `125633${idx}`;
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {activityLogs.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="py-10 text-center text-slate-400">
+                                  <History size={28} className="mx-auto mb-1.5 opacity-30 text-indigo-400" />
+                                  <p className="font-semibold text-slate-600">No activity logs recorded yet.</p>
+                                  <p className="text-[11px] text-slate-400">Events will appear here as administrators and residents use the system.</p>
+                                </td>
+                              </tr>
+                            ) : (
+                              activityLogs.slice(0, 7).map((log, idx) => {
+                                const role = (log.user_role || '').toLowerCase();
+                                const badgeColor = 
+                                  role === 'superadmin' ? 'bg-purple-100 text-purple-800 border-purple-200' :
+                                  role === 'admin' ? 'bg-indigo-100 text-indigo-800 border-indigo-200' :
+                                  role === 'staff' ? 'bg-sky-100 text-sky-800 border-sky-200' :
+                                  role === 'bhw' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' :
+                                  'bg-slate-100 text-slate-700 border-slate-200';
+                                
+                                const timeStr = log.timestamp 
+                                  ? new Date(log.timestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })
+                                  : 'Just now';
 
-                              return (
-                                <tr key={`dash-doc-${doc.id || doc.request_code || idx}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
-                                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{displayCode}</td>
-                                  <td className="py-3.5 px-4 font-semibold text-slate-900">{doc.resident_name}</td>
-                                  <td className="py-3.5 px-4 text-slate-600">{doc.document_type}</td>
-                                  <td className="py-3.5 px-4 text-slate-500">{displayDate}</td>
-                                  <td className="py-3.5 px-4 text-right">
-                                    {isCompleted ? (
-                                      <span className="inline-block bg-blue-600 text-white font-medium text-xs px-3.5 py-1 rounded-md shadow-xs">
-                                        Completed
+                                return (
+                                  <tr key={`dash-log-${log.id || idx}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                                    <td className="py-3 px-4">
+                                      <div className="font-semibold text-slate-900">{log.user_name || 'System'}</div>
+                                      <span className={`inline-block text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase mt-0.5 ${badgeColor}`}>
+                                        {log.user_role || 'Staff'}
                                       </span>
-                                    ) : (
-                                      <button
-                                        onClick={() => openDocInfo(doc)}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-4 py-1 rounded-md transition-colors cursor-pointer shadow-xs"
-                                      >
-                                        View
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          )}
-                        </tbody>
-                      </table>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <div className="font-medium text-slate-800">{log.action}</div>
+                                      {log.details && (
+                                        <div className="text-[11px] text-slate-500 truncate max-w-xs">{log.details}</div>
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4 font-medium text-slate-600">
+                                      Barangay {log.barangay || 'Pianing'}
+                                    </td>
+                                    <td className="py-3 px-4 text-right font-mono text-slate-500 whitespace-nowrap">
+                                      {timeStr}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-slate-100">
+                      <div className="flex items-center justify-between mb-5">
+                        <h3 className="text-base font-bold text-slate-900">Recent Document Requests</h3>
+                        <button
+                          onClick={() => setActiveTab('documents')}
+                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+                        >
+                          View portal
+                        </button>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="bg-slate-50/90 text-slate-600 font-semibold">
+                              <th className="py-3 px-4 rounded-l-lg">Request ID</th>
+                              <th className="py-3 px-4">Resident Name</th>
+                              <th className="py-3 px-4">Document Type</th>
+                              <th className="py-3 px-4">Date</th>
+                              <th className="py-3 px-4 rounded-r-lg text-right">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {barangayDocs.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="py-8 text-center text-slate-400">
+                                  No document requests available.
+                                </td>
+                              </tr>
+                            ) : (
+                              barangayDocs.slice(0, 8).map((doc, idx) => {
+                                const isCompleted = doc.status === 'Completed';
+                                const displayDate = doc.requested_at
+                                  ? new Date(doc.requested_at).toLocaleDateString('en-GB')
+                                  : '03/03/2024';
+                                const displayCode = doc.request_code.replace('DOC-', '') || `125633${idx}`;
+
+                                return (
+                                  <tr key={`dash-doc-${doc.id || doc.request_code || idx}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                                    <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{displayCode}</td>
+                                    <td className="py-3.5 px-4 font-semibold text-slate-900">{doc.resident_name}</td>
+                                    <td className="py-3.5 px-4 text-slate-600">{doc.document_type}</td>
+                                    <td className="py-3.5 px-4 text-slate-500">{displayDate}</td>
+                                    <td className="py-3.5 px-4 text-right">
+                                      {isCompleted ? (
+                                        <span className="inline-block bg-blue-600 text-white font-medium text-xs px-3.5 py-1 rounded-md shadow-xs">
+                                          Completed
+                                        </span>
+                                      ) : (
+                                        <button
+                                          onClick={() => openDocInfo(doc)}
+                                          className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-4 py-1 rounded-md transition-colors cursor-pointer shadow-xs"
+                                        >
+                                          View
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* POPULATION DEMOGRAPHICS & CENSUS INTELLIGENCE SUITE */}
-                <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-5">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                          Official Civil Census
+                        <span className="bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border border-blue-200/80">
+                          Civil Demographic Registry
                         </span>
-                        <span className="text-xs text-slate-500 font-mono">Real-Time Demographic Registry</span>
+                        <span className="text-xs text-slate-500 font-medium">• Barangay {user?.barangay || 'Pianing'}</span>
                       </div>
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-1">
-                        Barangay Population Demographics & Adoption Intelligence
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-1 tracking-tight">
+                        Population Demographics & Adoption Intelligence
                       </h3>
                       <p className="text-xs text-slate-500">
                         Official demographic profile and online system adoption metrics for Barangay {user?.barangay || 'Pianing'}, Butuan City.
@@ -2277,17 +2490,12 @@ export default function AdminDashboard() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={async () => {
-                          const p = await apiService.getPopulationStats(isSuperAdmin ? undefined : user?.barangay).catch(() => null);
-                          if (p) {
-                            setPopulationStats(p);
-                            toast.success('Demographic statistics refreshed');
-                          }
-                        }}
-                        className="text-xs gap-1.5 h-8 border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer"
+                        onClick={handleRefreshMetrics}
+                        disabled={isRefreshingMetrics}
+                        className="text-xs gap-1.5 h-8 border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer shadow-xs rounded-lg transition-all"
                       >
-                        <RefreshCcw size={12} />
-                        <span>Refresh Metrics</span>
+                        <RefreshCcw size={12} className={isRefreshingMetrics ? "animate-spin text-blue-600" : "text-slate-500"} />
+                        <span>{isRefreshingMetrics ? 'Refreshing...' : 'Refresh Metrics'}</span>
                       </Button>
                     </div>
                   </div>
@@ -2295,10 +2503,12 @@ export default function AdminDashboard() {
                   {/* 4 Core Demographic Metric Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {/* Total Population */}
-                    <div className="bg-gradient-to-br from-blue-50/70 to-indigo-50/40 dark:from-slate-800/60 dark:to-slate-800/30 p-4 rounded-xl border border-blue-100 dark:border-slate-700 space-y-2">
-                      <div className="flex items-center justify-between text-blue-700 dark:text-blue-400">
-                        <span className="text-xs font-semibold">Total Population</span>
-                        <Users size={16} />
+                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-2 hover:border-slate-300 transition-colors">
+                      <div className="flex items-center justify-between text-blue-600 dark:text-blue-400">
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Total Population</span>
+                        <div className="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-950/60 flex items-center justify-center">
+                          <Users size={15} className="text-blue-600" />
+                        </div>
                       </div>
                       <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                         {(populationStats?.total_population ?? residents.length).toLocaleString()}
@@ -2309,10 +2519,12 @@ export default function AdminDashboard() {
                     </div>
 
                     {/* Online Portal Adoption */}
-                    <div className="bg-gradient-to-br from-emerald-50/70 to-teal-50/40 dark:from-slate-800/60 dark:to-slate-800/30 p-4 rounded-xl border border-emerald-100 dark:border-slate-700 space-y-2">
-                      <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400">
-                        <span className="text-xs font-semibold">Online Adoption Rate</span>
-                        <CheckCircle size={16} />
+                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-2 hover:border-slate-300 transition-colors">
+                      <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400">
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Online Adoption Rate</span>
+                        <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center">
+                          <CheckCircle size={15} className="text-emerald-600" />
+                        </div>
                       </div>
                       <div className="flex items-baseline gap-2">
                         <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
@@ -2322,7 +2534,7 @@ export default function AdminDashboard() {
                           ({populationStats?.online_registered ?? 0} active accounts)
                         </span>
                       </div>
-                      <div className="w-full bg-emerald-100 dark:bg-emerald-950/40 rounded-full h-1.5 overflow-hidden">
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                         <div
                           className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500"
                           style={{ width: `${Math.min(100, populationStats?.adoption_rate ?? 39)}%` }}
@@ -2331,10 +2543,12 @@ export default function AdminDashboard() {
                     </div>
 
                     {/* Voting Age Population (18+) */}
-                    <div className="bg-gradient-to-br from-amber-50/70 to-orange-50/40 dark:from-slate-800/60 dark:to-slate-800/30 p-4 rounded-xl border border-amber-100 dark:border-slate-700 space-y-2">
-                      <div className="flex items-center justify-between text-amber-700 dark:text-amber-400">
-                        <span className="text-xs font-semibold">Registered Voters (18+)</span>
-                        <ShieldCheck size={16} />
+                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-2 hover:border-slate-300 transition-colors">
+                      <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400">
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Registered Voters (18+)</span>
+                        <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center">
+                          <ShieldCheck size={15} className="text-indigo-600" />
+                        </div>
                       </div>
                       <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                         {(populationStats?.registered_voters ?? 0).toLocaleString()}
@@ -2345,21 +2559,23 @@ export default function AdminDashboard() {
                     </div>
 
                     {/* Seniors & Minor Priority Groups */}
-                    <div className="bg-gradient-to-br from-purple-50/70 to-pink-50/40 dark:from-slate-800/60 dark:to-slate-800/30 p-4 rounded-xl border border-purple-100 dark:border-slate-700 space-y-2">
-                      <div className="flex items-center justify-between text-purple-700 dark:text-purple-400">
-                        <span className="text-xs font-semibold">Priority Age Groups</span>
-                        <Heart size={16} />
+                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-2 hover:border-slate-300 transition-colors">
+                      <div className="flex items-center justify-between text-violet-600 dark:text-violet-400">
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Priority Age Groups</span>
+                        <div className="w-7 h-7 rounded-lg bg-violet-50 dark:bg-violet-950/60 flex items-center justify-center">
+                          <Heart size={15} className="text-violet-600" />
+                        </div>
                       </div>
                       <div className="flex items-center justify-between text-xs pt-1">
                         <div>
                           <span className="text-[10px] text-slate-500 block uppercase font-bold">Seniors (60+)</span>
-                          <span className="text-base font-extrabold text-purple-700 dark:text-purple-300">
+                          <span className="text-base font-extrabold text-amber-700 dark:text-amber-400">
                             {(populationStats?.senior_citizens ?? 0).toLocaleString()}
                           </span>
                         </div>
                         <div className="text-right">
                           <span className="text-[10px] text-slate-500 block uppercase font-bold">Minors (&lt;18)</span>
-                          <span className="text-base font-extrabold text-pink-700 dark:text-pink-300">
+                          <span className="text-base font-extrabold text-blue-600 dark:text-blue-400">
                             {(populationStats?.minors_children ?? 0).toLocaleString()}
                           </span>
                         </div>
@@ -2476,63 +2692,49 @@ export default function AdminDashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-slate-50 dark:bg-slate-800/50">
-                        <TableHead className="text-xs">Resident Name</TableHead>
-                        <TableHead className="text-xs">Contact Info</TableHead>
-                        <TableHead className="text-xs">Address</TableHead>
-                        <TableHead className="text-xs">Submitted ID</TableHead>
+                        <TableHead className="text-xs">Applicant Name</TableHead>
+                        <TableHead className="text-xs">Application ID</TableHead>
                         <TableHead className="text-xs">Submitted Date</TableHead>
                         <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs text-right">Admin Actions</TableHead>
+                        <TableHead className="text-xs text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {myPendingResidents.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-xs py-12 text-slate-400">
+                          <TableCell colSpan={5} className="text-center text-xs py-12 text-slate-400">
                             <CheckCircle size={32} className="mx-auto mb-2 text-emerald-500 opacity-80" />
-                            No pending resident account applications! All registrations have been reviewed.
+                            No pending resident applications! All registrations have been reviewed.
                           </TableCell>
                         </TableRow>
                       ) : (
                         myPendingResidents.map((r, idx) => (
                           <TableRow key={`pending-res-${r.id}-${idx}`} className="text-xs hover:bg-slate-50/50">
                             <TableCell className="font-semibold text-slate-900 dark:text-white">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span>{r.name || `${r.first_name || ''} ${r.last_name || ''}`}</span>
-                                {(r.claimed_at || (r as any).is_claimed || (r as any).linked_user_id) && (
-                                  <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs" title="Offline resident census record linked and claimed">
-                                    Census Record Claimed
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold text-xs flex items-center justify-center shrink-0">
+                                  {(r.name || r.first_name || 'R').charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <span className="font-semibold text-slate-900 dark:text-white block">
+                                    {r.name || `${r.first_name || ''} ${r.last_name || ''}`}
                                   </span>
-                                )}
+                                  {(r.claimed_at || (r as any).is_claimed || (r as any).linked_user_id) && (
+                                    <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[9px] font-bold px-1.5 py-0.5 rounded shadow-2xs" title="Offline resident census record linked and claimed">
+                                      Census Record Linked
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </TableCell>
-                            <TableCell>
-                              <div className="space-y-0.5">
-                                <p className="text-slate-700 dark:text-slate-300 font-medium">{r.email}</p>
-                                <p className="text-[11px] text-slate-400">{r.phone || 'No phone'}</p>
-                              </div>
+                            <TableCell className="font-mono text-slate-500 text-xs font-semibold">
+                              APP-#{r.id}
                             </TableCell>
-                            <TableCell className="text-slate-600 dark:text-slate-400">
-                              {r.address || 'Zone 1'}
+                            <TableCell className="font-mono text-slate-500 text-[11px]">
+                              {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Recent'}
                             </TableCell>
                             <TableCell>
-                              {r.submitted_id ? (
-                                <button
-                                  onClick={() => setSelectedIdPreview(r.submitted_id)}
-                                  className="flex items-center gap-1.5 text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1 rounded-md transition-colors"
-                                >
-                                  <Eye size={13} />
-                                  <span>View ID Photo</span>
-                                </button>
-                              ) : (
-                                <span className="text-slate-400 text-[11px] italic">No ID attached</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="font-mono text-slate-400 text-[11px]">
-                              {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : 'Recent'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]">
+                              <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-semibold">
                                 Pending Review
                               </Badge>
                             </TableCell>
@@ -2542,16 +2744,16 @@ export default function AdminDashboard() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => openApplicantReview(r)}
-                                  className="h-7 text-[11px] gap-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950 font-semibold cursor-pointer"
-                                  title="View full applicant details, inspect ID, and accept or request correction"
+                                  className="h-7 text-[11px] gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold cursor-pointer"
+                                  title="Preview complete applicant profile, contact details, address, and submitted ID"
                                 >
                                   <Eye size={12} />
-                                  Review
+                                  Preview Info
                                 </Button>
                                 <Button
                                   size="sm"
                                   onClick={() => handleApproveResident(r.id)}
-                                  className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-semibold cursor-pointer"
+                                  className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs font-semibold cursor-pointer"
                                   title="Approve and verify resident account"
                                 >
                                   <Check size={12} />
@@ -2912,22 +3114,26 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 <Button
-                  onClick={() => printOfficialReport({
-                    title: 'Active Document Requests',
-                    subtitle: `Barangay ${user?.barangay || 'Pianing'} — Active Clearance Queue`,
-                    preparedBy: user?.name || 'Admin',
-                    preparedByTitle: 'Barangay Administrator',
-                    tables: [{
-                      title: 'Document Requests',
-                      headers: ['Code', 'Resident', 'Document Type', 'Purpose', 'Status', 'Requested At'],
-                      rows: filteredDocuments.map(d => [d.request_code || '-', d.resident_name || '-', d.document_type || '-', d.purpose || '-', d.status || '-', d.requested_at || '-'])
-                    }]
-                  })}
+                  onClick={() => {
+                    downloadOfficialPdf({
+                      title: 'Active Document Requests',
+                      subtitle: `Barangay ${user?.barangay || 'Pianing'} — Active Clearance Queue`,
+                      filename: `Barangay_Clearance_Requests_${new Date().toISOString().slice(0, 10)}`,
+                      preparedBy: user?.name || 'Admin',
+                      preparedByTitle: 'Barangay Administrator',
+                      tables: [{
+                        title: 'Document Requests Queue',
+                        headers: ['Code', 'Resident', 'Document Type', 'Purpose', 'Status', 'Requested At'],
+                        rows: filteredDocuments.map(d => [d.request_code || '-', d.resident_name || '-', d.document_type || '-', d.purpose || '-', d.status || '-', d.requested_at || '-'])
+                      }]
+                    });
+                    toast.success('Document requests PDF downloaded');
+                  }}
                   variant="outline"
                   size="sm"
                   className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
                 >
-                  <Download size={14} /> Export PDF
+                  <Download size={14} /> Download PDF
                 </Button>
               </div>
 
@@ -3059,20 +3265,24 @@ export default function AdminDashboard() {
                   </p>
                 </div>
                 <Button
-                  onClick={() => printOfficialReport({
-                    title: 'Completed Documents Archive',
-                    subtitle: `Barangay ${user?.barangay || 'Pianing'} — Archived & Completed Records`,
-                    preparedBy: user?.name || 'Admin',
-                    preparedByTitle: 'Barangay Administrator',
-                    tables: [{
-                      title: 'Completed Document Records',
-                      headers: ['Code', 'Resident', 'Document Type', 'Purpose', 'Status', 'Completed At'],
-                      rows: archivedDocuments.map(d => [d.request_code || '-', d.resident_name || '-', d.document_type || '-', d.purpose || '-', d.status || '-', d.processed_at || d.requested_at || '-'])
-                    }]
-                  })}
+                  onClick={() => {
+                    downloadOfficialPdf({
+                      title: 'Completed Documents Archive',
+                      subtitle: `Barangay ${user?.barangay || 'Pianing'} — Archived & Completed Records`,
+                      filename: `Barangay_Archived_Documents_${new Date().toISOString().slice(0, 10)}`,
+                      preparedBy: user?.name || 'Admin',
+                      preparedByTitle: 'Barangay Administrator',
+                      tables: [{
+                        title: 'Completed Document Records',
+                        headers: ['Code', 'Resident', 'Document Type', 'Purpose', 'Status', 'Completed At'],
+                        rows: archivedDocuments.map(d => [d.request_code || '-', d.resident_name || '-', d.document_type || '-', d.purpose || '-', d.status || '-', d.processed_at || d.requested_at || '-'])
+                      }]
+                    });
+                    toast.success('Archived documents PDF downloaded');
+                  }}
                   variant="outline" size="sm" className="text-xs gap-1.5 border-slate-300"
                 >
-                  <Download size={14} /> Export Archive PDF
+                  <Download size={14} /> Download Archive (PDF)
                 </Button>
               </div>
 
@@ -3548,71 +3758,307 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 3: RESIDENT RECORDS */}
+          {/* TAB 3: POPULATIONS & HOUSEHOLD CENSUS REGISTRY */}
           {activeTab === 'records' && (
-            <div className="space-y-5">
-              {/* Header with Live Count & Unified Actions Toolbar */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-1">
+            <div className="space-y-6">
+              {/* Header with Title, Actions & View Mode Toggle */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-1 border-b border-slate-200">
                 <div>
-                  <div className="flex items-center gap-2.5">
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white leading-tight">Barangay Resident Registry</h2>
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                      {filteredResidents.length} Residents
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-xl font-bold text-slate-900 tracking-tight">Populations</h2>
+                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                      {censusStats?.total_population ?? filteredResidents.length} Inhabitants
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">Demographic profiles and resident records linked to MySQL database.</p>
+                  <p className="text-xs text-slate-500 mt-1">Barangay {user?.barangay || 'Pianing'} • Civil Inhabitants & Household Registry</p>
                 </div>
 
-                <div className="flex items-center gap-2 self-stretch sm:self-auto">
+                <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto">
+                  {/* View Mode Switcher */}
+                  <div className="inline-flex rounded-lg p-1 bg-slate-100 border border-slate-200 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setCensusViewMode('households')}
+                      className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                        censusViewMode === 'households' ? 'bg-white text-blue-700 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Households
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCensusViewMode('table')}
+                      className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                        censusViewMode === 'table' ? 'bg-white text-blue-700 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      All Inhabitants Table
+                    </button>
+                  </div>
+
                   <Button
                     onClick={() => {
-                      printOfficialReport({
-                        title: 'Barangay Resident Registry',
-                        subtitle: `Barangay ${user?.barangay || 'Pianing'} — Demographic Records`,
+                      const activePurokLabel = selectedCensusPurok === 'all' ? 'All Puroks (1 to 7)' : `Purok ${selectedCensusPurok}`;
+                      downloadOfficialPdf({
+                        title: 'Barangay Population & Household Census Report',
+                        subtitle: `Barangay ${user?.barangay || 'Pianing'}, Butuan City — ${activePurokLabel}`,
+                        filename: `Barangay_Pianing_Population_Census_${selectedCensusPurok === 'all' ? 'All_Puroks' : 'Purok_' + selectedCensusPurok}`,
+                        barangay: user?.barangay || 'Pianing',
+                        orientation: 'landscape',
                         preparedBy: user?.name || 'Admin',
-                        preparedByTitle: 'Barangay Administrator',
+                        preparedByTitle: 'Barangay Civil Registrar / Administrator',
                         stats: [
-                          { label: 'Total Residents', value: filteredResidents.length, color: '#2563eb' },
-                          { label: 'Male', value: filteredResidents.filter(r => r.gender === 'Male').length, color: '#0284c7' },
-                          { label: 'Female', value: filteredResidents.filter(r => r.gender === 'Female').length, color: '#db2777' },
+                          { label: 'Total Households', value: censusStats?.total_households ?? 0 },
+                          { label: 'Total Families', value: censusStats?.total_families ?? 0 },
+                          { label: 'Total Population', value: censusStats?.total_population ?? filteredResidents.length },
+                          { label: 'Senior Citizens', value: `${censusStats?.senior_citizens?.total ?? 0} (M: ${censusStats?.senior_citizens?.male ?? 0}, F: ${censusStats?.senior_citizens?.female ?? 0})` },
+                          { label: 'Children / Minors', value: censusStats?.children_count ?? 0 },
+                          { label: 'Employment Rate', value: `${censusStats?.employment?.rate_percentage ?? 80}% (${censusStats?.employment?.employed ?? 0} Employed / ${censusStats?.employment?.unemployed ?? 0} Unemployed)` }
                         ],
                         tables: [{
-                          title: 'Resident List',
-                          headers: ['ID', 'Full Name', 'Gender', 'Purok / Address', 'Contact Phone'],
-                          rows: filteredResidents.map(r => [r.id, `${r.first_name} ${r.middle_name ? r.middle_name + ' ' : ''}${r.last_name}`, r.gender || 'N/A', r.address || 'N/A', r.phone || 'N/A'])
+                          title: `Civil Inhabitants Roster (${activePurokLabel})`,
+                          headers: ['ID', 'Household #', 'Family Name', 'Full Name', 'Age', 'Gender', 'Purok', 'Employment'],
+                          rows: filteredResidents.map(r => [
+                            r.id,
+                            r.household_number || `HH-P${r.purok || '1'}-${r.id}`,
+                            r.family_name || r.last_name,
+                            `${r.first_name} ${r.middle_name ? r.middle_name + ' ' : ''}${r.last_name}`,
+                            `${(r as any).age ?? 25} yo`,
+                            r.gender || 'N/A',
+                            `Purok ${r.purok || '1'}`,
+                            r.employment_status || 'Employed'
+                          ])
                         }]
                       });
+                      toast.success('Population Census PDF downloaded');
                     }}
                     variant="outline"
                     size="sm"
-                    className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50 text-slate-700 shadow-xs cursor-pointer"
+                    className="text-xs h-9 gap-1.5 border-slate-300 hover:bg-slate-50 text-slate-700 shadow-xs cursor-pointer rounded-lg font-medium"
                   >
-                    <Download size={14} /> Export PDF
+                    <Download size={13} className="text-slate-600" />
+                    Download PDF
                   </Button>
 
-                  <Dialog open={isAddResidentOpen} onOpenChange={setIsAddResidentOpen}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRefreshCensus}
+                    disabled={isRefreshingCensus}
+                    className="text-xs h-9 gap-1.5 border-slate-300 hover:bg-slate-50 text-slate-700 shadow-xs cursor-pointer rounded-lg transition-all"
+                  >
+                    <RefreshCcw size={13} className={isRefreshingCensus ? "animate-spin text-blue-600" : "text-slate-500"} />
+                    <span>{isRefreshingCensus ? 'Refreshing...' : 'Refresh'}</span>
+                  </Button>
+
+                  <Dialog open={isAddResidentOpen} onOpenChange={(open) => {
+                    setIsAddResidentOpen(open);
+                    if (open) {
+                      setNewResBarangay(user?.barangay || 'Pianing');
+                      if (!newResHouseholdNum) {
+                        const p = selectedCensusPurok === 'all' ? '1' : selectedCensusPurok;
+                        setNewResPurok(p);
+                        const cleanP = p.replace(/purok\s*/i, '').trim();
+                        const existingInP = censusHouseholds.filter(h => h.purok.includes(cleanP) || h.household_number.includes(`HH-P${cleanP}`));
+                        setNewResHouseholdNum(`HH-P${cleanP}-${String(existingInP.length + 1).padStart(3, '0')}`);
+                      }
+                    }
+                  }}>
                     <DialogTrigger asChild>
-                      <Button className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow-xs h-9 cursor-pointer">
-                        <UserPlus size={15} />
-                        Register Resident
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white text-xs shadow-xs h-9 cursor-pointer font-semibold">
+                        + Register Resident
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="bg-white max-w-xl max-h-[90vh] overflow-y-auto">
+                    <DialogContent className="bg-white max-w-2xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
-                        <DialogTitle>Register New Resident</DialogTitle>
-                        <DialogDescription className="text-xs">Add comprehensive resident demographic profile and official civil identity records.</DialogDescription>
+                        <DialogTitle className="text-base font-bold text-slate-900">Register Resident / Household</DialogTitle>
+                        <DialogDescription className="text-xs text-slate-500">
+                          Add a citizen to the official Barangay {newResBarangay || user?.barangay || 'Pianing'} Population &amp; Household Census Registry.
+                        </DialogDescription>
                       </DialogHeader>
-                      <form onSubmit={handleCreateResident} className="space-y-3 py-2">
-                        {/* Auto-location notice */}
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700 flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <span>📍</span>
-                            <span>Jurisdiction: <strong>Barangay {user?.barangay || 'Pianing'}, Butuan City</strong></span>
+                      <form onSubmit={handleCreateResident} className="space-y-4 py-2">
+                        {/* Dynamic Barangay Jurisdiction */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl">
+                          <div className="flex items-center gap-2">
+                            <Building2 size={16} className="text-blue-600 shrink-0" />
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Barangay Jurisdiction:</span>
+                            {isSuperAdmin ? (
+                              <Select value={newResBarangay || user?.barangay || 'Pianing'} onValueChange={setNewResBarangay}>
+                                <SelectTrigger className="text-xs bg-white dark:bg-slate-900 h-8 w-48 font-semibold text-slate-900 dark:text-white border-slate-300 dark:border-slate-700">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-60">
+                                  {BUTUAN_BARANGAYS.map(b => (
+                                    <SelectItem key={b} value={b}>Barangay {b}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800 font-bold px-2.5 py-0.5">
+                                Barangay {user?.barangay || 'Pianing'}
+                              </Badge>
+                            )}
                           </div>
-                          <span className="text-[10px] bg-blue-100 font-semibold px-2 py-0.5 rounded">Census Registry</span>
+                          <span className="text-[11px] text-slate-500 font-medium">
+                            City of Butuan • Population Registry
+                          </span>
                         </div>
 
-                        {/* Name Row: First / Middle / Last */}
+                        {/* Step 1: Purok & Household Assignment */}
+                        <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-800">Household & Purok Assignment</span>
+                            <div className="flex items-center gap-1 text-[11px]">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddResidentMode('new_household');
+                                  const cleanP = (newResPurok || '1').replace(/purok\s*/i, '').trim();
+                                  const existingInP = censusHouseholds.filter(h => h.purok.includes(cleanP) || h.household_number.includes(`HH-P${cleanP}`));
+                                  setNewResHouseholdNum(`HH-P${cleanP}-${String(existingInP.length + 1).padStart(3, '0')}`);
+                                  setNewResIsHead(true);
+                                  setNewResRelationship('Head');
+                                }}
+                                className={`px-2 py-0.5 rounded transition-colors ${addResidentMode === 'new_household' ? 'bg-blue-600 text-white font-semibold' : 'bg-slate-200 text-slate-700'}`}
+                              >
+                                New Household
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddResidentMode('existing_household');
+                                  setNewResIsHead(false);
+                                  setNewResRelationship('Spouse');
+                                  const p = (newResPurok || '1').replace(/purok\s*/i, '').trim();
+                                  const hhInP = censusHouseholds.filter(h => h.purok.includes(p) || h.household_number.includes(`HH-P${p}`));
+                                  if (hhInP.length > 0) {
+                                    setNewResHouseholdNum(hhInP[0].household_number);
+                                    setNewResFamilyName(hhInP[0].family_name);
+                                  }
+                                }}
+                                className={`px-2 py-0.5 rounded transition-colors ${addResidentMode === 'existing_household' ? 'bg-blue-600 text-white font-semibold' : 'bg-slate-200 text-slate-700'}`}
+                              >
+                                Existing Household
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                            <div>
+                              <Label className="text-xs font-semibold">Purok *</Label>
+                              <Select
+                                value={newResPurok || '1'}
+                                onValueChange={(val) => {
+                                  setNewResPurok(val);
+                                  if (addResidentMode === 'new_household') {
+                                    const existingInP = censusHouseholds.filter(h => h.purok.includes(val) || h.household_number.includes(`HH-P${val}`));
+                                    setNewResHouseholdNum(`HH-P${val}-${String(existingInP.length + 1).padStart(3, '0')}`);
+                                  } else {
+                                    const hhInP = censusHouseholds.filter(h => h.purok.includes(val) || h.household_number.includes(`HH-P${val}`));
+                                    if (hhInP.length > 0) {
+                                      setNewResHouseholdNum(hhInP[0].household_number);
+                                      setNewResFamilyName(hhInP[0].family_name);
+                                    }
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="text-xs bg-white"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {[1, 2, 3, 4, 5, 6, 7].map(p => (
+                                    <SelectItem key={`p-sel-${p}`} value={String(p)}>Purok {p}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {addResidentMode === 'new_household' ? (
+                              <>
+                                <div>
+                                  <Label className="text-xs font-semibold">Household Number</Label>
+                                  <Input
+                                    value={newResHouseholdNum}
+                                    onChange={e => setNewResHouseholdNum(e.target.value)}
+                                    placeholder="e.g. HH-P1-001"
+                                    className="text-xs bg-white font-mono"
+                                    required
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs font-semibold">Family Name</Label>
+                                  <Input
+                                    value={newResFamilyName}
+                                    onChange={e => setNewResFamilyName(e.target.value)}
+                                    placeholder="e.g. Dela Cruz"
+                                    className="text-xs bg-white"
+                                  />
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="sm:col-span-2">
+                                  <Label className="text-xs font-semibold">Select Household</Label>
+                                  <Select
+                                    value={newResHouseholdNum}
+                                    onValueChange={(val) => {
+                                      setNewResHouseholdNum(val);
+                                      const found = censusHouseholds.find(h => h.household_number === val);
+                                      if (found) setNewResFamilyName(found.family_name);
+                                    }}
+                                  >
+                                    <SelectTrigger className="text-xs bg-white"><SelectValue placeholder="Select existing household" /></SelectTrigger>
+                                    <SelectContent>
+                                      {censusHouseholds
+                                        .filter(h => h.purok.includes(newResPurok || '1') || h.household_number.includes(`HH-P${newResPurok || '1'}`))
+                                        .map(h => (
+                                          <SelectItem key={h.household_number} value={h.household_number}>
+                                            {h.household_number} — {h.family_name} Family ({h.head_name || 'Head N/A'})
+                                          </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                            <div>
+                              <Label className="text-xs font-semibold">Relationship to Household Head</Label>
+                              <Select value={newResRelationship} onValueChange={setNewResRelationship}>
+                                <SelectTrigger className="text-xs bg-white"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Head">Head of Family</SelectItem>
+                                  <SelectItem value="Spouse">Spouse</SelectItem>
+                                  <SelectItem value="Son">Son</SelectItem>
+                                  <SelectItem value="Daughter">Daughter</SelectItem>
+                                  <SelectItem value="Parent">Parent</SelectItem>
+                                  <SelectItem value="Grandparent">Grandparent</SelectItem>
+                                  <SelectItem value="Grandson">Grandson</SelectItem>
+                                  <SelectItem value="Granddaughter">Granddaughter</SelectItem>
+                                  <SelectItem value="Relative">Relative</SelectItem>
+                                  <SelectItem value="Other">Other / Member</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center gap-2 pt-5">
+                              <input
+                                type="checkbox"
+                                id="is_head_checkbox"
+                                checked={newResIsHead}
+                                onChange={e => {
+                                  setNewResIsHead(e.target.checked);
+                                  if (e.target.checked) setNewResRelationship('Head');
+                                }}
+                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                              />
+                              <label htmlFor="is_head_checkbox" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                                Set as Primary Head of Household
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 2: Member Personal Identity */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div>
                             <Label className="text-xs font-semibold">First Name *</Label>
@@ -3624,11 +4070,22 @@ export default function AdminDashboard() {
                           </div>
                           <div>
                             <Label className="text-xs font-semibold">Last Name *</Label>
-                            <Input value={newResLastName} onChange={e => setNewResLastName(e.target.value)} placeholder="e.g. Dela Cruz" required className="text-xs" />
+                            <Input
+                              value={newResLastName}
+                              onChange={e => {
+                                setNewResLastName(e.target.value);
+                                if (addResidentMode === 'new_household' && !newResFamilyName) {
+                                  setNewResFamilyName(e.target.value);
+                                }
+                              }}
+                              placeholder="e.g. Dela Cruz"
+                              required
+                              className="text-xs"
+                            />
                           </div>
                         </div>
 
-                        {/* Birthday & Gender */}
+                        {/* Birthday, Computed Age & Gender */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div>
                             <Label className="text-xs font-semibold">Date of Birth *</Label>
@@ -3636,16 +4093,17 @@ export default function AdminDashboard() {
                           </div>
                           <div>
                             <Label className="text-xs font-semibold">Gender *</Label>
-                            <Select value={newResGender} onValueChange={(val: 'Male' | 'Female') => setNewResGender(val)}>
+                            <Select value={newResGender} onValueChange={(val: any) => setNewResGender(val)}>
                               <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="Male">Male</SelectItem>
                                 <SelectItem value="Female">Female</SelectItem>
+                                <SelectItem value="Other">Other / Non-Binary</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                           <div>
-                            <Label className="text-xs font-semibold">Civil Status *</Label>
+                            <Label className="text-xs font-semibold">Civil Status</Label>
                             <Select value={newResCivilStatus} onValueChange={setNewResCivilStatus}>
                               <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
@@ -3653,124 +4111,67 @@ export default function AdminDashboard() {
                                 <SelectItem value="Married">Married</SelectItem>
                                 <SelectItem value="Widowed">Widowed</SelectItem>
                                 <SelectItem value="Separated">Separated</SelectItem>
+                                <SelectItem value="Live-In">Live-In / Common Law</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                         </div>
 
-                        {/* Residency & Computed Age */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <div>
-                            <Label className="text-xs font-semibold">Years of Residency</Label>
-                            <Input value={newResYearsOfResidency} onChange={e => setNewResYearsOfResidency(e.target.value)} placeholder="e.g. 5 years" className="text-xs" />
-                          </div>
-                          <div>
-                            <Label className="text-xs font-semibold">Computed Age</Label>
-                            <div className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-md flex items-center text-xs text-slate-700 font-medium">
-                              {newResDOB ? `${getDynamicAge(newResDOB)} years old` : 'Enter date of birth'}
+                        {/* Dynamic Age & Sector Detection Banner */}
+                        {newResDOB && (
+                          <div className="text-xs p-2.5 rounded-lg border flex items-center justify-between bg-slate-50 border-slate-200">
+                            <div>
+                              <span className="text-slate-500">Calculated Age: </span>
+                              <strong className="text-slate-800">{getDynamicAge(newResDOB)} years old</strong>
                             </div>
+                            {getDynamicAge(newResDOB) >= 60 ? (
+                              <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded text-[11px] border border-amber-300">
+                                Senior Citizen (60+) — Auto-tallied in Household
+                              </span>
+                            ) : getDynamicAge(newResDOB) < 18 ? (
+                              <span className="bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded text-[11px] border border-blue-300">
+                                Child / Minor (&lt;18)
+                              </span>
+                            ) : (
+                              <span className="bg-slate-200 text-slate-700 font-medium px-2 py-0.5 rounded text-[11px]">
+                                Adult (18-59)
+                              </span>
+                            )}
                           </div>
-                        </div>
+                        )}
 
-                        {/* Purok & Contact Phone */}
+                        {/* Employment Status & Contact */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <div>
-                            <Label className="text-xs font-semibold">Purok / Zone *</Label>
-                            <Input value={newResPurok} onChange={e => setNewResPurok(e.target.value)} placeholder="e.g. Purok 1" required className="text-xs" />
+                            <Label className="text-xs font-semibold">Employment Status *</Label>
+                            <Select value={newResEmployment} onValueChange={setNewResEmployment}>
+                              <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Employed">Employed (Have Work)</SelectItem>
+                                <SelectItem value="Self-Employed">Self-Employed / Business</SelectItem>
+                                <SelectItem value="Unemployed">Unemployed (Looking for work)</SelectItem>
+                                <SelectItem value="Student">Student</SelectItem>
+                                <SelectItem value="Retired">Retired / Pensioner</SelectItem>
+                                <SelectItem value="Minor">Dependent Minor</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                           <div>
                             <Label className="text-xs font-semibold">Contact Number *</Label>
                             <Input
                               value={newResPhone}
-                              onChange={e => setNewResPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                              placeholder="09XXXXXXXXX (11 digits)"
+                              onChange={e => setNewResPhone(e.target.value.replace(/[^0-9+]/g, '').slice(0, 13))}
+                              placeholder="09XXXXXXXXX"
                               className="text-xs font-mono"
-                              maxLength={11}
-                              inputMode="numeric"
+                              inputMode="tel"
                               required
                             />
                           </div>
                         </div>
 
-                        {/* Government ID Verification Section (Parity with Login/Registration) */}
-                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-xs font-bold text-slate-800">Civil Identity Verification</Label>
-                            <span className="text-[10px] text-slate-500 font-medium">Matches Portal Registration</span>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div>
-                              <Label className="text-[11px] font-semibold text-slate-600">Government ID Type</Label>
-                              <Select value={newResIdType} onValueChange={setNewResIdType}>
-                                <SelectTrigger className="text-xs bg-white"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {ID_TYPES.map(t => (
-                                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label className="text-[11px] font-semibold text-slate-600">Upload Valid ID Photo</Label>
-                              {!newResIdPhoto ? (
-                                <label className="border border-dashed border-slate-300 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-lg p-2 text-center cursor-pointer flex items-center justify-center gap-1.5 h-9 transition-colors">
-                                  <Camera size={14} className="text-blue-600" />
-                                  <span className="text-[11px] text-slate-600 font-medium truncate">Attach ID Photo (Optional)</span>
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (file) {
-                                        if (file.size > 5 * 1024 * 1024) {
-                                          toast.error('Image file too large (Max 5MB)');
-                                          return;
-                                        }
-                                        const reader = new FileReader();
-                                        reader.onload = () => {
-                                          setNewResIdPhoto(reader.result as string);
-                                          setNewResIdFileName(file.name);
-                                        };
-                                        reader.readAsDataURL(file);
-                                      }
-                                    }}
-                                  />
-                                </label>
-                              ) : (
-                                <div className="p-1 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between gap-2 h-9">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <img src={newResIdPhoto} alt="ID" className="w-8 h-7 object-cover rounded border border-blue-300 shrink-0" />
-                                    <span className="text-[11px] font-bold text-blue-900 truncate">{newResIdFileName || 'ID Attached'}</span>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => { setNewResIdPhoto(null); setNewResIdFileName(''); }}
-                                    className="p-1 text-slate-400 hover:text-rose-600 rounded-full cursor-pointer"
-                                  >
-                                    <X size={13} />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Email & Password for Portal Access */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                          <div>
-                            <Label className="text-xs font-semibold">Email / Portal Account (Optional)</Label>
-                            <Input value={newResEmail} onChange={e => setNewResEmail(e.target.value)} placeholder="resident@gmail.com" className="text-xs" />
-                          </div>
-                          <div>
-                            <Label className="text-xs font-semibold">Portal Password</Label>
-                            <Input type="text" value={newResPassword} onChange={e => setNewResPassword(e.target.value)} placeholder="Default: 123" className="text-xs" />
-                          </div>
-                        </div>
-
                         <DialogFooter className="pt-2">
-                          <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white w-full text-xs font-semibold h-9 shadow-xs">
-                            Save & Verify Resident Profile
+                          <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white w-full text-xs font-bold h-9 shadow-xs">
+                            Save to Population Registry
                           </Button>
                         </DialogFooter>
                       </form>
@@ -3779,109 +4180,395 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Search Row */}
+              {/* 6 Clean Demographic Statistic Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <Card className="border-slate-200/90 bg-white shadow-xs rounded-xl hover:border-slate-300 transition-colors">
+                  <CardContent className="p-3.5">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Households</p>
+                    <p className="text-2xl font-black text-slate-900 tracking-tight mt-1">
+                      {censusStats?.total_households ?? censusHouseholds.length}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Residential units</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/90 bg-white shadow-xs rounded-xl hover:border-slate-300 transition-colors">
+                  <CardContent className="p-3.5">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Families</p>
+                    <p className="text-2xl font-black text-slate-900 tracking-tight mt-1">
+                      {censusStats?.total_families ?? censusHouseholds.length}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Family clusters</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/90 bg-white shadow-xs rounded-xl hover:border-slate-300 transition-colors">
+                  <CardContent className="p-3.5">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Population</p>
+                    <p className="text-2xl font-black text-blue-600 tracking-tight mt-1">
+                      {censusStats?.total_population ?? filteredResidents.length}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Active inhabitants</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/90 bg-white shadow-xs rounded-xl hover:border-slate-300 transition-colors">
+                  <CardContent className="p-3.5">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Seniors (60+)</p>
+                    <p className="text-2xl font-black text-amber-700 tracking-tight mt-1">
+                      {censusStats?.senior_citizens?.total ?? 0}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                      M: {censusStats?.senior_citizens?.male ?? 0} • F: {censusStats?.senior_citizens?.female ?? 0}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/90 bg-white shadow-xs rounded-xl hover:border-slate-300 transition-colors">
+                  <CardContent className="p-3.5">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Children (&lt;18)</p>
+                    <p className="text-2xl font-black text-slate-900 tracking-tight mt-1">
+                      {censusStats?.children_count ?? 0}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Minors & dependents</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/90 bg-white shadow-xs rounded-xl hover:border-slate-300 transition-colors">
+                  <CardContent className="p-3.5">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Employment</p>
+                    <p className="text-2xl font-black text-emerald-700 tracking-tight mt-1">
+                      {censusStats?.employment?.employed ?? 0}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                      {censusStats?.employment?.unemployed ?? 0} Unemployed ({censusStats?.employment?.rate_percentage ?? 0}%)
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Clean Segmented Purok Filter Strip */}
+              <div className="flex items-center gap-1.5 overflow-x-auto p-1.5 bg-slate-100/80 rounded-xl border border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCensusPurok('all')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
+                    selectedCensusPurok === 'all'
+                      ? 'bg-white text-blue-600 shadow-xs border border-slate-200/60'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  }`}
+                >
+                  <span>All Puroks</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${selectedCensusPurok === 'all' ? 'bg-blue-50 text-blue-700 font-bold' : 'bg-slate-200/80 text-slate-600'}`}>
+                    {censusStats?.total_population ?? filteredResidents.length}
+                  </span>
+                </button>
+                {[1, 2, 3, 4, 5, 6, 7].map(p => {
+                  const pData = censusStats?.purok_breakdown?.find(b => b.purok.includes(String(p)));
+                  const count = pData ? pData.population : 0;
+                  const isSelected = selectedCensusPurok === String(p);
+                  return (
+                    <button
+                      key={`purok-btn-${p}`}
+                      type="button"
+                      onClick={() => setSelectedCensusPurok(String(p))}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-white text-blue-600 shadow-xs border border-slate-200/60'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                      }`}
+                    >
+                      <span>Purok {p}</span>
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isSelected ? 'bg-blue-50 text-blue-700 font-bold' : 'bg-slate-200/80 text-slate-600'}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Search Bar */}
               <div className="relative max-w-md">
                 <Search className="absolute left-3 top-2.5 text-slate-400" size={15} />
                 <Input
-                  placeholder="Search by Resident Name or Address..."
+                  placeholder="Search resident name, family, or household #..."
                   value={residentSearch}
                   onChange={e => setResidentSearch(e.target.value)}
                   className="pl-9 h-9 text-xs bg-white border-slate-200 rounded-xl"
                 />
               </div>
 
-              {/* Even, Aligned, Responsive Table */}
-              <Card className="border-slate-200 bg-white shadow-xs rounded-xl overflow-hidden">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table className="w-full text-left border-collapse min-w-[880px]">
-                      <TableHeader>
-                        <TableRow className="bg-slate-50/80 border-b border-slate-200">
-                          <TableHead className="w-16 pl-4 text-xs font-semibold text-slate-600">ID</TableHead>
-                          <TableHead className="w-56 text-xs font-semibold text-slate-600">Full Name</TableHead>
-                          <TableHead className="w-24 text-xs font-semibold text-slate-600">Gender</TableHead>
-                          <TableHead className="min-w-[220px] text-xs font-semibold text-slate-600">Address</TableHead>
-                          <TableHead className="w-36 text-xs font-semibold text-slate-600">Contact Number</TableHead>
-                          <TableHead className="w-36 text-xs font-semibold text-slate-600">Verification</TableHead>
-                          <TableHead className="w-48 text-xs font-semibold text-slate-600 text-right pr-4">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody className="divide-y divide-slate-100">
-                        {filteredResidents.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={7} className="text-center py-12 text-slate-400 text-xs">
-                              No resident records found.
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          filteredResidents.map((res, idx) => (
-                            <TableRow key={`res-rec-${res.id}-${idx}`} className="text-xs hover:bg-slate-50/80 transition-colors">
-                              <TableCell className="pl-4 font-mono text-slate-500 font-semibold">#{res.id}</TableCell>
-                              <TableCell>
-                                <button
-                                  onClick={() => openResidentProfile(res.id)}
-                                  className="font-semibold text-slate-900 hover:text-blue-600 hover:underline transition-colors text-left block cursor-pointer"
-                                >
-                                  {res.first_name} {res.last_name}
-                                </button>
-                                {res.email && <span className="text-[10px] text-slate-400 font-mono block mt-0.5">{res.email}</span>}
-                              </TableCell>
-                              <TableCell className="text-slate-700">{res.gender || '-'}</TableCell>
-                              <TableCell className="text-slate-600">
-                                <span className="truncate block max-w-[200px]" title={res.address || 'Pianing'}>
-                                  {res.purok ? (res.purok.startsWith('Purok') ? res.purok : `Purok ${res.purok}`) : (res.address ? res.address.split(',')[0] : 'Pianing')}
+              {/* VIEW 1: HOUSEHOLDS DIRECTORY VIEW */}
+              {censusViewMode === 'households' && (
+                <div className="space-y-3">
+                  {censusHouseholds
+                    .filter(hh => {
+                      if (selectedCensusPurok !== 'all') {
+                        const cleanP = selectedCensusPurok.replace(/purok\s*/i, '').trim();
+                        if (!hh.purok.includes(cleanP) && !hh.household_number.includes(`HH-P${cleanP}`)) {
+                          return false;
+                        }
+                      }
+                      const q = residentSearch.toLowerCase().trim();
+                      if (!q) return true;
+                      return (
+                        hh.household_number.toLowerCase().includes(q) ||
+                        hh.family_name.toLowerCase().includes(q) ||
+                        (hh.head_name || '').toLowerCase().includes(q) ||
+                        hh.members.some(m => `${m.first_name} ${m.last_name}`.toLowerCase().includes(q))
+                      );
+                    })
+                    .map((hh) => {
+                      const isExpanded = Boolean(expandedHouseholds[hh.household_number]);
+                      return (
+                        <Card key={hh.household_number} className="border-slate-200/80 bg-white shadow-xs rounded-xl overflow-hidden hover:border-slate-300 transition-all">
+                          <div className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <div className="space-y-1.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200/80">
+                                  {hh.household_number}
                                 </span>
-                              </TableCell>
-                              <TableCell className="font-mono text-slate-600">{res.phone || '-'}</TableCell>
-                              <TableCell>
-                                {res.verification_status === 'Verified' ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    <CheckCircle size={12} className="text-emerald-600" /> Verified
-                                  </span>
-                                ) : res.verification_status === 'Rejected' ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                                    <AlertCircle size={12} className="text-rose-600" /> Rejected
+                                <h3 className="text-sm font-bold text-slate-900">{hh.family_name} Family</h3>
+                                <span className="text-xs text-slate-500 font-medium">• {hh.purok}</span>
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Head of Family: <strong className="text-slate-800">{hh.head_name || 'Not Designated'}</strong>
+                              </p>
+                              {/* Demographic indicators per household */}
+                              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/80">
+                                  {hh.total_members} {hh.total_members === 1 ? 'Member' : 'Members'}
+                                </span>
+                                {hh.seniors_count > 0 ? (
+                                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300">
+                                    {hh.seniors_count} Senior Citizen(s)
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                    <Clock size={12} className="text-amber-600" /> Unverified
+                                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-500 border border-slate-200/70">
+                                    0 Seniors
                                   </span>
                                 )}
+                                <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-700 border border-slate-200/70">
+                                  {hh.employed_count} Employed • {hh.unemployed_count} Unemployed
+                                </span>
+                                {hh.children_count > 0 && (
+                                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200/80">
+                                    {hh.children_count} Minor(s)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 self-stretch sm:self-auto">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setAddResidentMode('existing_household');
+                                  setNewResHouseholdNum(hh.household_number);
+                                  setNewResFamilyName(hh.family_name);
+                                  setNewResPurok(hh.purok.replace(/purok\s*/i, '').trim());
+                                  setNewResIsHead(false);
+                                  setNewResRelationship('Son');
+                                  setIsAddResidentOpen(true);
+                                }}
+                                className="h-8 text-xs font-semibold text-blue-700 border-blue-200 hover:bg-blue-50 cursor-pointer shadow-xs rounded-lg"
+                              >
+                                + Add Member
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setExpandedHouseholds(prev => ({
+                                    ...prev,
+                                    [hh.household_number]: !prev[hh.household_number]
+                                  }));
+                                }}
+                                className="h-8 text-xs font-semibold border-slate-200 hover:bg-slate-50 cursor-pointer shadow-xs rounded-lg flex items-center gap-1.5"
+                              >
+                                <span>{isExpanded ? 'Hide' : 'View Members'} ({hh.members.length})</span>
+                                <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Expanded Members Table */}
+                          {isExpanded && (
+                            <div className="border-t border-slate-100 bg-slate-50/50 p-3 overflow-x-auto">
+                              <Table className="w-full text-left border-collapse text-xs">
+                                <TableHeader>
+                                  <TableRow className="border-b border-slate-200">
+                                    <TableHead className="py-2 text-slate-600 font-semibold">Name & Role</TableHead>
+                                    <TableHead className="py-2 text-slate-600 font-semibold">Relationship</TableHead>
+                                    <TableHead className="py-2 text-slate-600 font-semibold">Age & Category</TableHead>
+                                    <TableHead className="py-2 text-slate-600 font-semibold">Gender</TableHead>
+                                    <TableHead className="py-2 text-slate-600 font-semibold">Birthday</TableHead>
+                                    <TableHead className="py-2 text-slate-600 font-semibold">Employment</TableHead>
+                                    <TableHead className="py-2 text-right text-slate-600 font-semibold pr-2">Action</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody className="divide-y divide-slate-100">
+                                  {hh.members.map((m) => (
+                                    <TableRow key={`hh-mem-${m.id}`} className="hover:bg-white transition-colors">
+                                      <TableCell className="py-2">
+                                        <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                          <span>{m.first_name} {m.middle_name ? m.middle_name + ' ' : ''}{m.last_name}</span>
+                                          {m.is_head_of_household && (
+                                            <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded">Head</span>
+                                          )}
+                                        </div>
+                                        {m.phone && <span className="text-[10px] text-slate-400 font-mono block">{m.phone}</span>}
+                                      </TableCell>
+                                      <TableCell className="py-2 text-slate-700">{m.relationship_to_head || (m.is_head_of_household ? 'Head' : 'Member')}</TableCell>
+                                      <TableCell className="py-2">
+                                        <span className="font-bold text-slate-900">{m.age != null ? `${m.age} yo` : '—'}</span>
+                                        {m.is_senior && (
+                                          <span className="ml-1 text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">Senior</span>
+                                        )}
+                                        {m.is_child && (
+                                          <span className="ml-1 text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800">Child</span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="py-2 text-slate-700">{m.gender || '—'}</TableCell>
+                                      <TableCell className="py-2 font-mono text-slate-600">
+                                        {m.date_of_birth ? new Date(m.date_of_birth).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                      </TableCell>
+                                      <TableCell className="py-2">
+                                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                                          m.employment_status === 'Employed' || m.employment_status === 'Self-Employed'
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                            : m.employment_status === 'Unemployed'
+                                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                            : 'bg-slate-100 text-slate-700 border-slate-200'
+                                        }`}>
+                                          {m.employment_status || 'Employed'}
+                                        </span>
+                                      </TableCell>
+                                      <TableCell className="py-2 text-right pr-2">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => openResidentProfile(m.id)}
+                                          className="h-6 px-2 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 cursor-pointer font-semibold"
+                                        >
+                                          View Profile
+                                        </Button>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          )}
+                        </Card>
+                      );
+                    })}
+
+                  {censusHouseholds.length === 0 && (
+                    <div className="text-center py-12 bg-white rounded-xl border border-slate-200 text-slate-400 text-xs">
+                      No households registered for this selection.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* VIEW 2: ALL INHABITANTS TABLE VIEW */}
+              {censusViewMode === 'table' && (
+                <Card className="border-slate-200 bg-white shadow-xs rounded-xl overflow-hidden">
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <Table className="w-full text-left border-collapse min-w-[900px]">
+                        <TableHeader>
+                          <TableRow className="bg-slate-50/80 border-b border-slate-200">
+                            <TableHead className="w-14 pl-4 text-xs font-semibold text-slate-600">ID</TableHead>
+                            <TableHead className="w-44 text-xs font-semibold text-slate-600">Household & Family</TableHead>
+                            <TableHead className="w-56 text-xs font-semibold text-slate-600">Full Name</TableHead>
+                            <TableHead className="w-28 text-xs font-semibold text-slate-600">Age & Category</TableHead>
+                            <TableHead className="w-20 text-xs font-semibold text-slate-600">Gender</TableHead>
+                            <TableHead className="w-28 text-xs font-semibold text-slate-600">Birthday</TableHead>
+                            <TableHead className="w-24 text-xs font-semibold text-slate-600">Purok</TableHead>
+                            <TableHead className="w-32 text-xs font-semibold text-slate-600">Employment</TableHead>
+                            <TableHead className="w-32 text-xs font-semibold text-slate-600">Status</TableHead>
+                            <TableHead className="w-24 text-xs font-semibold text-slate-600 text-right pr-4">Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody className="divide-y divide-slate-100">
+                          {filteredResidents.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={10} className="text-center py-12 text-slate-400 text-xs">
+                                No inhabitants found matching criteria.
                               </TableCell>
-                              <TableCell className="text-right pr-4">
-                                <div className="flex items-center justify-end gap-1.5">
+                            </TableRow>
+                          ) : (
+                            filteredResidents.map((res, idx) => (
+                              <TableRow key={`res-rec-${res.id}-${idx}`} className="text-xs hover:bg-slate-50/80 transition-colors">
+                                <TableCell className="pl-4 font-mono text-slate-500 font-semibold">#{res.id}</TableCell>
+                                <TableCell>
+                                  <span className="font-mono text-[11px] font-bold text-slate-700 block">
+                                    {res.household_number || `HH-P${res.purok || '1'}-${res.id}`}
+                                  </span>
+                                  <span className="text-[11px] text-slate-500">{res.family_name || res.last_name} Family</span>
+                                </TableCell>
+                                <TableCell>
+                                  <button
+                                    onClick={() => openResidentProfile(res.id)}
+                                    className="font-bold text-slate-900 hover:text-blue-600 hover:underline transition-colors text-left block cursor-pointer"
+                                  >
+                                    {res.first_name} {res.last_name}
+                                  </button>
+                                  {res.phone && <span className="text-[10px] text-slate-400 font-mono block mt-0.5">{res.phone}</span>}
+                                </TableCell>
+                                <TableCell>
+                                  <span className="font-bold text-slate-800">{(res as any).age ?? 25} yo</span>
+                                  {(res as any).is_senior && (
+                                    <span className="ml-1 text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">Senior</span>
+                                  )}
+                                  {(res as any).is_child && (
+                                    <span className="ml-1 text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800">Child</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-slate-700">{res.gender || '-'}</TableCell>
+                                <TableCell className="font-mono text-slate-600">
+                                  {res.date_of_birth ? new Date(res.date_of_birth).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                </TableCell>
+                                <TableCell className="text-slate-700 font-semibold">Purok {res.purok || '1'}</TableCell>
+                                <TableCell>
+                                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                                    res.employment_status === 'Employed' || res.employment_status === 'Self-Employed'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : res.employment_status === 'Unemployed'
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                      : 'bg-slate-100 text-slate-700 border-slate-200'
+                                  }`}>
+                                    {res.employment_status || 'Employed'}
+                                  </span>
+                                </TableCell>
+                                <TableCell>
+                                  {/* Official Population Resident Status (Replaced Unverified) */}
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <CheckCircle size={12} className="text-emerald-600" /> Official Resident
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-right pr-4">
                                   <Button
                                     size="sm"
                                     variant="outline"
                                     onClick={() => openResidentProfile(res.id)}
-                                    className="h-7 px-2.5 text-xs text-slate-700 hover:text-blue-600 hover:bg-blue-50 border-slate-200 gap-1 rounded-lg cursor-pointer"
-                                    title="View Full Profile"
+                                    className="h-7 px-2.5 text-xs text-slate-700 hover:text-blue-600 hover:bg-blue-50 border-slate-200 rounded-lg cursor-pointer font-semibold"
                                   >
-                                    <Eye size={12} /> View Profile
+                                    View
                                   </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleToggleResidentVerification(res)}
-                                    className={`h-7 px-2 text-xs font-semibold rounded-lg cursor-pointer transition-all w-[74px] justify-center ${
-                                      res.verification_status === 'Verified'
-                                        ? 'text-amber-700 border-amber-300 hover:bg-amber-50 bg-white'
-                                        : 'text-emerald-700 border-emerald-300 hover:bg-emerald-50 bg-emerald-50/40'
-                                    }`}
-                                    title={res.verification_status === 'Verified' ? 'Click to unverify resident' : 'Click to verify resident'}
-                                  >
-                                    {res.verification_status === 'Verified' ? 'Unverify' : 'Verify'}
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
 
@@ -4069,44 +4756,21 @@ export default function AdminDashboard() {
                           className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 gap-1.5 shadow-xs cursor-pointer"
                         >
                           <UserPlus size={14} />
-                          {isSuperAdmin ? 'Add User Account' : `Add Staff (${user?.barangay || 'Pianing'})`}
+                          {isSuperAdmin ? 'Add User Account' : 'Add Staff'}
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="bg-white max-w-xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
-                          <div className="flex items-center gap-2">
-                            <span className="bg-indigo-100 text-indigo-800 border border-indigo-300 text-[10px] font-extrabold px-2 py-0.5 rounded-md">
-                              PRIORITY PERSONNEL ONBOARDING
-                            </span>
-                            <span className="text-[11px] text-emerald-600 font-mono font-semibold flex items-center gap-1">
-                              <CheckCircle size={12} /> Pre-Verified Credential
-                            </span>
-                          </div>
                           <DialogTitle className="flex items-center gap-2 text-slate-900 mt-1">
                             <UserPlus className="text-indigo-600" size={18} />
-                            {isSuperAdmin ? 'Add System Administrator / Staff Account' : `Add Staff for Barangay ${user?.barangay || 'Pianing'}`}
+                            {isSuperAdmin ? 'Add User Account' : 'Add Staff Member'}
                           </DialogTitle>
                           <DialogDescription className="text-xs text-slate-500">
-                            Streamlined operational credentials and role-based security access for internal municipal personnel.
+                            Create official credentials and role-based access for barangay personnel.
                           </DialogDescription>
                         </DialogHeader>
 
                         <form onSubmit={handleCreateUser} className="space-y-3 py-2" autoComplete="off">
-                          {/* Priority Personnel Notice Banner */}
-                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 space-y-1">
-                            <div className="flex items-center justify-between font-bold text-slate-800">
-                              <span className="flex items-center gap-1.5">
-                                <Shield size={14} className="text-indigo-600" />
-                                Streamlined Internal Employee Profile
-                              </span>
-                              <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
-                                RBAC Security Enabled
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">
-                              Unlike public residents, staff accounts only require priority operational credentials (Legal Name, Work Email, Contact Phone, Staff Badge ID, and Job Title). Civil census profiling (civil status, residency duration, and personal ID photo upload) is omitted.
-                            </p>
-                          </div>
 
                           {/* Full Name Row: First, Middle, Last */}
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -4160,15 +4824,11 @@ export default function AdminDashboard() {
                               <Input
                                 value={newUserPhone}
                                 onChange={e => {
-                                  const v = e.target.value.replace(/\D/g, '').slice(0, 11);
-                                  setNewUserPhone(v);
+                                  setNewUserPhone(e.target.value.replace(/[^0-9+]/g, '').slice(0, 13));
                                 }}
-                                placeholder="09XXXXXXXXX (11 digits)"
-                                maxLength={11}
+                                placeholder="09XXXXXXXXX"
                                 required
-                                pattern="09[0-9]{9}"
-                                title="Must be an 11-digit Philippine mobile number starting with 09"
-                                inputMode="numeric"
+                                inputMode="tel"
                                 autoComplete="off"
                                 className="h-9 text-xs font-mono mt-1"
                               />
@@ -4377,8 +5037,31 @@ export default function AdminDashboard() {
                                 </div>
                                 <div>
                                   <button
-                                    onClick={() => setSelectedStaffInfo(u)}
-                                    className="font-semibold text-slate-900 hover:text-indigo-600 transition-colors text-left block"
+                                    onClick={() => {
+                                      if (u.role === 'resident') {
+                                        const matchingRes = residents.find(r => r.id === u.id || (r.email && r.email.toLowerCase() === u.email.toLowerCase()));
+                                        if (matchingRes) {
+                                          setSelectedStaffInfo({
+                                            ...u,
+                                            first_name: u.first_name || matchingRes.first_name,
+                                            middle_name: u.middle_name || matchingRes.middle_name,
+                                            last_name: u.last_name || matchingRes.last_name,
+                                            address: u.address || matchingRes.address,
+                                            phone: u.phone || matchingRes.phone,
+                                            date_of_birth: u.date_of_birth || matchingRes.date_of_birth,
+                                            gender: u.gender || matchingRes.gender,
+                                            civil_status: u.civil_status || matchingRes.civil_status,
+                                            purok: u.purok || matchingRes.purok,
+                                            household_number: u.household_number || matchingRes.household_number,
+                                            submitted_id: u.submitted_id || matchingRes.submitted_id,
+                                            verification_status: u.verification_status || matchingRes.verification_status
+                                          });
+                                          return;
+                                        }
+                                      }
+                                      setSelectedStaffInfo(u);
+                                    }}
+                                    className="font-semibold text-slate-900 hover:text-indigo-600 transition-colors text-left block cursor-pointer"
                                   >
                                     {u.name}
                                   </button>
@@ -4658,13 +5341,10 @@ export default function AdminDashboard() {
                         <Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label>
                         <Input
                           value={editUserPhone}
-                          onChange={e => setEditUserPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                          placeholder="09XXXXXXXXX (11 digits)"
-                          maxLength={11}
+                          onChange={e => setEditUserPhone(e.target.value.replace(/[^0-9+]/g, '').slice(0, 13))}
+                          placeholder="09XXXXXXXXX"
                           required
-                          pattern="09[0-9]{9}"
-                          title="Must be an 11-digit Philippine mobile number starting with 09 (e.g. 09171234567)"
-                          inputMode="numeric"
+                          inputMode="tel"
                           className="h-9 text-xs font-mono"
                         />
                       </div>
@@ -4753,22 +5433,29 @@ export default function AdminDashboard() {
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Barangay Administrative & System Reports</h2>
-                  <p className="text-xs text-slate-500">Official Barangay Pianing, Butuan City analytics, resident registry, and database export center.</p>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                    {isSuperAdmin ? 'City-Wide System & Administrative Reports' : `Barangay ${userBarangay} Administrative Reports`}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    {isSuperAdmin
+                      ? 'Consolidated city-wide analytics, resident registry, and database export center across all Butuan City barangays.'
+                      : `Official Barangay ${userBarangay}, Butuan City analytics, population registry, and report export center.`}
+                  </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     onClick={() => {
-                      printOfficialReport({
-                        title: 'Barangay Clearance Requests Log',
+                      downloadOfficialPdf({
+                        title: isSuperAdmin ? 'City-Wide Clearance Requests Log' : `Barangay ${userBarangay} Clearance Requests Log`,
                         subtitle: `All clearance & certificate requests — Generated ${new Date().toLocaleDateString()}`,
+                        filename: `Barangay_${userBarangay}_Clearance_Requests_${new Date().toISOString().slice(0, 10)}`,
                         preparedBy: user?.name || 'Administrator',
                         preparedByTitle: user?.role === 'superadmin' ? 'Super Administrator' : user?.role === 'staff' ? 'Barangay Staff' : 'Barangay Administrator',
                         stats: [
-                          { label: 'Total Requests', value: documents.length, color: '#4f46e5' },
-                          { label: 'Completed', value: documents.filter(d => d.status === 'Completed').length, color: '#059669' },
-                          { label: 'Pending', value: documents.filter(d => d.status === 'Pending').length, color: '#d97706' }
+                          { label: 'Total Requests', value: documents.length },
+                          { label: 'Completed', value: documents.filter(d => d.status === 'Completed').length },
+                          { label: 'Pending', value: documents.filter(d => d.status === 'Pending').length }
                         ],
                         tables: [{
                           title: 'Document Clearance Requests',
@@ -4776,45 +5463,45 @@ export default function AdminDashboard() {
                           rows: documents.map(d => [d.request_code || '', d.resident_name || '', d.document_type || '', d.purpose || '', d.status || '', d.requested_at || 'Recent'])
                         }]
                       });
-                      toast.success('Clearance log opened as printable PDF');
+                      toast.success('Clearance log PDF downloaded');
                     }}
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs gap-1.5 border-slate-300"
                   >
-                    <Download size={13} /> Export Clearances (PDF)
+                    <Download size={13} /> Download Clearances (PDF)
                   </Button>
 
                   <Button
                     onClick={() => {
-                      printOfficialReport({
-                        title: 'Resident Demographic Registry',
-                        subtitle: `Barangay Pianing resident census — Generated ${new Date().toLocaleDateString()}`,
+                      downloadOfficialPdf({
+                        title: isSuperAdmin ? 'City-Wide Resident Demographic Registry' : `Barangay ${userBarangay} Resident Demographic Registry`,
+                        subtitle: `${isSuperAdmin ? 'All Butuan City Barangays' : `Barangay ${userBarangay}`} resident census — Generated ${new Date().toLocaleDateString()}`,
+                        filename: `Barangay_${userBarangay}_Resident_Demographics_${new Date().toISOString().slice(0, 10)}`,
                         preparedBy: user?.name || 'Administrator',
                         preparedByTitle: user?.role === 'superadmin' ? 'Super Administrator' : user?.role === 'staff' ? 'Barangay Staff' : 'Barangay Administrator',
                         stats: [
-                          { label: 'Total Residents', value: residents.length, color: '#2563eb' }
+                          { label: 'Total Residents', value: residents.length }
                         ],
                         tables: [{
                           title: 'Resident Demographics',
-                          headers: ['ID', 'First Name', 'Last Name', 'Gender', 'Address', 'Phone', 'Email', 'Status'],
-                          rows: residents.map(r => [r.id, r.first_name, r.last_name, r.gender, r.address, r.phone || 'N/A', r.email || 'N/A', (r as any).verification_status || 'Verified'])
+                          headers: ['ID', 'First Name', 'Last Name', 'Gender', 'Address', 'Phone', 'Email'],
+                          rows: residents.map(r => [r.id, r.first_name, r.last_name, r.gender, r.address, r.phone || 'N/A', r.email || 'N/A'])
                         }]
                       });
-                      toast.success('Resident registry opened as printable PDF');
+                      toast.success('Resident registry PDF downloaded');
                     }}
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs gap-1.5 border-slate-300"
                   >
-                    <Download size={13} /> Export Residents (PDF)
+                    <Download size={13} /> Download Residents (PDF)
                   </Button>
-
                   <Button
                     onClick={() => {
                       printOfficialReport({
-                        title: 'Official Barangay System & Administrative Report',
-                        subtitle: 'Barangay Pianing, Butuan City, Agusan del Norte • Administrative Operations & Registry',
+                        title: isSuperAdmin ? 'City-Wide System & Administrative Report' : `Barangay ${userBarangay} Administrative Report`,
+                        subtitle: `Barangay ${userBarangay}, Butuan City, Agusan del Norte • Administrative Operations & Registry`,
                         department: 'Office of the Barangay Captain • Administrative Division',
                         preparedBy: user?.name || 'Admin Juan Dela Cruz',
                         preparedByTitle: user?.role === 'superadmin' ? 'Super Administrator' : user?.role === 'staff' ? 'Barangay Staff / Clerk' : 'Barangay Administrator',
@@ -4872,25 +5559,26 @@ export default function AdminDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Total registered residents: <strong>{residents.length}</strong> in database.</p>
                     <Button
                       onClick={() => {
-                        printOfficialReport({
+                        downloadOfficialPdf({
                           title: 'Resident Census Report',
                           subtitle: `Full demographic census — ${new Date().toLocaleDateString()}`,
+                          filename: `Resident_Census_Report_${new Date().toISOString().slice(0, 10)}`,
                           preparedBy: user?.name || 'Administrator',
                           preparedByTitle: user?.role === 'superadmin' ? 'Super Administrator' : 'Barangay Administrator',
-                          stats: [{ label: 'Total Residents', value: residents.length, color: '#4f46e5' }],
+                          stats: [{ label: 'Total Residents', value: residents.length }],
                           tables: [{
                             title: 'Full Resident Census',
                             headers: ['ID', 'Full Name', 'Gender', 'Address', 'Phone'],
                             rows: residents.map(r => [r.id, `${r.first_name} ${r.last_name}`, r.gender, r.address, r.phone || 'N/A'])
                           }]
                         });
-                        toast.success('Resident census PDF report opened');
+                        toast.success('Resident census PDF downloaded');
                       }}
                       size="sm"
                       variant="outline"
                       className="w-full text-xs h-7 text-indigo-700 border-indigo-300 hover:bg-indigo-100"
                     >
-                      <Download size={12} className="mr-1" /> Export Full Census (PDF)
+                      <Download size={12} className="mr-1" /> Download Full Census (PDF)
                     </Button>
                   </CardContent>
                 </Card>
@@ -4907,14 +5595,15 @@ export default function AdminDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Total processed requests: <strong>{documents.length}</strong> documents.</p>
                     <Button
                       onClick={() => {
-                        printOfficialReport({
+                        downloadOfficialPdf({
                           title: 'Document Clearances Master List',
                           subtitle: `All clearance & certificate issuances — ${new Date().toLocaleDateString()}`,
+                          filename: `Document_Clearances_Master_${new Date().toISOString().slice(0, 10)}`,
                           preparedBy: user?.name || 'Administrator',
                           preparedByTitle: user?.role === 'superadmin' ? 'Super Administrator' : 'Barangay Administrator',
                           stats: [
-                            { label: 'Total', value: documents.length, color: '#059669' },
-                            { label: 'Completed', value: documents.filter(d => d.status === 'Completed').length, color: '#2563eb' }
+                            { label: 'Total', value: documents.length },
+                            { label: 'Completed', value: documents.filter(d => d.status === 'Completed').length }
                           ],
                           tables: [{
                             title: 'Clearance Requests Master',
@@ -4922,13 +5611,13 @@ export default function AdminDashboard() {
                             rows: documents.map(d => [d.request_code || '', d.resident_name || '', d.document_type || '', d.purpose || '', d.status || '', d.processed_by || 'Pending'])
                           }]
                         });
-                        toast.success('Clearances master PDF report opened');
+                        toast.success('Clearances master PDF downloaded');
                       }}
                       size="sm"
                       variant="outline"
                       className="w-full text-xs h-7 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
                     >
-                      <Download size={12} className="mr-1" /> Export Clearances Master (PDF)
+                      <Download size={12} className="mr-1" /> Download Clearances (PDF)
                     </Button>
                   </CardContent>
                 </Card>
@@ -4945,14 +5634,15 @@ export default function AdminDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Active authorized accounts: <strong>{users.length}</strong> users.</p>
                     <Button
                       onClick={() => {
-                        printOfficialReport({
+                        downloadOfficialPdf({
                           title: 'System User Accounts Directory',
                           subtitle: `All authorized staff, BHW & admin accounts — ${new Date().toLocaleDateString()}`,
+                          filename: `System_User_Accounts_${new Date().toISOString().slice(0, 10)}`,
                           preparedBy: user?.name || 'Administrator',
                           preparedByTitle: user?.role === 'superadmin' ? 'Super Administrator' : 'Barangay Administrator',
                           stats: [
-                            { label: 'Total Accounts', value: users.length, color: '#2563eb' },
-                            { label: 'Active', value: users.filter(u => u.status === 'Active').length, color: '#059669' }
+                            { label: 'Total Accounts', value: users.length },
+                            { label: 'Active', value: users.filter(u => u.status === 'Active').length }
                           ],
                           tables: [{
                             title: 'System User Accounts',
@@ -4960,13 +5650,13 @@ export default function AdminDashboard() {
                             rows: users.map(u => [u.id, u.name, u.email, u.role.toUpperCase(), u.barangay || 'Pianing', u.status, (u as any).last_login ? new Date((u as any).last_login).toLocaleDateString() : 'Never'])
                           }]
                         });
-                        toast.success('User accounts PDF report opened');
+                        toast.success('User accounts PDF downloaded');
                       }}
                       size="sm"
                       variant="outline"
                       className="w-full text-xs h-7 text-blue-700 border-blue-300 hover:bg-blue-100"
                     >
-                      <Download size={12} className="mr-1" /> Export User Accounts (PDF)
+                      <Download size={12} className="mr-1" /> Download User Accounts (PDF)
                     </Button>
                   </CardContent>
                 </Card>
@@ -5271,8 +5961,8 @@ export default function AdminDashboard() {
             );
           })()}
 
-          {/* TAB: AUDIT TRAIL & ACTIVITY HISTORY LOGS (Admin / Super Admin Only) */}
-          {activeTab === 'logs' && !isStaff && (
+          {/* TAB: AUDIT TRAIL & ACTIVITY HISTORY LOGS (Super Admin Only) */}
+          {activeTab === 'logs' && isSuperAdmin && (
             <div className="space-y-6">
               {/* Header */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -6283,104 +6973,214 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Staff / Official Information Modal */}
+      {/* User / Staff / Resident Account Information Modal */}
       <Dialog open={!!selectedStaffInfo} onOpenChange={(open) => !open && setSelectedStaffInfo(null)}>
-        <DialogContent className="bg-white dark:bg-slate-900 max-w-md">
-          <DialogHeader>
+        <DialogContent className="bg-white dark:bg-slate-900 max-w-lg rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6">
+          <DialogHeader className="border-b border-slate-100 dark:border-slate-800 pb-3">
             <DialogTitle className="text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white">
-              <Shield className="text-indigo-600" size={20} />
-              Barangay Official / Staff Information
+              {selectedStaffInfo?.role === 'resident' ? (
+                <>
+                  <User className="text-blue-600" size={18} />
+                  Resident Account Profile
+                </>
+              ) : (
+                <>
+                  <Shield className="text-indigo-600" size={18} />
+                  Barangay Staff &amp; Official Profile
+                </>
+              )}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
-              Assigned system credentials and operational jurisdiction.
+              {selectedStaffInfo?.role === 'resident'
+                ? 'Registered resident demographic details and identity status.'
+                : 'Assigned system credentials, role access, and municipal operational jurisdiction.'}
             </DialogDescription>
           </DialogHeader>
 
           {selectedStaffInfo && (
             <div className="space-y-4 py-2 text-xs">
               {/* Top Banner Card */}
-              <div className="flex items-center gap-3 p-3.5 bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-slate-800 dark:to-slate-800/60 rounded-xl border border-indigo-100 dark:border-slate-700">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white font-bold text-base flex items-center justify-center shadow-md">
-                  {selectedStaffInfo.name.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
+              <div className="flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700">
+                <div className={`w-11 h-11 rounded-xl ${
+                  selectedStaffInfo.role === 'resident' ? 'bg-blue-600' :
+                  selectedStaffInfo.role === 'superadmin' ? 'bg-violet-600' :
+                  selectedStaffInfo.role === 'admin' ? 'bg-indigo-600' :
+                  selectedStaffInfo.role === 'bhw' ? 'bg-emerald-600' :
+                  selectedStaffInfo.role === 'nurse' ? 'bg-teal-600' :
+                  'bg-blue-600'
+                } text-white font-bold text-sm flex items-center justify-center shadow-xs shrink-0`}>
+                  {selectedStaffInfo.name ? selectedStaffInfo.name.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() : 'U'}
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">{selectedStaffInfo.name}</h4>
-                  <p className="text-slate-500 font-mono text-[11px]">{selectedStaffInfo.email}</p>
-                  <div className="mt-1 flex items-center gap-1.5">
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{selectedStaffInfo.name}</h4>
+                  <p className="text-slate-500 font-mono text-[11px] truncate">{selectedStaffInfo.email}</p>
+                  <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     <Badge variant="outline" className={
-                      selectedStaffInfo.role === 'superadmin' ? 'border-violet-500 text-violet-700 bg-violet-50 font-bold' :
-                      selectedStaffInfo.role === 'admin' ? 'border-indigo-500 text-indigo-700 bg-indigo-50 font-bold' :
-                      selectedStaffInfo.role === 'bhw' ? 'border-emerald-500 text-emerald-700 bg-emerald-50 font-bold' :
-                      'border-blue-500 text-blue-700 bg-blue-50 font-bold'
+                      selectedStaffInfo.role === 'superadmin' ? 'border-violet-300 text-violet-700 bg-violet-50 font-bold' :
+                      selectedStaffInfo.role === 'admin' ? 'border-indigo-300 text-indigo-700 bg-indigo-50 font-bold' :
+                      selectedStaffInfo.role === 'bhw' ? 'border-emerald-300 text-emerald-700 bg-emerald-50 font-bold' :
+                      selectedStaffInfo.role === 'nurse' ? 'border-teal-300 text-teal-700 bg-teal-50 font-bold' :
+                      selectedStaffInfo.role === 'resident' ? 'border-blue-300 text-blue-700 bg-blue-50 font-bold' :
+                      'border-slate-300 text-slate-700 bg-slate-50 font-bold'
                     }>
-                      {selectedStaffInfo.role === 'superadmin' ? 'SUPER ADMIN' : selectedStaffInfo.role === 'admin' ? 'BARANGAY ADMIN' : selectedStaffInfo.role === 'bhw' ? 'BHW HEALTH WORKER' : 'BARANGAY STAFF / CLERK'}
+                      {selectedStaffInfo.role === 'superadmin' ? 'SUPER ADMIN' :
+                       selectedStaffInfo.role === 'admin' ? 'BARANGAY ADMIN' :
+                       selectedStaffInfo.role === 'bhw' ? 'BHW HEALTH WORKER' :
+                       selectedStaffInfo.role === 'nurse' ? 'HEALTH CENTER NURSE' :
+                       selectedStaffInfo.role === 'resident' ? 'RESIDENT' :
+                       'BARANGAY STAFF / CLERK'}
                     </Badge>
                     <Badge className={selectedStaffInfo.status === 'Active' ? 'bg-emerald-600 text-white' : 'bg-slate-400 text-white'}>
                       {selectedStaffInfo.status}
                     </Badge>
+                    {selectedStaffInfo.role === 'resident' && (
+                      <Badge variant="outline" className="border-emerald-300 text-emerald-700 bg-emerald-50 text-[10px] font-semibold">
+                        {selectedStaffInfo.verification_status || 'Verified'}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Details Grid */}
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-950 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Assigned Barangay</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1 mt-0.5">
-                    <MapPin size={12} className="text-indigo-600" />
-                    Barangay {selectedStaffInfo.barangay || 'Pianing'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Mobile Phone</span>
-                  <span className="font-mono font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1 mt-0.5">
-                    <Phone size={12} className="text-indigo-600" />
-                    {selectedStaffInfo.phone && !selectedStaffInfo.phone.includes('@') ? selectedStaffInfo.phone : '09171234567'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Account ID</span>
-                  <span className="font-mono text-slate-700 dark:text-slate-300">#{selectedStaffInfo.id}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Last Active</span>
-                  <span className="text-slate-700 dark:text-slate-300">{selectedStaffInfo.last_login || 'Never logged in'}</span>
-                </div>
-              </div>
+              {/* Conditional Content: Resident vs Staff */}
+              {selectedStaffInfo.role === 'resident' ? (
+                /* RESIDENT DETAILS */
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Full Legal Name</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                        {selectedStaffInfo.first_name || selectedStaffInfo.name} {selectedStaffInfo.middle_name ? selectedStaffInfo.middle_name + ' ' : ''}{selectedStaffInfo.last_name || ''}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Date of Birth</span>
+                      <span className="font-medium text-slate-800 dark:text-slate-200 text-xs">
+                        {selectedStaffInfo.date_of_birth ? new Date(selectedStaffInfo.date_of_birth).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not specified'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Gender &amp; Civil Status</span>
+                      <span className="font-medium text-slate-800 dark:text-slate-200 text-xs">
+                        {selectedStaffInfo.gender || 'Not specified'} • {selectedStaffInfo.civil_status || 'Single'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Mobile Phone</span>
+                      <span className="font-mono font-medium text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1">
+                        <Phone size={11} className="text-emerald-600" />
+                        {selectedStaffInfo.phone || 'None provided'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Purok / Zone</span>
+                      <span className="font-medium text-slate-800 dark:text-slate-200 text-xs">
+                        {selectedStaffInfo.purok ? (selectedStaffInfo.purok.startsWith('Purok') ? selectedStaffInfo.purok : `Purok ${selectedStaffInfo.purok}`) : 'Purok 1'}
+                      </span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Residential Address</span>
+                      <span className="font-medium text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1 mt-0.5">
+                        <MapPin size={11} className="text-rose-500 shrink-0" />
+                        {selectedStaffInfo.address || `Barangay ${selectedStaffInfo.barangay || 'Pianing'}, Butuan City`}
+                      </span>
+                    </div>
+                    {selectedStaffInfo.household_number && (
+                      <div>
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Household #</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-300 text-xs">{selectedStaffInfo.household_number}</span>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Account ID</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300 text-xs">#{selectedStaffInfo.id}</span>
+                    </div>
+                  </div>
 
-              {/* Assigned Responsibilities */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
-                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">Key Responsibilities</span>
-                <ul className="text-[11px] text-slate-600 dark:text-slate-400 list-disc list-inside space-y-1">
-                  {selectedStaffInfo.role === 'superadmin' && (
-                    <>
-                      <li>Full city-wide system governance across all barangays.</li>
-                      <li>Create and manage Barangay Administrators.</li>
-                      <li>Global document catalog and demographic reporting.</li>
-                    </>
+                  {selectedStaffInfo.submitted_id && (
+                    <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between">
+                      <span className="text-[11px] text-slate-500 font-medium">Government ID Document</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedIdPreview(selectedStaffInfo.submitted_id || null)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-900"
+                      >
+                        <Eye size={12} /> View ID Photo
+                      </button>
+                    </div>
                   )}
-                  {selectedStaffInfo.role === 'admin' && (
-                    <>
-                      <li>Full executive administration of Barangay {selectedStaffInfo.barangay || 'Pianing'}.</li>
-                      <li>Approve resident accounts, review IDs, and grant clearance documents.</li>
-                      <li>Manage Barangay Staff and BHW health personnel.</li>
-                    </>
-                  )}
-                  {selectedStaffInfo.role === 'staff' && (
-                    <>
-                      <li>Process and issue official Barangay Clearances, Residency, and Permits.</li>
-                      <li>Register walk-in residents and verify demographic information.</li>
-                      <li>Intra-barangay team communication via Staff Chat.</li>
-                    </>
-                  )}
-                  {selectedStaffInfo.role === 'bhw' && (
-                    <>
-                      <li>Health Center administration for Barangay {selectedStaffInfo.barangay || 'Pianing'}.</li>
-                      <li>Manage Maternal Care, Child Immunization, and Medical Consultations.</li>
-                    </>
-                  )}
-                </ul>
-              </div>
+                </div>
+              ) : (
+                /* STAFF / OFFICIAL DETAILS */
+                <>
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/30 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60">
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Assigned Barangay</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1 mt-0.5">
+                        <MapPin size={12} className="text-indigo-600" />
+                        Barangay {selectedStaffInfo.barangay || 'Pianing'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Mobile Phone</span>
+                      <span className="font-mono font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1 mt-0.5">
+                        <Phone size={12} className="text-indigo-600" />
+                        {selectedStaffInfo.phone && !selectedStaffInfo.phone.includes('@') ? selectedStaffInfo.phone : '09171234567'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Account ID</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300">#{selectedStaffInfo.id}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Last Active</span>
+                      <span className="text-slate-700 dark:text-slate-300">
+                        {selectedStaffInfo.last_login ? new Date(selectedStaffInfo.last_login).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never logged in'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Assigned Responsibilities */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">Key Responsibilities</span>
+                    <ul className="text-[11px] text-slate-600 dark:text-slate-400 list-disc list-inside space-y-1">
+                      {selectedStaffInfo.role === 'superadmin' && (
+                        <>
+                          <li>Full city-wide system governance across all 86 barangays.</li>
+                          <li>Create and manage Barangay Administrators.</li>
+                          <li>Global document catalog and demographic reporting.</li>
+                        </>
+                      )}
+                      {selectedStaffInfo.role === 'admin' && (
+                        <>
+                          <li>Full executive administration of Barangay {selectedStaffInfo.barangay || 'Pianing'}.</li>
+                          <li>Approve resident accounts, review IDs, and grant clearance documents.</li>
+                          <li>Manage Barangay Staff and BHW health personnel.</li>
+                        </>
+                      )}
+                      {selectedStaffInfo.role === 'staff' && (
+                        <>
+                          <li>Process and issue official Barangay Clearances, Residency, and Permits.</li>
+                          <li>Register walk-in residents and verify demographic information.</li>
+                          <li>Intra-barangay team communication via Staff Chat.</li>
+                        </>
+                      )}
+                      {selectedStaffInfo.role === 'bhw' && (
+                        <>
+                          <li>Health Center administration for Barangay {selectedStaffInfo.barangay || 'Pianing'}.</li>
+                          <li>Manage Maternal Care, Child Immunization, and Medical Consultations.</li>
+                        </>
+                      )}
+                      {selectedStaffInfo.role === 'nurse' && (
+                        <>
+                          <li>Clinical intake, medical examinations, and pharmacy inventory control.</li>
+                          <li>Healthcare scheduling and clinical history archive management.</li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
+                </>
+              )}
 
               <DialogFooter className="pt-2">
                 <Button size="sm" onClick={() => setSelectedStaffInfo(null)} className="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs cursor-pointer">

@@ -60,10 +60,11 @@ export async function sendEmailNotification(params: {
     return { success: false, message: 'Invalid recipient email address' };
   }
 
-  const effectivePublicKey = config.publicKey || (import.meta as any).env?.VITE_EMAILJS_PUBLIC_KEY || config.serviceId || 'service_6nk2ylj';
+  const effectivePublicKey = (config.publicKey || (import.meta as any).env?.VITE_EMAILJS_PUBLIC_KEY || '').trim();
 
-  if (!config.templateId || !config.serviceId) {
-    return { success: false, message: 'EmailJS not configured.' };
+  if (!config.templateId || !config.serviceId || !effectivePublicKey) {
+    console.info('ℹ️ [EmailJS] External email dispatch skipped (Public Key not configured in .env). Notifications are saved in-app.');
+    return { success: false, message: 'EmailJS Public Key not configured. In-app notification recorded.' };
   }
 
   // Variable names match your EmailJS "Contact Us" template EXACTLY
@@ -90,7 +91,7 @@ export async function sendEmailNotification(params: {
       config.serviceId,
       config.templateId,
       templateParams,
-      config.publicKey
+      effectivePublicKey
     );
     console.log('✅ [EmailJS] Email dispatched successfully:', response.status, response.text);
     return { success: true, message: 'Email sent successfully via EmailJS!' };
@@ -105,7 +106,7 @@ export async function sendEmailNotification(params: {
         body: JSON.stringify({
           service_id: config.serviceId,
           template_id: config.templateId,
-          user_id: config.publicKey,
+          user_id: effectivePublicKey,
           template_params: templateParams,
         })
       });

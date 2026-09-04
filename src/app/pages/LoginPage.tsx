@@ -83,6 +83,7 @@ export default function LoginPage() {
   const [regPurok, setRegPurok] = useState('');
   const [regBarangay, setRegBarangay] = useState('Pianing');
   const [regCity, setRegCity] = useState('Butuan City');
+  const [regEmployment, setRegEmployment] = useState('Employed');
   const [regIdType, setRegIdType] = useState('');
   const [regIdPhoto, setRegIdPhoto] = useState<string | null>(null);
   const [regIdFileName, setRegIdFileName] = useState<string>('');
@@ -101,6 +102,7 @@ export default function LoginPage() {
     setRegDob('');
     setRegGender('');
     setRegCivilStatus('');
+    setRegEmployment('Employed');
     setRegResidencyYears('');
     setRegEmail('');
     setRegPassword('');
@@ -301,6 +303,7 @@ export default function LoginPage() {
         date_of_birth: regDob,
         gender: regGender,
         civil_status: regCivilStatus,
+        employment_status: regEmployment,
         years_of_residency: regResidencyYears.trim() || undefined,
         email: regEmail.trim().toLowerCase(),
         password: regPassword,
@@ -308,6 +311,7 @@ export default function LoginPage() {
         address: fullAddress,
         role: 'resident',
         submitted_id: regIdPhoto,
+        id_type: regIdType,
         barangay: regBarangay.trim()
       });
 
@@ -320,6 +324,7 @@ export default function LoginPage() {
         age: calculatedAge,
         gender: regGender,
         civil_status: regCivilStatus,
+        employment_status: regEmployment,
         email: regEmail.trim().toLowerCase(),
         phone: cleanPhone,
         address: fullAddress,
@@ -329,6 +334,7 @@ export default function LoginPage() {
         role: 'resident',
         verification_status: 'Pending_Review',
         submitted_id: regIdPhoto,
+        id_type: regIdType,
         years_of_residency: regResidencyYears.trim() || undefined
       };
 
@@ -622,27 +628,50 @@ export default function LoginPage() {
                     <option value="" disabled hidden>Select Gender</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
+                    <option value="Other">Other / Non-Binary</option>
                   </select>
                 </div>
               </div>
 
-              {/* Row 4: Civil Status (1 col) */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Civil Status <span className="text-red-500 font-bold">*</span>
-                </label>
-                <select
-                  value={regCivilStatus}
-                  onChange={(e) => setRegCivilStatus(e.target.value as any)}
-                  required
-                  className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none transition-all cursor-pointer"
-                >
-                  <option value="" disabled hidden>Select Civil Status</option>
-                  <option value="Single">Single</option>
-                  <option value="Married">Married</option>
-                  <option value="Widowed">Widowed</option>
-                  <option value="Separated">Separated</option>
-                </select>
+              {/* Row 4: Civil Status & Employment Status (2 cols) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                    Civil Status <span className="text-red-500 font-bold">*</span>
+                  </label>
+                  <select
+                    value={regCivilStatus}
+                    onChange={(e) => setRegCivilStatus(e.target.value as any)}
+                    required
+                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none transition-all cursor-pointer"
+                  >
+                    <option value="" disabled hidden>Select Civil Status</option>
+                    <option value="Single">Single</option>
+                    <option value="Married">Married</option>
+                    <option value="Widowed">Widowed</option>
+                    <option value="Separated">Separated</option>
+                    <option value="Live-In">Live-In / Common Law</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                    Employment Status <span className="text-red-500 font-bold">*</span>
+                  </label>
+                  <select
+                    value={regEmployment}
+                    onChange={(e) => setRegEmployment(e.target.value)}
+                    required
+                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none transition-all cursor-pointer font-medium"
+                  >
+                    <option value="Employed">Employed (Have Work)</option>
+                    <option value="Self-Employed">Self-Employed / Business Owner</option>
+                    <option value="Unemployed">Unemployed (Looking for work)</option>
+                    <option value="Student">Student / In School</option>
+                    <option value="Retired">Retired / Pensioner</option>
+                    <option value="Minor">Dependent Minor</option>
+                  </select>
+                </div>
               </div>
 
               {/* Row 5: Years of Residency in the Barangay (1 col) */}
@@ -661,8 +690,8 @@ export default function LoginPage() {
               </div>
 
               {/* Row 6: Residential Address (Section with 3 separated cols) */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-700 block">
                   Residential Address <span className="text-red-500 font-bold">*</span>
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -672,10 +701,20 @@ export default function LoginPage() {
                       type="text"
                       value={regPurok}
                       onChange={(e) => setRegPurok(e.target.value)}
+                      list="reg-purok-suggestions"
                       placeholder="e.g. Purok 1"
                       required
                       className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 outline-none transition-all"
                     />
+                    <datalist id="reg-purok-suggestions">
+                      <option value="Purok 1" />
+                      <option value="Purok 2" />
+                      <option value="Purok 3" />
+                      <option value="Purok 4" />
+                      <option value="Purok 5" />
+                      <option value="Purok 6" />
+                      <option value="Purok 7" />
+                    </datalist>
                   </div>
 
                   <div>
@@ -698,6 +737,11 @@ export default function LoginPage() {
                       Butuan City
                     </div>
                   </div>
+                </div>
+                <div className="px-2.5 py-1 bg-blue-50/70 border border-blue-200/60 rounded-md flex items-center gap-1.5 text-[10px] text-blue-700">
+                  <MapPin size={11} className="shrink-0 text-blue-600" />
+                  <span className="font-semibold">Registered Jurisdiction:</span>
+                  <span className="truncate">{regPurok.trim() || 'Purok'}, Barangay {regBarangay}, Butuan City</span>
                 </div>
               </div>
 

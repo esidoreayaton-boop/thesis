@@ -11,7 +11,8 @@
     "migrate": "node server/migrate.js",
     "test": "node tests/node/runAllPhases.js",
     "test:api": "node tests/node/testApiFlowMock.js",
-    "test:all": "node tests/node/runAllPhases.js && node tests/node/testApiFlowMock.js",
+    "test:evaluation": "node tests/node/runApdexUatUitTests.js",
+    "test:all": "node tests/node/runAllPhases.js && node tests/node/testApiFlowMock.js && node tests/node/runApdexUatUitTests.js",
     "test:php": "php artisan test"
   },
   "dependencies": {
@@ -57,6 +58,7 @@
     "dotenv": "^16.4.7",
     "embla-carousel-react": "8.6.0",
     "express": "^4.21.2",
+    "html2pdf.js": "^0.14.0",
     "input-otp": "1.4.2",
     "lucide-react": "0.487.0",
     "motion": "12.23.24",

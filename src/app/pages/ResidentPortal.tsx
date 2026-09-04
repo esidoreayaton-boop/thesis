@@ -13,8 +13,11 @@ import {
   CheckCircle2,
   Settings,
   User,
-  Clock
+  Clock,
+  Phone,
+  Mail
 } from 'lucide-react';
+import { getBarangayContact, getBarangayEmail } from '../../utils/barangays';
 import { apiService, DocumentRequest } from '../../services/api';
 import BarangayChatbot from '../components/BarangayChatbot';
 import ProfileSettingsModal from '../components/ProfileSettingsModal';
@@ -31,6 +34,15 @@ export default function ResidentPortal() {
   const [isVerified, setIsVerified] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  const residentBrgy = user?.barangay || (() => {
+    if (user?.address) {
+      const match = user.address.match(/Barangay\s+([^,]+)/i);
+      if (match) return match[1].trim();
+      if (user.address.toLowerCase().includes('anticala')) return 'Anticala';
+    }
+    return 'Pianing';
+  })();
 
   const loadData = async (currentUser?: any) => {
     try {
@@ -128,9 +140,22 @@ export default function ResidentPortal() {
               <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay Pianing</h1>
+              <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay {residentBrgy}</h1>
               <span className="text-xs text-teal-600 font-semibold">Resident Self-Service Hub</span>
             </div>
+          </div>
+
+          {/* Quick Barangay Contact Pill in Navbar */}
+          <div className="hidden md:flex items-center gap-3 text-xs bg-teal-50/70 border border-teal-200/80 px-3 py-1.5 rounded-xl">
+            <a href={`tel:${getBarangayContact(residentBrgy).replace(/[^0-9+]/g, '')}`} className="flex items-center gap-1.5 text-teal-800 hover:text-teal-950 font-medium transition-colors cursor-pointer" title="Barangay Official Hotline">
+              <Phone size={13} className="text-teal-600 shrink-0" />
+              <span className="font-mono font-bold text-[11px]">{getBarangayContact(residentBrgy)}</span>
+            </a>
+            <span className="text-teal-300">|</span>
+            <a href={`mailto:${getBarangayEmail(residentBrgy)}`} className="flex items-center gap-1.5 text-teal-800 hover:text-teal-950 font-medium transition-colors cursor-pointer" title="Official Barangay Gmail">
+              <Mail size={13} className="text-teal-600 shrink-0" />
+              <span className="truncate max-w-[200px] text-[11px]">{getBarangayEmail(residentBrgy)}</span>
+            </a>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -161,6 +186,89 @@ export default function ResidentPortal() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+        {/* Personalized Welcome Banner for Authenticated Resident */}
+        {user && user.role === 'resident' ? (
+          <div className="bg-gradient-to-r from-teal-900 via-slate-900 to-indigo-950 text-white rounded-2xl p-5 shadow-sm border border-teal-800/40 relative overflow-hidden">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="bg-teal-500/20 text-teal-300 border border-teal-400/30 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                    Official Resident Account
+                  </span>
+                  <span className="text-[11px] text-teal-200/90 font-mono">
+                    • Barangay {residentBrgy} • {user.purok || 'Purok 1'}
+                  </span>
+                  {isVerified ? (
+                    <span className="text-[11px] text-emerald-300 font-bold flex items-center gap-1 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                      <CheckCircle size={12} /> Verified Citizen
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-amber-300 font-bold flex items-center gap-1 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-500/30">
+                      <Clock size={12} /> Verification Under Review
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 tracking-tight">
+                  Welcome back, {user.name || 'Resident'}! 👋
+                </h2>
+                <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                  Official self-service desk for Barangay {residentBrgy}. Request clearances, monitor processing status, and book community health visits.
+                </p>
+              </div>
+
+              {/* Quick Help Hotline */}
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={`tel:${getBarangayContact(residentBrgy).replace(/[^0-9+]/g, '')}`}
+                  className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs"
+                >
+                  <Phone size={13} />
+                  <span>{getBarangayContact(residentBrgy)}</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Official Barangay Helpdesk & Contact Banner for Guests */
+          <div className="bg-gradient-to-r from-teal-900 via-slate-900 to-indigo-950 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-teal-800/40 relative overflow-hidden">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="bg-teal-500/20 text-teal-300 border border-teal-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Official LGU Helpdesk
+                  </span>
+                  <span className="text-slate-300 text-[11px] flex items-center gap-1">
+                    <Clock size={12} className="text-teal-400" /> Mon - Fri: 8:00 AM - 5:00 PM
+                  </span>
+                </div>
+                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  Barangay {residentBrgy} Official Assistance Desk
+                </h2>
+                <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                  For questions regarding document clearances, pickup verification, or community health services:
+                </p>
+              </div>
+
+              {/* Quick Contact Buttons */}
+              <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full md:w-auto shrink-0">
+                <a
+                  href={`tel:${getBarangayContact(residentBrgy).replace(/[^0-9+]/g, '')}`}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer"
+                >
+                  <Phone size={13} />
+                  <span>{getBarangayContact(residentBrgy)}</span>
+                </a>
+                <a
+                  href={`mailto:${getBarangayEmail(residentBrgy)}`}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-medium px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer"
+                >
+                  <Mail size={13} />
+                  <span className="truncate max-w-[200px]">{getBarangayEmail(residentBrgy)}</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Account Verification Warning Banner */}
         {!user || user.role !== 'resident' ? (
           <div className="bg-slate-100 border border-slate-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">

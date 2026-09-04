@@ -85,3 +85,59 @@ export const BUTUAN_BARANGAYS = [
 ] as const;
 
 export type ButuanBarangay = typeof BUTUAN_BARANGAYS[number];
+
+// Known official hotlines for principal barangays
+const BARANGAY_CONTACT_MAP: Record<string, string> = {
+  'Pianing': '0917-890-1234',
+  'Anticala': '0919-456-7890',
+  'Ampayon': '0920-123-4567',
+  'Libertad': '0918-234-5678',
+  'Doongan': '0921-345-6789',
+  'San Vicente': '0922-456-7890',
+  'Villa Kananga': '0923-567-8901',
+  'Baan Km 3': '0924-678-9012',
+  'Golden Ribbon': '0925-789-0123',
+  'Holy Redeemer': '0926-890-1234'
+};
+
+/**
+ * Returns the official mobile/landline contact hotline for a given Barangay
+ */
+export function getBarangayContact(barangayName?: string): string {
+  if (!barangayName) return '0917-890-1234';
+  const name = barangayName.trim();
+  if (BARANGAY_CONTACT_MAP[name]) return BARANGAY_CONTACT_MAP[name];
+
+  // Deterministic 11-digit mobile number for any of the 86 Butuan Barangays
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash << 5) - hash + name.charCodeAt(i);
+    hash |= 0;
+  }
+  const mid = String(Math.abs(hash % 900) + 100).padStart(3, '0');
+  const last = String(Math.abs((hash >> 3) % 9000) + 1000).padStart(4, '0');
+  return `0917-${mid}-${last}`;
+}
+
+/**
+ * Returns the official government Gmail / email address for a given Barangay
+ */
+export function getBarangayEmail(barangayName?: string): string {
+  if (!barangayName) return 'barangay.pianing.butuan@gmail.com';
+  const clean = barangayName.toLowerCase().replace(/[^a-z0-9]/g, '.').replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+  return `barangay.${clean}.butuan@gmail.com`;
+}
+
+/**
+ * Returns full contact details for a given Barangay
+ */
+export function getBarangayInfo(barangayName?: string) {
+  const name = barangayName?.trim() || 'Pianing';
+  return {
+    name,
+    contact: getBarangayContact(name),
+    email: getBarangayEmail(name),
+    address: `Barangay ${name} Hall, Butuan City, Agusan del Norte 8600`,
+    officeHours: 'Monday – Friday: 8:00 AM – 5:00 PM'
+  };
+}

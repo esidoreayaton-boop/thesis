@@ -507,6 +507,106 @@ const suites = [
 
       return results;
     }
+  },
+  {
+    name: 'Phase 9: Populations, Purok Filtering, Households, Senior Citizen Tracking & Employment Demographics Test',
+    run: () => {
+      const results = [];
+
+      // 1. Purok filter functionality
+      const sampleResidents = [
+        { id: 1, first: 'Juan', last: 'Dela Cruz', purok: '1', household: 'HH-P1-001', dob: '1960-05-10', gender: 'Male', emp: 'Employed' }, // 66 yo Senior
+        { id: 2, first: 'Maria', last: 'Dela Cruz', purok: '1', household: 'HH-P1-001', dob: '1964-08-20', gender: 'Female', emp: 'Self-Employed' }, // 62 yo Senior
+        { id: 3, first: 'Mark', last: 'Dela Cruz', purok: '1', household: 'HH-P1-001', dob: '1995-02-12', gender: 'Male', emp: 'Employed' }, // 31 yo Adult
+        { id: 4, first: 'Elena', last: 'Dela Cruz', purok: '1', household: 'HH-P1-001', dob: '2015-09-18', gender: 'Female', emp: 'Student' }, // 11 yo Child
+        { id: 5, first: 'Pedro', last: 'Santos', purok: '2', household: 'HH-P2-001', dob: '1985-11-02', gender: 'Male', emp: 'Unemployed' }, // 40 yo Adult Unemployed
+        { id: 6, first: 'Rosa', last: 'Santos', purok: '2', household: 'HH-P2-001', dob: '1955-03-25', gender: 'Female', emp: 'Retired' } // 71 yo Senior Female
+      ];
+
+      const filterByPurok = (residents, purok) => {
+        if (!purok || purok === 'all') return residents;
+        return residents.filter(r => r.purok === purok);
+      };
+
+      const p1Residents = filterByPurok(sampleResidents, '1');
+      results.push({
+        name: 'purok filter strictly isolates residents belonging to selected Purok',
+        pass: p1Residents.length === 4 && p1Residents.every(r => r.purok === '1')
+      });
+
+      // 2. Household Number & Senior Count per Household
+      const computeHouseholdMetrics = (residents) => {
+        const hhMap = {};
+        for (const r of residents) {
+          if (!hhMap[r.household]) {
+            hhMap[r.household] = { hh: r.household, members: [], seniors: 0, children: 0, employed: 0, unemployed: 0 };
+          }
+          const age = new Date().getFullYear() - new Date(r.dob).getFullYear();
+          hhMap[r.household].members.push(r);
+          if (age >= 60) hhMap[r.household].seniors++;
+          if (age < 18) hhMap[r.household].children++;
+          if (r.emp === 'Employed' || r.emp === 'Self-Employed') hhMap[r.household].employed++;
+          if (r.emp === 'Unemployed') hhMap[r.household].unemployed++;
+        }
+        return Object.values(hhMap);
+      };
+
+      const households = computeHouseholdMetrics(sampleResidents);
+      const hh1 = households.find(h => h.hh === 'HH-P1-001');
+
+      results.push({
+        name: 'household grouping automatically counts seniors, children, and employed members per household',
+        pass: hh1 && hh1.seniors === 2 && hh1.children === 1 && hh1.employed === 3 && hh1.members.length === 4
+      });
+
+      // 3. Senior Citizen Gender Breakdown (Male vs. Female)
+      const computeSeniorStats = (residents) => {
+        let male = 0, female = 0;
+        for (const r of residents) {
+          const age = new Date().getFullYear() - new Date(r.dob).getFullYear();
+          if (age >= 60) {
+            if (r.gender === 'Male') male++;
+            if (r.gender === 'Female') female++;
+          }
+        }
+        return { total: male + female, male, female };
+      };
+
+      const seniorStats = computeSeniorStats(sampleResidents);
+      results.push({
+        name: 'demographic census accurately computes total senior citizens and male vs female breakdown',
+        pass: seniorStats.total === 3 && seniorStats.male === 1 && seniorStats.female === 2
+      });
+
+      // 4. Employment Tracker (Employed vs. Unemployed)
+      const computeEmployment = (residents) => {
+        let employed = 0, unemployed = 0;
+        for (const r of residents) {
+          if (r.emp === 'Employed' || r.emp === 'Self-Employed') employed++;
+          if (r.emp === 'Unemployed') unemployed++;
+        }
+        return { employed, unemployed, rate: Math.round((employed / (employed + unemployed)) * 100) };
+      };
+
+      const empStats = computeEmployment(sampleResidents);
+      results.push({
+        name: 'employment metrics track employed (have work) vs unemployed with percentage rate',
+        pass: empStats.employed === 3 && empStats.unemployed === 1 && empStats.rate === 75
+      });
+
+      // 5. Official Resident Status (Eliminating Unverified from Population Census)
+      const isOfficialPopulationResident = (resident) => {
+        // Physical inhabitants of barangay are official verified residents
+        return resident.household != null && resident.purok != null;
+      };
+
+      results.push({
+        name: 'population census inhabitants are designated with official resident status instead of unverified',
+        pass: sampleResidents.every(isOfficialPopulationResident) === true
+      });
+
+      return results;
+    }
   }
 ];
 

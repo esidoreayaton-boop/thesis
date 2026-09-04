@@ -43,17 +43,81 @@ export interface Resident {
   submitted_id?: string;
   verification_status?: string;
   rejection_reason?: string | null;
+  household_number?: string;
+  family_name?: string;
+  is_head_of_household?: boolean | number;
+  relationship_to_head?: string;
+  employment_status?: 'Employed' | 'Unemployed' | 'Self-Employed' | 'Student' | 'Retired' | 'Minor';
+  is_senior?: boolean;
+  is_child?: boolean;
+}
+
+export interface HouseholdGroup {
+  household_number: string;
+  purok: string;
+  barangay: string;
+  family_name: string;
+  head_name: string;
+  total_members: number;
+  seniors_count: number;
+  seniors_male: number;
+  seniors_female: number;
+  children_count: number;
+  employed_count: number;
+  unemployed_count: number;
+  members: Resident[];
+}
+
+export interface CensusAnalytics {
+  success: boolean;
+  barangay: string;
+  purok: string;
+  total_households: number;
+  total_families: number;
+  total_population: number;
+  senior_citizens: {
+    total: number;
+    male: number;
+    female: number;
+  };
+  children_count: number;
+  adults_count: number;
+  employment: {
+    employed: number;
+    unemployed: number;
+    rate_percentage: number;
+  };
+  purok_breakdown: {
+    purok: string;
+    population: number;
+    households: number;
+    seniors: number;
+    children: number;
+    employed: number;
+    unemployed: number;
+  }[];
 }
 
 export interface SystemUser {
   id: number;
   name: string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
   email: string;
   password?: string;
   role: 'superadmin' | 'admin' | 'staff' | 'bhw' | 'nurse' | 'resident';
   status: 'Active' | 'Inactive' | 'Archived';
   barangay?: string;
   phone?: string;
+  address?: string;
+  purok?: string;
+  date_of_birth?: string;
+  gender?: string;
+  civil_status?: string;
+  household_number?: string;
+  submitted_id?: string | null;
+  years_of_residency?: string;
   employee_id?: string | null;
   job_title?: string | null;
   last_login?: string;
@@ -70,8 +134,12 @@ export interface PendingResident {
   email: string;
   phone?: string;
   address?: string;
+  purok?: string;
   barangay?: string;
   date_of_birth?: string;
+  gender?: string;
+  civil_status?: string;
+  years_of_residency?: string;
   submitted_id?: string | null;
   submitted_at?: string;
   verification_status: 'Pending_Review' | 'Verified' | 'Rejected';
@@ -102,27 +170,96 @@ export interface ImmunizationRecord {
   id: number;
   resident_id?: number;
   child_name: string;
+  gender?: string;
+  sex?: string;
+  guardian_name?: string;
+  parent_name?: string;
+  guardian?: string;
   parent_phone?: string;
+  contact_number?: string;
+  phone?: string;
+  age_months?: string | number;
+  weight_kg?: string | number;
+  height_cm?: string | number;
   vaccine_name: string;
-  dose_number: number;
+  vaccine_type?: string;
+  vaccine_given?: string;
+  dose_number: number | string;
+  dose?: string;
+  batch_lot?: string;
+  batch_number?: string;
   status: 'Completed' | 'Scheduled' | 'Overdue';
   date_administered?: string | null;
+  date_given?: string;
   due_date: string;
+  next_due_date?: string;
   days_overdue?: number;
   administered_by?: string;
+  attending_nurse?: string;
+  remarks?: string;
+  barangay?: string;
+  sms_sent?: boolean;
 }
 
 export interface MaternalRecord {
   id: number;
   resident_id?: number;
   mother_name: string;
-  age: number;
+  patient_name?: string;
+  age: number | string;
   pregnancy_status: string;
   expected_due_date?: string | null;
+  edd?: string | null;
   last_visit: string;
+  lmp?: string;
   next_visit: string;
+  next_visit_date?: string;
   risk_level?: 'Low' | 'Moderate' | 'High';
   notes?: string;
+  contact_number?: string;
+  mother_phone?: string;
+  barangay?: string;
+  gravida?: string | number;
+  para?: string | number;
+  aog_weeks?: string | number;
+  bp?: string;
+  weight?: string;
+  temp?: string;
+  fetal_heart_rate?: string;
+  fundic_height?: string;
+  prescribed_meds?: string;
+  attending_nurse?: string;
+  sms_sent?: boolean;
+  visit_number?: number;
+}
+
+export interface ClinicalConsultationRecord {
+  id: number;
+  patient_name: string;
+  contact_number?: string;
+  phone?: string;
+  age?: string | number;
+  gender?: string;
+  civil_status?: string;
+  barangay?: string;
+  purok?: string;
+  program_type?: string;
+  service_type?: string;
+  bp?: string;
+  temp?: string;
+  weight?: string;
+  height?: string;
+  heart_rate?: string;
+  chief_complaint?: string;
+  diagnosis?: string;
+  treatment?: string;
+  prescribed_meds?: string;
+  attending_nurse?: string;
+  attending_worker?: string;
+  consultation_date?: string;
+  encounter_date?: string;
+  next_visit_date?: string;
+  status?: string;
 }
 
 export interface SmsNotification {
@@ -262,9 +399,33 @@ export const apiService = {
     return await res.json();
   },
 
-  // Residents
-  async getResidents(barangay?: string): Promise<Resident[]> {
-    const url = barangay ? `${API_BASE}/residents?barangay=${encodeURIComponent(barangay)}` : `${API_BASE}/residents`;
+  // Residents & Population Census
+  async getResidents(barangay?: string, purok?: string): Promise<Resident[]> {
+    const q = new URLSearchParams();
+    if (barangay) q.append('barangay', barangay);
+    if (purok && purok !== 'all') q.append('purok', purok);
+    const qs = q.toString();
+    const url = qs ? `${API_BASE}/residents?${qs}` : `${API_BASE}/residents`;
+    const res = await fetch(url);
+    return await res.json();
+  },
+
+  async getCensusStats(barangay?: string, purok?: string): Promise<CensusAnalytics> {
+    const q = new URLSearchParams();
+    if (barangay) q.append('barangay', barangay);
+    if (purok && purok !== 'all') q.append('purok', purok);
+    const qs = q.toString();
+    const url = qs ? `${API_BASE}/census/stats?${qs}` : `${API_BASE}/census/stats`;
+    const res = await fetch(url);
+    return await res.json();
+  },
+
+  async getHouseholds(barangay?: string, purok?: string): Promise<HouseholdGroup[]> {
+    const q = new URLSearchParams();
+    if (barangay) q.append('barangay', barangay);
+    if (purok && purok !== 'all') q.append('purok', purok);
+    const qs = q.toString();
+    const url = qs ? `${API_BASE}/census/households?${qs}` : `${API_BASE}/census/households`;
     const res = await fetch(url);
     return await res.json();
   },
@@ -355,6 +516,22 @@ export const apiService = {
     return await res.json();
   },
 
+  // Consultations
+  async getConsultations(barangay?: string): Promise<ClinicalConsultationRecord[]> {
+    const query = barangay ? `?barangay=${encodeURIComponent(barangay)}` : '';
+    const res = await fetch(`${API_BASE}/consultations${query}`);
+    return await res.json();
+  },
+
+  async createConsultation(data: Partial<ClinicalConsultationRecord>): Promise<ClinicalConsultationRecord> {
+    const res = await fetch(`${API_BASE}/consultations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return await res.json();
+  },
+
   // SMS Notifications
   async getNotifications(): Promise<SmsNotification[]> {
     const res = await fetch(`${API_BASE}/notifications`);
@@ -391,7 +568,7 @@ export const apiService = {
   },
 
   // Auth Registration
-  async register(data: { name?: string; first_name?: string; middle_name?: string; last_name?: string; date_of_birth?: string; gender?: string; civil_status?: string; email: string; password?: string; role?: string; address?: string; phone?: string; submitted_id?: string; years_of_residency?: string; barangay?: string }) {
+  async register(data: { name?: string; first_name?: string; middle_name?: string; last_name?: string; date_of_birth?: string; gender?: string; civil_status?: string; employment_status?: string; email: string; password?: string; role?: string; address?: string; phone?: string; submitted_id?: string; id_type?: string; years_of_residency?: string; barangay?: string }) {
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

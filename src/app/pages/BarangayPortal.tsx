@@ -19,8 +19,11 @@ import {
   XCircle,
   X,
   MessageSquare,
-  RefreshCw
+  RefreshCw,
+  Phone,
+  Mail
 } from 'lucide-react';
+import { getBarangayContact, getBarangayEmail } from '../../utils/barangays';
 import { apiService, DocumentRequest } from '../../services/api';
 import BarangayChatbot from '../components/BarangayChatbot';
 import ProfileSettingsModal from '../components/ProfileSettingsModal';
@@ -486,6 +489,19 @@ export default function BarangayPortal() {
             </div>
           </div>
 
+          {/* Quick Barangay Contact Pill in Navbar */}
+          <div className="hidden lg:flex items-center gap-3 text-xs bg-indigo-50/70 border border-indigo-200/80 px-3 py-1.5 rounded-xl">
+            <a href={`tel:${getBarangayContact(userBarangay).replace(/[^0-9+]/g, '')}`} className="flex items-center gap-1.5 text-indigo-800 hover:text-indigo-950 font-medium transition-colors cursor-pointer" title="Barangay Official Hotline">
+              <Phone size={13} className="text-indigo-600 shrink-0" />
+              <span className="font-mono font-bold text-[11px]">{getBarangayContact(userBarangay)}</span>
+            </a>
+            <span className="text-indigo-300">|</span>
+            <a href={`mailto:${getBarangayEmail(userBarangay)}`} className="flex items-center gap-1.5 text-indigo-800 hover:text-indigo-950 font-medium transition-colors cursor-pointer" title="Official Barangay Gmail">
+              <Mail size={13} className="text-indigo-600 shrink-0" />
+              <span className="truncate max-w-[200px] text-[11px]">{getBarangayEmail(userBarangay)}</span>
+            </a>
+          </div>
+
           <div className="flex items-center gap-2">
             {/* Notification Center Trigger */}
             {user && (
@@ -547,6 +563,45 @@ export default function BarangayPortal() {
       </header>
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+        {/* Official Barangay Helpdesk & Contact Banner */}
+        <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-indigo-800/40 relative overflow-hidden">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Official LGU Helpdesk
+                </span>
+                <span className="text-slate-300 text-[11px] flex items-center gap-1">
+                  <Clock size={12} className="text-indigo-400" /> Mon - Fri: 8:00 AM - 5:00 PM
+                </span>
+              </div>
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                Barangay {userBarangay} Official Assistance Desk
+              </h2>
+              <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                For questions regarding document clearances, pickup verification, or community assistance:
+              </p>
+            </div>
+
+            {/* Quick Contact Buttons */}
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full md:w-auto shrink-0">
+              <a
+                href={`tel:${getBarangayContact(userBarangay).replace(/[^0-9+]/g, '')}`}
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer"
+              >
+                <Phone size={13} />
+                <span>{getBarangayContact(userBarangay)}</span>
+              </a>
+              <a
+                href={`mailto:${getBarangayEmail(userBarangay)}`}
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-medium px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer"
+              >
+                <Mail size={13} />
+                <span className="truncate max-w-[200px]">{getBarangayEmail(userBarangay)}</span>
+              </a>
+            </div>
+          </div>
+        </div>
 
         {/* Verification Banner */}
         {!user || user.role !== 'resident' ? (

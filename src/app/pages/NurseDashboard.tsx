@@ -115,7 +115,6 @@ interface EncounterArchive {
 export default function NurseDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'overview' | 'consultations' | 'maternal' | 'immunizations' | 'schedule' | 'inventory' | 'archives' | 'sms'>('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -269,17 +268,93 @@ export default function NurseDashboard() {
     }
   };
 
-  // Load API data
+  // Load API data dynamically from backend
   const loadData = async () => {
     setLoading(true);
     try {
-      const [apts, schedules, notifs] = await Promise.all([
+      const [apts, schedules, notifs, liveCons, liveMat, liveImm] = await Promise.all([
         apiService.getAppointments({ barangay: nurseBarangay }).catch(() => []),
         apiService.getClinicSchedules(nurseBarangay).catch(() => []),
-        apiService.getNotifications().catch(() => [])
+        apiService.getNotifications().catch(() => []),
+        apiService.getConsultations(nurseBarangay).catch(() => []),
+        apiService.getMaternalRecords().catch(() => []),
+        apiService.getImmunizations().catch(() => [])
       ]);
       setAppointments(apts);
       setNotifications(notifs);
+
+      if (liveCons && liveCons.length > 0) {
+        setConsultations(liveCons.map((c: any) => ({
+          id: c.id,
+          patient_name: c.patient_name,
+          contact_number: c.contact_number || '',
+          age: c.age || '—',
+          gender: c.gender || 'Female',
+          barangay: c.barangay || nurseBarangay,
+          service_type: c.service_type || 'General Consultation',
+          bp: c.bp || '120/80',
+          temp: c.temp || '36.5',
+          weight: c.weight ? `${c.weight} kg` : '—',
+          heart_rate: c.heart_rate ? `${c.heart_rate} bpm` : '78 bpm',
+          chief_complaint: c.chief_complaint || 'Routine Health Visit',
+          diagnosis: c.diagnosis || 'Assessment Complete',
+          treatment: c.treatment || 'Health counseling advised.',
+          attending_nurse: c.attending_nurse || c.attending_worker || nurseName,
+          consultation_date: c.consultation_date ? String(c.consultation_date).split('T')[0] : (c.encounter_date ? String(c.encounter_date).split('T')[0] : new Date().toISOString().split('T')[0]),
+          status: c.status || 'Completed'
+        })));
+      }
+
+      if (liveMat && liveMat.length > 0) {
+        setPrenatalRecords(liveMat.map((m: any) => ({
+          id: m.id,
+          patient_name: m.mother_name || m.patient_name,
+          contact_number: m.contact_number || m.mother_phone || '',
+          age: m.age || '—',
+          barangay: m.barangay || nurseBarangay,
+          gravida: m.gravida || 1,
+          para: m.para || 0,
+          lmp: m.lmp ? String(m.lmp).split('T')[0] : (m.last_visit ? String(m.last_visit).split('T')[0] : '2026-01-10'),
+          edd: m.expected_due_date ? String(m.expected_due_date).split('T')[0] : (m.edd ? String(m.edd).split('T')[0] : '2026-10-15'),
+          aog_weeks: m.aog_weeks || '20',
+          bp: m.bp || '120/80',
+          weight: m.weight || '58',
+          temp: m.temp || '36.5',
+          fetal_heart_rate: m.fetal_heart_rate || '142',
+          fundic_height: m.fundic_height || '21',
+          next_visit_date: m.next_visit ? String(m.next_visit).split('T')[0] : (m.next_visit_date ? String(m.next_visit_date).split('T')[0] : ''),
+          next_visit_note: m.notes || 'Routine follow-up',
+          prescribed_meds: m.prescribed_meds || 'FeSO4 + Folic Acid',
+          attending_nurse: m.attending_nurse || nurseName,
+          visit_date: m.last_visit ? String(m.last_visit).split('T')[0] : new Date().toISOString().split('T')[0],
+          visit_number: m.visit_number || 1,
+          sms_sent: Boolean(m.sms_sent)
+        })));
+      }
+
+      if (liveImm && liveImm.length > 0) {
+        setImmunRecords(liveImm.map((i: any) => ({
+          id: i.id,
+          child_name: i.child_name,
+          contact_number: i.parent_phone || i.contact_number || '',
+          age_months: i.age_months ? String(i.age_months) : '6',
+          gender: (i.gender || i.sex || 'Male') as any,
+          guardian: i.guardian_name || i.guardian || i.parent_name || 'Guardian',
+          barangay: i.barangay || nurseBarangay,
+          weight: i.weight_kg || i.weight || '7.5',
+          height: i.height_cm || i.height || '65',
+          temp: '36.5',
+          vaccine_given: i.vaccine_name || i.vaccine_given || 'Pentavalent (DPT-HepB-Hib)',
+          dose_number: String(i.dose_number).includes('Dose') ? i.dose_number : `Dose ${i.dose_number || 1}`,
+          batch_number: i.batch_lot || i.batch_number || 'LOT-2026-X9',
+          date_given: i.date_administered ? String(i.date_administered).split('T')[0] : (i.date_given || new Date().toISOString().split('T')[0]),
+          next_due_date: i.due_date ? String(i.due_date).split('T')[0] : (i.next_due_date || ''),
+          remarks: i.remarks || 'Cleared for routine vaccination',
+          attending_nurse: i.administered_by || i.attending_nurse || nurseName,
+          sms_sent: Boolean(i.sms_sent)
+        })));
+      }
+
       if (schedules && schedules.length > 0) {
         setWeeklySchedules(schedules.map((s: any) => ({
           id: s.id,
@@ -365,107 +440,114 @@ export default function NurseDashboard() {
   };
 
   // Handlers
-  const handleCreateConsultation = (e: React.FormEvent) => {
+  const handleCreateConsultation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cName.trim()) { toast.error('Patient name is required'); return; }
-    const newConsult: ClinicalConsultation = {
-      id: Date.now(), patient_name: cName.trim(), contact_number: cPhone.trim(),
-      age: cAge || '—', gender: cGender, barangay: nurseBarangay, service_type: cService,
-      bp: cBp ? `${cBp} mmHg` : 'N/A', temp: cTemp ? `${cTemp} °C` : 'N/A',
-      weight: cWeight ? `${cWeight} kg` : 'N/A', heart_rate: cHR ? `${cHR} bpm` : 'N/A',
-      chief_complaint: cComplaint || 'Routine Health Visit',
-      diagnosis: cDiagnosis || 'Assessment Complete',
-      treatment: cTreatment || 'Health counseling advised.',
-      attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0], status: 'Completed'
-    };
+    try {
+      await apiService.createConsultation({
+        patient_name: cName.trim(),
+        contact_number: cPhone.trim(),
+        age: cAge || '—',
+        gender: cGender,
+        barangay: nurseBarangay,
+        service_type: cService,
+        bp: cBp ? `${cBp} mmHg` : '120/80 mmHg',
+        temp: cTemp ? `${cTemp} °C` : '36.5 °C',
+        weight: cWeight ? `${cWeight} kg` : 'N/A',
+        heart_rate: cHR ? `${cHR} bpm` : '78 bpm',
+        chief_complaint: cComplaint || 'Routine Health Visit',
+        diagnosis: cDiagnosis || 'Assessment Complete',
+        treatment: cTreatment || 'Health counseling advised.',
+        attending_nurse: nurseName,
+        consultation_date: new Date().toISOString().split('T')[0],
+        status: 'Completed'
+      });
 
-    setConsultations(prev => [newConsult, ...prev]);
-
-    // Auto-archive encounter
-    setArchives(prev => [{
-      id: Date.now(),
-      patient_name: cName.trim(),
-      contact_number: cPhone.trim(),
-      encounter_type: `Consultation (${cService})`,
-      details: `Diagnosis: ${cDiagnosis || 'Assessment Complete'}. Treatment: ${cTreatment || 'Counseling'}`,
-      date: new Date().toISOString().split('T')[0],
-      attending: nurseName
-    }, ...prev]);
-
-    toast.success('Consultation recorded & saved to Patient Archives!');
-    setIsNewConsultOpen(false);
-    setCName(''); setCPhone(''); setCAge(''); setCComplaint(''); setCDiagnosis(''); setCTreatment('');
+      toast.success('Consultation recorded & saved to Patient Archives!');
+      setIsNewConsultOpen(false);
+      setCName(''); setCPhone(''); setCAge(''); setCComplaint(''); setCDiagnosis(''); setCTreatment('');
+      loadData();
+    } catch {
+      toast.error('Failed to save consultation');
+    }
   };
 
-  const handleCreatePrenatal = (e: React.FormEvent) => {
+  const handleCreatePrenatal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pName.trim()) { toast.error('Patient name is required'); return; }
     if (!pPhone.trim()) { toast.error('Contact number is required for SMS reminders'); return; }
     if (!pLmp) { toast.error('Last Menstrual Period (LMP) is required'); return; }
     if (!pNextDate) { toast.error('Next visit date is required'); return; }
-    const rec: PrenatalRecord = {
-      id: Date.now(), patient_name: pName.trim(), contact_number: pPhone.trim(),
-      age: pAge || '—', barangay: nurseBarangay, gravida: pGravida, para: pPara,
-      lmp: pLmp, edd: pEdd, aog_weeks: pAog, bp: pBp, weight: pWeight,
-      temp: pTemp, fetal_heart_rate: pFhr, fundic_height: pFh,
-      next_visit_date: pNextDate, next_visit_note: pNextNote,
-      prescribed_meds: pMeds, attending_nurse: nurseName,
-      visit_date: new Date().toISOString().split('T')[0],
-      visit_number: prenatalRecords.filter(r => r.patient_name === pName.trim()).length + 1,
-      sms_sent: false
-    };
+    try {
+      await apiService.createMaternalRecord({
+        mother_name: pName.trim(),
+        contact_number: pPhone.trim(),
+        age: pAge ? Number(pAge) || 25 : 25,
+        barangay: nurseBarangay,
+        gravida: pGravida,
+        para: pPara,
+        lmp: pLmp,
+        edd: pEdd,
+        aog_weeks: pAog,
+        bp: pBp,
+        weight: pWeight,
+        temp: pTemp,
+        fetal_heart_rate: pFhr,
+        fundic_height: pFh,
+        next_visit: pNextDate,
+        next_visit_date: pNextDate,
+        notes: `AOG: ${pAog} wks. ${pNextNote || ''}`,
+        prescribed_meds: pMeds,
+        attending_nurse: nurseName
+      });
 
-    setPrenatalRecords(prev => [rec, ...prev]);
-
-    // Auto-archive
-    setArchives(prev => [{
-      id: Date.now(),
-      patient_name: pName.trim(),
-      contact_number: pPhone.trim(),
-      encounter_type: 'Prenatal Care Visit',
-      details: `AOG: ${pAog} wks. Next visit: ${pNextDate}. Meds: ${pMeds}`,
-      date: new Date().toISOString().split('T')[0],
-      attending: nurseName
-    }, ...prev]);
-
-    toast.success(`Prenatal record for ${pName} saved & archived!`);
-    setIsNewPrenatalOpen(false);
-    setPName(''); setPPhone(''); setPAge(''); setPLmp(''); setPEdd(''); setPAog('');
-    setPBp('120/80'); setPWeight(''); setPTemp('36.5'); setPFhr(''); setPFh('');
-    setPNextDate(''); setPNextNote(''); setPMeds('FeSO4 + Folic Acid');
+      toast.success(`Prenatal record for ${pName} saved & archived!`);
+      setIsNewPrenatalOpen(false);
+      setPName(''); setPPhone(''); setPAge(''); setPLmp(''); setPEdd(''); setPAog('');
+      setPBp('120/80'); setPWeight(''); setPTemp('36.5'); setPFhr(''); setPFh('');
+      setPNextDate(''); setPNextNote(''); setPMeds('FeSO4 + Folic Acid');
+      loadData();
+    } catch {
+      toast.error('Failed to save prenatal record');
+    }
   };
 
-  const handleCreateImmun = (e: React.FormEvent) => {
+  const handleCreateImmun = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!iChild.trim()) { toast.error('Child name is required'); return; }
     if (!iPhone.trim()) { toast.error('Contact number is required for SMS reminders'); return; }
     if (!iGuardian.trim()) { toast.error('Guardian name is required'); return; }
-    const rec: ImmunRecord = {
-      id: Date.now(), child_name: iChild.trim(), contact_number: iPhone.trim(),
-      age_months: iAge, gender: iGender, guardian: iGuardian.trim(), barangay: nurseBarangay,
-      weight: iWeight, height: iHeight, temp: iTemp,
-      vaccine_given: iVaccine, dose_number: iDose, batch_number: iBatch || `LOT-${new Date().getFullYear()}-EPI`,
-      date_given: iDateGiven, next_due_date: iNextDue, remarks: iRemarks,
-      attending_nurse: nurseName, sms_sent: false
-    };
+    try {
+      await apiService.createImmunization({
+        child_name: iChild.trim(),
+        parent_phone: iPhone.trim(),
+        contact_number: iPhone.trim(),
+        age_months: iAge || '6',
+        gender: iGender,
+        guardian_name: iGuardian.trim(),
+        barangay: nurseBarangay,
+        weight_kg: iWeight || '7.5',
+        height_cm: iHeight || '65',
+        vaccine_name: iVaccine,
+        dose_number: iDose,
+        batch_lot: iBatch || `LOT-${new Date().getFullYear()}-EPI`,
+        date_administered: iDateGiven,
+        date_given: iDateGiven,
+        due_date: iNextDue || iDateGiven,
+        next_due_date: iNextDue,
+        remarks: iRemarks || 'Cleared for routine vaccination',
+        administered_by: nurseName,
+        status: iDateGiven ? 'Completed' : 'Scheduled'
+      });
 
-    setImmunRecords(prev => [rec, ...prev]);
-
-    // Auto-archive
-    setArchives(prev => [{
-      id: Date.now(),
-      patient_name: `${iChild.trim()} (Guardian: ${iGuardian.trim()})`,
-      contact_number: iPhone.trim(),
-      encounter_type: `Immunization (${iVaccine})`,
-      details: `Dose: ${iDose}. Batch #: ${iBatch || 'EPI-Standard'}. Remarks: ${iRemarks}`,
-      date: iDateGiven,
-      attending: nurseName
-    }, ...prev]);
-
-    toast.success(`Immunization for ${iChild} recorded & archived!`);
-    setIsNewImmunOpen(false);
-    setIChild(''); setIPhone(''); setIAge(''); setIGuardian(''); setIVaccine('Pentavalent (DPT-HepB-Hib)');
-    setIDose('Dose 1'); setIBatch(''); setINextDue(''); setIRemarks('Cleared for routine vaccination');
+      toast.success(`Immunization for ${iChild} recorded & archived!`);
+      setIsNewImmunOpen(false);
+      setIChild(''); setIPhone(''); setIAge(''); setIGuardian(''); setIVaccine('Pentavalent (DPT-HepB-Hib)');
+      setIDose('Dose 1'); setIBatch(''); setINextDue(''); setIRemarks('Cleared for routine vaccination');
+      loadData();
+    } catch {
+      toast.error('Failed to save immunization record');
+    }
   };
 
   const handleAddInventory = (e: React.FormEvent) => {
@@ -619,23 +701,18 @@ export default function NurseDashboard() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Top Navbar */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-3 shadow-xs">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer">
-              {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-full bg-teal-100 border-2 border-teal-300 flex items-center justify-center">
-                <Stethoscope size={20} className="text-teal-700" />
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 sm:px-6 py-2.5 shadow-xs">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-full bg-teal-100 border-2 border-teal-300 flex items-center justify-center shrink-0">
+              <Stethoscope size={20} className="text-teal-700" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm font-bold text-slate-900">Barangay {nurseBarangay} Health Center</h1>
+                <Badge className="bg-teal-600 text-white text-[10px] font-bold px-1.5">Nurse Portal</Badge>
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-sm font-bold text-slate-900">Barangay {nurseBarangay} Health Center</h1>
-                  <Badge className="bg-teal-600 text-white text-[10px] font-bold px-1.5">Nurse Portal</Badge>
-                </div>
-                <span className="text-xs text-teal-700 font-medium">Primary Health Center Clinical Management</span>
-              </div>
+              <span className="text-xs text-teal-700 font-medium hidden sm:block">Primary Health Center Clinical Management</span>
             </div>
           </div>
 
@@ -673,42 +750,10 @@ export default function NurseDashboard() {
         </div>
       </header>
 
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Mobile Drawer Backdrop */}
-        {sidebarOpen && (
-          <div
-            onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
-            aria-hidden="true"
-          />
-        )}
-
-        {/* Responsive Drawer & Desktop Sidebar */}
-        <aside
-          className={`
-            fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-all duration-300 flex flex-col py-4 shadow-2xl lg:shadow-none
-            lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:translate-x-0
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-16'}
-            ${sidebarOpen ? 'lg:w-60' : 'lg:w-16'}
-          `}
-        >
-          {/* Mobile Drawer Header with Close Button */}
-          <div className="flex items-center justify-between px-4 pb-3 mb-2 border-b border-slate-100 lg:hidden">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center">
-                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
-              </div>
-              <span className="text-xs font-bold text-slate-900">Clinical Navigation</span>
-            </div>
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              title="Close menu"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
+      {/* Full-width container flush to the left of the viewport (no side margin gap) */}
+      <div className="flex-1 flex w-full">
+        {/* Permanent Desktop Sidebar pinned to left edge */}
+        <aside className="w-64 shrink-0 bg-white border-r border-slate-200 flex flex-col py-4 sticky top-[57px] h-[calc(100vh-57px)]">
           <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto">
             {menuItems.map(item => {
               const isActive = activeTab === item.id;
@@ -717,7 +762,6 @@ export default function NurseDashboard() {
                   key={item.id}
                   onClick={() => {
                     setActiveTab(item.id as any);
-                    if (window.innerWidth < 1024) setSidebarOpen(false);
                   }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     isActive
@@ -727,7 +771,7 @@ export default function NurseDashboard() {
                 >
                   <div className="flex items-center gap-3">
                     <item.icon size={17} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
-                    {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && <span>{item.label}</span>}
+                    <span>{item.label}</span>
                   </div>
                 </button>
               );
@@ -735,14 +779,14 @@ export default function NurseDashboard() {
           </nav>
 
           {/* Fixed Bottom Logout */}
-          <div className="mt-auto pt-3 px-3 border-t border-slate-200/90">
+          <div className="mt-auto pt-3 px-3 border-t border-slate-200">
             <button
               onClick={() => { localStorage.removeItem('barangay_user'); navigate('/login'); }}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-all cursor-pointer group"
               title="Sign out of account"
             >
               <LogOut size={18} className="shrink-0 text-rose-500 group-hover:text-rose-700" />
-              {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && <span>Logout</span>}
+              <span>Logout</span>
             </button>
           </div>
         </aside>

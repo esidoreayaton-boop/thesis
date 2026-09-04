@@ -45,7 +45,7 @@ import SmartClinicalIntakeModal from '../components/SmartClinicalIntakeModal';
 import GmailNotificationHub from '../components/GmailNotificationHub';
 import ClinicalArchivesHub from '../components/ClinicalArchivesHub';
 import ProfileSettingsModal from '../components/ProfileSettingsModal';
-import { exportToCsv, printOfficialReport } from '../../utils/exportCsv';
+import { exportToCsv, printOfficialReport, downloadOfficialPdf } from '../../utils/exportCsv';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -59,7 +59,6 @@ import { toast } from 'sonner';
 export default function BhwDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
 
   // User session state
@@ -173,13 +172,21 @@ export default function BhwDashboard() {
   const [isAddMaternalOpen, setIsAddMaternalOpen] = useState(false);
   const [isSendSmsOpen, setIsSendSmsOpen] = useState(false);
 
-  // Form states
+  // DOH Standard EPI Immunization Form states
   const [newChildName, setNewChildName] = useState('');
+  const [newChildGender, setNewChildGender] = useState<'Male' | 'Female'>('Male');
+  const [newGuardianName, setNewGuardianName] = useState('');
   const [newParentPhone, setNewParentPhone] = useState('');
-  const [newVaccineName, setNewVaccineName] = useState('BCG');
-  const [newDoseNumber, setNewDoseNumber] = useState('1');
-  const [newDueDate, setNewDueDate] = useState('2026-05-15');
-  const [newImmStatus, setNewImmStatus] = useState('Scheduled');
+  const [newChildAge, setNewChildAge] = useState('6');
+  const [newChildWeight, setNewChildWeight] = useState('7.8');
+  const [newChildHeight, setNewChildHeight] = useState('66');
+  const [newVaccineName, setNewVaccineName] = useState('Pentavalent (DPT-HepB-Hib)');
+  const [newDoseNumber, setNewDoseNumber] = useState('Dose 1');
+  const [newBatchLot, setNewBatchLot] = useState(`LOT-${new Date().getFullYear()}-X9`);
+  const [newDateGiven, setNewDateGiven] = useState(new Date().toISOString().split('T')[0]);
+  const [newDueDate, setNewDueDate] = useState('');
+  const [newRemarks, setNewRemarks] = useState('Cleared for routine vaccination');
+  const [newImmStatus, setNewImmStatus] = useState('Completed');
 
   const [newMotherName, setNewMotherName] = useState('');
   const [newMotherAge, setNewMotherAge] = useState('28');
@@ -373,20 +380,43 @@ export default function BhwDashboard() {
   // Handlers
   const handleCreateImmunization = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newChildName.trim()) return;
+    if (!newChildName.trim()) { toast.error("Child's full name is required"); return; }
+    if (!newGuardianName.trim()) { toast.error("Guardian name is required"); return; }
+    if (!newParentPhone.trim()) { toast.error("Guardian phone number is required"); return; }
     try {
-      const created = await apiService.createImmunization({
-        child_name: newChildName,
-        parent_phone: newParentPhone || '09170000000',
+      await apiService.createImmunization({
+        child_name: newChildName.trim(),
+        gender: newChildGender,
+        guardian_name: newGuardianName.trim(),
+        parent_phone: newParentPhone.trim(),
+        contact_number: newParentPhone.trim(),
+        age_months: newChildAge || '6',
+        weight_kg: newChildWeight || '7.8',
+        height_cm: newChildHeight || '66',
         vaccine_name: newVaccineName,
-        dose_number: Number(newDoseNumber) || 1,
-        due_date: newDueDate,
-        status: newImmStatus as any
+        dose_number: newDoseNumber,
+        batch_lot: newBatchLot || `LOT-${new Date().getFullYear()}-X9`,
+        date_administered: newDateGiven,
+        date_given: newDateGiven,
+        due_date: newDueDate || newDateGiven,
+        next_due_date: newDueDate,
+        remarks: newRemarks || 'Cleared for routine vaccination',
+        administered_by: user?.name || 'BHW Maria',
+        status: newDateGiven ? 'Completed' : 'Scheduled'
       });
-      setImmunizations([created, ...immunizations]);
-      toast.success('Immunization record created successfully');
+
+      toast.success(`Immunization for ${newChildName} saved & archived!`);
       setIsAddImmOpen(false);
       setNewChildName('');
+      setNewGuardianName('');
+      setNewParentPhone('');
+      setNewChildAge('6');
+      setNewChildWeight('7.8');
+      setNewChildHeight('66');
+      setNewBatchLot(`LOT-${new Date().getFullYear()}-X9`);
+      setNewDueDate('');
+      setNewRemarks('Cleared for routine vaccination');
+      loadData();
     } catch (err) {
       toast.error('Could not create immunization record');
     }
@@ -397,6 +427,7 @@ export default function BhwDashboard() {
       await apiService.updateImmunization(id, 'Completed', user?.name || 'BHW Maria');
       setImmunizations(immunizations.map(i => i.id === id ? { ...i, status: 'Completed', date_administered: new Date().toISOString().split('T')[0], days_overdue: 0 } : i));
       toast.success('Immunization marked as completed');
+      loadData();
     } catch (err) {
       toast.error('Update failed');
     }
@@ -404,20 +435,22 @@ export default function BhwDashboard() {
 
   const handleCreateMaternalRecord = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMotherName.trim()) return;
+    if (!newMotherName.trim()) { toast.error("Mother's full name is required"); return; }
     try {
-      const created = await apiService.createMaternalRecord({
-        mother_name: newMotherName,
+      await apiService.createMaternalRecord({
+        mother_name: newMotherName.trim(),
         age: Number(newMotherAge) || 25,
         pregnancy_status: newPregnancyStatus,
         last_visit: new Date().toISOString().split('T')[0],
         next_visit: newNextVisit,
-        risk_level: newRiskLevel
+        next_visit_date: newNextVisit,
+        risk_level: newRiskLevel,
+        attending_nurse: user?.name || 'BHW Maria'
       });
-      setMaternalRecords([created, ...maternalRecords]);
-      toast.success('Maternal record added to database');
+      toast.success(`Maternal record for ${newMotherName} added to database!`);
       setIsAddMaternalOpen(false);
       setNewMotherName('');
+      loadData();
     } catch (err) {
       toast.error('Could not add maternal record');
     }
@@ -494,23 +527,15 @@ export default function BhwDashboard() {
       <SuperAdminNavigationDock currentRole={user?.role} />
 
       {/* Top Navbar */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 py-3 shadow-xs">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-blue-200 flex items-center justify-center">
-                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
-              </div>
-              <div>
-                <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay Pianing</h1>
-                <span className="text-xs text-blue-600 font-semibold">BHW Health Portal</span>
-              </div>
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 sm:px-6 py-2.5 shadow-xs">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-blue-200 flex items-center justify-center">
+              <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
+            </div>
+            <div>
+              <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Barangay Pianing</h1>
+              <span className="text-xs text-blue-600 font-semibold">BHW Health Portal</span>
             </div>
           </div>
 
@@ -640,42 +665,10 @@ export default function BhwDashboard() {
         </div>
       </header>
 
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Mobile Drawer Backdrop */}
-        {sidebarOpen && (
-          <div
-            onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
-            aria-hidden="true"
-          />
-        )}
-
-        {/* Responsive Drawer & Desktop Sidebar Navigation */}
-        <aside
-          className={`
-            fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex flex-col py-4 shadow-2xl lg:shadow-none
-            lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:translate-x-0
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-16'}
-            ${sidebarOpen ? 'lg:w-64' : 'lg:w-16'}
-          `}
-        >
-          {/* Mobile Drawer Header with Close Button */}
-          <div className="flex items-center justify-between px-4 pb-3 mb-2 border-b border-slate-100 dark:border-slate-800 lg:hidden">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full overflow-hidden bg-white shadow-xs border border-slate-200 flex items-center justify-center">
-                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
-              </div>
-              <span className="text-xs font-bold text-slate-900 dark:text-white">BHW Navigation</span>
-            </div>
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              title="Close menu"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
+      {/* Full-width container flush to the left of the viewport (no side margin gap) */}
+      <div className="flex-1 flex w-full">
+        {/* Permanent Desktop Sidebar pinned to left edge */}
+        <aside className="w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col py-4 sticky top-[57px] h-[calc(100vh-57px)]">
           <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto">
             {menuItems.map((item) => {
               const isActive = activeTab === item.id;
@@ -684,7 +677,6 @@ export default function BhwDashboard() {
                   key={item.id}
                   onClick={() => {
                     setActiveTab(item.id);
-                    if (window.innerWidth < 1024) setSidebarOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     isActive
@@ -693,7 +685,7 @@ export default function BhwDashboard() {
                   }`}
                 >
                   <item.icon size={18} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
-                  {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && <span>{item.label}</span>}
+                  <span>{item.label}</span>
                 </button>
               );
             })}
@@ -707,7 +699,7 @@ export default function BhwDashboard() {
               title="Sign out of account"
             >
               <LogOut size={18} className="shrink-0 text-rose-500 group-hover:text-rose-700" />
-              {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 1024)) && <span>Logout</span>}
+              <span>Logout</span>
             </button>
           </div>
         </aside>
@@ -966,16 +958,17 @@ export default function BhwDashboard() {
 
                 <Button
                   onClick={() => {
-                    printOfficialReport({
+                    downloadOfficialPdf({
                       title: 'Health Center Appointments Schedule Report',
                       subtitle: `Barangay Pianing Health Center — ${new Date().toLocaleDateString()}`,
+                      filename: `Health_Appointments_${new Date().toISOString().slice(0, 10)}`,
                       preparedBy: user?.name || 'BHW Health Worker',
                       preparedByTitle: 'Barangay Health Worker',
                       department: 'Barangay Health Center',
                       stats: [
-                        { label: 'Total Appointments', value: appointments.length, color: '#059669' },
-                        { label: 'Confirmed', value: appointments.filter(a => a.status === 'Approved').length, color: '#2563EB' },
-                        { label: 'Completed', value: appointments.filter(a => a.status === 'Completed').length, color: '#16A34A' }
+                        { label: 'Total Appointments', value: appointments.length },
+                        { label: 'Confirmed', value: appointments.filter(a => a.status === 'Approved').length },
+                        { label: 'Completed', value: appointments.filter(a => a.status === 'Completed').length }
                       ],
                       tables: [{
                         title: 'Health Appointments Registry',
@@ -991,13 +984,13 @@ export default function BhwDashboard() {
                         ])
                       }]
                     });
-                    toast.success('Health appointments report exported as PDF');
+                    toast.success('Health appointments PDF downloaded');
                   }}
                   variant="outline"
                   size="sm"
                   className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
                 >
-                  <Download size={14} /> Export PDF
+                  <Download size={14} /> Download PDF
                 </Button>
               </div>
 
@@ -1380,49 +1373,109 @@ export default function BhwDashboard() {
                   <DialogTrigger asChild>
                     <Button className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow-sm">
                       <PlusCircle size={15} />
-                      Add Vaccine Schedule
+                      Record Immunization
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="bg-white">
+                  <DialogContent className="bg-white max-w-xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle>Record New Vaccination</DialogTitle>
+                      <DialogTitle className="flex items-center gap-2 text-slate-900 font-bold">
+                        <Baby className="text-blue-600" size={18} /> Record Child Immunization (DOH Standard)
+                      </DialogTitle>
                     </DialogHeader>
                     <form onSubmit={handleCreateImmunization} className="space-y-3 py-2">
-                      <div>
-                        <Label className="text-xs">Child Full Name</Label>
-                        <Input value={newChildName} onChange={e => setNewChildName(e.target.value)} required placeholder="Baby Maria Santos" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs">Parent Phone</Label>
-                          <Input value={newParentPhone} onChange={e => setNewParentPhone(e.target.value)} placeholder="09182345678" />
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="col-span-2">
+                          <Label className="text-xs font-semibold">Child's Full Name <span className="text-red-500">*</span></Label>
+                          <Input value={newChildName} onChange={e => setNewChildName(e.target.value)} placeholder="Full name of child" required className="h-9 text-xs mt-1" />
                         </div>
                         <div>
-                          <Label className="text-xs">Vaccine Type</Label>
-                          <Select value={newVaccineName} onValueChange={setNewVaccineName}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
+                          <Label className="text-xs font-semibold">Sex</Label>
+                          <Select value={newChildGender} onValueChange={(val: any) => setNewChildGender(val)}>
+                            <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="BCG">BCG</SelectItem>
-                              <SelectItem value="Hepatitis B">Hepatitis B</SelectItem>
-                              <SelectItem value="DPT">DPT</SelectItem>
-                              <SelectItem value="Polio">Polio</SelectItem>
-                              <SelectItem value="MMR">MMR</SelectItem>
+                              <SelectItem value="Male">Male</SelectItem>
+                              <SelectItem value="Female">Female</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                       </div>
+
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <Label className="text-xs">Dose Number</Label>
-                          <Input type="number" min="1" max="5" value={newDoseNumber} onChange={e => setNewDoseNumber(e.target.value)} />
+                          <Label className="text-xs font-semibold">Guardian Name <span className="text-red-500">*</span></Label>
+                          <Input value={newGuardianName} onChange={e => setNewGuardianName(e.target.value)} placeholder="Parent/Guardian" required className="h-9 text-xs mt-1" />
                         </div>
                         <div>
-                          <Label className="text-xs">Due Date</Label>
-                          <Input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} required />
+                          <Label className="text-xs font-semibold">Guardian Phone Number <span className="text-red-500">*</span></Label>
+                          <Input value={newParentPhone} onChange={e => setNewParentPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required className="h-9 text-xs font-mono mt-1" />
                         </div>
                       </div>
-                      <DialogFooter>
-                        <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white">Save Record</Button>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <Label className="text-xs font-semibold">Age (months)</Label>
+                          <Input value={newChildAge} onChange={e => setNewChildAge(e.target.value)} placeholder="e.g. 6" className="h-9 text-xs mt-1" />
+                        </div>
+                        <div>
+                          <Label className="text-xs font-semibold">Weight (kg)</Label>
+                          <Input value={newChildWeight} onChange={e => setNewChildWeight(e.target.value)} placeholder="e.g. 7.8" className="h-9 text-xs mt-1" />
+                        </div>
+                        <div>
+                          <Label className="text-xs font-semibold">Height (cm)</Label>
+                          <Input value={newChildHeight} onChange={e => setNewChildHeight(e.target.value)} placeholder="e.g. 66" className="h-9 text-xs mt-1" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <Label className="text-xs font-semibold">Vaccine Type</Label>
+                          <Select value={newVaccineName} onValueChange={setNewVaccineName}>
+                            <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {['BCG', 'Hepatitis B', 'Pentavalent (DPT-HepB-Hib)', 'OPV (Oral Polio)', 'IPV (Inactivated Polio)', 'PCV13', 'MMR (Measles-Mumps-Rubella)', 'Measles-Rubella (MR)', 'Vitamin A'].map(v => (
+                                <SelectItem key={v} value={v}>{v}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs font-semibold">Dose Number</Label>
+                          <Select value={newDoseNumber} onValueChange={setNewDoseNumber}>
+                            <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {['Dose 1', 'Dose 2', 'Dose 3', 'Booster 1', 'Booster 2', 'Single Dose'].map(d => (
+                                <SelectItem key={d} value={d}>{d}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs font-semibold">Batch / Lot Number</Label>
+                          <Input value={newBatchLot} onChange={e => setNewBatchLot(e.target.value)} placeholder="e.g. LOT-2026-X9" className="h-9 text-xs font-mono mt-1" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs font-semibold">Date Given</Label>
+                          <Input type="date" value={newDateGiven} onChange={e => setNewDateGiven(e.target.value)} className="h-9 text-xs mt-1" />
+                        </div>
+                        <div>
+                          <Label className="text-xs font-semibold">Next Due Date</Label>
+                          <Input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="h-9 text-xs mt-1" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-xs font-semibold">Remarks / Adverse Effects Observation</Label>
+                        <Input value={newRemarks} onChange={e => setNewRemarks(e.target.value)} placeholder="e.g. Cleared for routine vaccination" className="h-9 text-xs mt-1" />
+                      </div>
+
+                      <DialogFooter className="pt-2">
+                        <Button type="button" variant="outline" onClick={() => setIsAddImmOpen(false)} className="text-xs">Cancel</Button>
+                        <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1 cursor-pointer">
+                          <Check size={13} /> Save Immunization Record
+                        </Button>
                       </DialogFooter>
                     </form>
                   </DialogContent>
@@ -1441,15 +1494,16 @@ export default function BhwDashboard() {
                 </div>
                 <Button
                   onClick={() => {
-                    printOfficialReport({
+                    downloadOfficialPdf({
                       title: 'Immunization Records',
                       subtitle: `Child vaccine records — ${new Date().toLocaleDateString()}`,
+                      filename: `Immunization_Records_${new Date().toISOString().slice(0, 10)}`,
                       preparedBy: user?.name || 'BHW Health Worker',
                       preparedByTitle: 'Barangay Health Worker',
                       department: 'Barangay Health Center',
                       stats: [
-                        { label: 'Total Records', value: filteredImmunizations.length, color: '#0284c7' },
-                        { label: 'Overdue', value: filteredImmunizations.filter(i => i.status === 'Overdue').length, color: '#dc2626' }
+                        { label: 'Total Records', value: filteredImmunizations.length },
+                        { label: 'Overdue', value: filteredImmunizations.filter(i => i.status === 'Overdue').length }
                       ],
                       tables: [{
                         title: 'Immunization Records',
@@ -1457,13 +1511,13 @@ export default function BhwDashboard() {
                         rows: filteredImmunizations.map(i => [i.child_name, i.parent_phone || 'N/A', i.vaccine_name, `Dose ${i.dose_number}`, i.status, i.date_administered || i.due_date || 'N/A'])
                       }]
                     });
-                    toast.success('Immunization records opened as PDF');
+                    toast.success('Immunization records PDF downloaded');
                   }}
                   variant="outline"
                   size="sm"
                   className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
                 >
-                  <Download size={14} /> Export PDF
+                  <Download size={14} /> Download PDF
                 </Button>
               </div>
 
@@ -1533,15 +1587,16 @@ export default function BhwDashboard() {
                   <div className="flex items-center gap-2">
                     <Button
                       onClick={() => {
-                        printOfficialReport({
+                        downloadOfficialPdf({
                           title: 'Maternal Health Records',
                           subtitle: `Prenatal & postnatal monitoring — ${new Date().toLocaleDateString()}`,
+                          filename: `Maternal_Health_Records_${new Date().toISOString().slice(0, 10)}`,
                           preparedBy: user?.name || 'BHW Health Worker',
                           preparedByTitle: 'Barangay Health Worker',
                           department: 'Barangay Health Center',
                           stats: [
-                            { label: 'Total Patients', value: maternalRecords.length, color: '#db2777' },
-                            { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length, color: '#dc2626' }
+                            { label: 'Total Patients', value: maternalRecords.length },
+                            { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length }
                           ],
                           tables: [{
                             title: 'Maternal Care Records',
@@ -1549,13 +1604,13 @@ export default function BhwDashboard() {
                             rows: maternalRecords.map(m => [m.mother_name ?? '', String(m.age ?? ''), m.pregnancy_status ?? '', m.expected_due_date ?? 'N/A', m.risk_level ?? '', m.next_visit ?? 'TBD'])
                           }]
                         });
-                        toast.success('Maternal health records opened as PDF');
+                        toast.success('Maternal health records PDF downloaded');
                       }}
                       variant="outline"
                       size="sm"
                       className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
                     >
-                      <Download size={14} /> Export PDF
+                      <Download size={14} /> Download PDF
                     </Button>
                     <DialogTrigger asChild>
                       <Button className="bg-pink-600 hover:bg-pink-700 text-white text-xs gap-1.5 shadow-sm">
@@ -1693,15 +1748,16 @@ export default function BhwDashboard() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     onClick={() => {
-                      printOfficialReport({
+                      downloadOfficialPdf({
                         title: 'Child Immunization Report',
                         subtitle: `Full vaccination records — ${new Date().toLocaleDateString()}`,
+                        filename: `Child_Immunization_Report_${new Date().toISOString().slice(0, 10)}`,
                         preparedBy: user?.name || 'BHW Health Worker',
                         preparedByTitle: 'Barangay Health Worker',
                         department: 'Barangay Health Center',
                         stats: [
-                          { label: 'Total Records', value: immunizations.length, color: '#0284c7' },
-                          { label: 'Overdue', value: immunizations.filter(i => i.status === 'Overdue').length, color: '#dc2626' }
+                          { label: 'Total Records', value: immunizations.length },
+                          { label: 'Overdue', value: immunizations.filter(i => i.status === 'Overdue').length }
                         ],
                         tables: [{
                           title: 'Immunization Records',
@@ -1709,26 +1765,27 @@ export default function BhwDashboard() {
                           rows: immunizations.map(i => [i.child_name, i.parent_phone || 'N/A', i.vaccine_name, `Dose ${i.dose_number}`, i.status, i.date_administered || 'N/A', i.administered_by || 'BHW Clinic'])
                         }]
                       });
-                      toast.success('Immunization report opened as PDF');
+                      toast.success('Immunization report PDF downloaded');
                     }}
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs gap-1.5 border-slate-300"
                   >
-                    <Download size={13} /> Export Vaccines (PDF)
+                    <Download size={13} /> Download Vaccines (PDF)
                   </Button>
 
                   <Button
                     onClick={() => {
-                      printOfficialReport({
+                      downloadOfficialPdf({
                         title: 'Maternal Health Report',
                         subtitle: `Prenatal & postnatal patient records — ${new Date().toLocaleDateString()}`,
+                        filename: `Maternal_Health_Report_${new Date().toISOString().slice(0, 10)}`,
                         preparedBy: user?.name || 'BHW Health Worker',
                         preparedByTitle: 'Barangay Health Worker',
                         department: 'Barangay Health Center',
                         stats: [
-                          { label: 'Total Patients', value: maternalRecords.length, color: '#db2777' },
-                          { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length, color: '#dc2626' }
+                          { label: 'Total Patients', value: maternalRecords.length },
+                          { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length }
                         ],
                         tables: [{
                           title: 'Maternal Care Records',
@@ -1736,13 +1793,13 @@ export default function BhwDashboard() {
                           rows: maternalRecords.map(m => [m.mother_name ?? '', String(m.age ?? ''), m.pregnancy_status ?? '', m.expected_due_date ?? 'N/A', m.risk_level ?? '', m.notes ?? ''])
                         }]
                       });
-                      toast.success('Maternal health report opened as PDF');
+                      toast.success('Maternal health report PDF downloaded');
                     }}
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs gap-1.5 border-slate-300"
                   >
-                    <Download size={13} /> Export Maternal (PDF)
+                    <Download size={13} /> Download Maternal (PDF)
                   </Button>
 
                   <Button
@@ -1809,26 +1866,27 @@ export default function BhwDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Total registered child vaccines: <strong>{immunizations.length}</strong> records.</p>
                     <Button
                       onClick={() => {
-                        printOfficialReport({
+                        downloadOfficialPdf({
                           title: 'Overdue Vaccine Alert Report',
                           subtitle: `Children with overdue vaccination doses — ${new Date().toLocaleDateString()}`,
+                          filename: `Overdue_Vaccine_Alert_${new Date().toISOString().slice(0, 10)}`,
                           preparedBy: user?.name || 'BHW Health Worker',
                           preparedByTitle: 'Barangay Health Worker',
                           department: 'Barangay Health Center',
-                          stats: [{ label: 'Overdue Cases', value: immunizations.filter(i => i.status === 'Overdue').length, color: '#dc2626' }],
+                          stats: [{ label: 'Overdue Cases', value: immunizations.filter(i => i.status === 'Overdue').length }],
                           tables: [{
                             title: 'Overdue Vaccine Records',
                             headers: ['Child Name', 'Parent Phone', 'Vaccine', 'Days Overdue'],
                             rows: immunizations.filter(i => i.status === 'Overdue').map(i => [i.child_name, i.parent_phone || 'N/A', i.vaccine_name, i.days_overdue || 'N/A'])
                           }]
                         });
-                        toast.success('Overdue vaccine report opened as PDF');
+                        toast.success('Overdue vaccine PDF downloaded');
                       }}
                       size="sm"
                       variant="outline"
                       className="w-full text-xs h-7 text-blue-700 border-blue-300 hover:bg-blue-100"
                     >
-                      <Download size={12} className="mr-1" /> Export Overdue Vaccine List
+                      <Download size={12} className="mr-1" /> Download Overdue Vaccines (PDF)
                     </Button>
                   </CardContent>
                 </Card>
@@ -1845,15 +1903,16 @@ export default function BhwDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Active maternal cases: <strong>{maternalRecords.length}</strong> patients.</p>
                     <Button
                       onClick={() => {
-                        printOfficialReport({
+                        downloadOfficialPdf({
                           title: 'High-Risk Maternal Patients Report',
                           subtitle: `High & moderate risk pregnancy cases — ${new Date().toLocaleDateString()}`,
+                          filename: `High_Risk_Maternal_Patients_${new Date().toISOString().slice(0, 10)}`,
                           preparedBy: user?.name || 'BHW Health Worker',
                           preparedByTitle: 'Barangay Health Worker',
                           department: 'Barangay Health Center',
                           stats: [
-                            { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length, color: '#dc2626' },
-                            { label: 'Moderate Risk', value: maternalRecords.filter(m => m.risk_level === 'Moderate').length, color: '#d97706' }
+                            { label: 'High Risk', value: maternalRecords.filter(m => m.risk_level === 'High').length },
+                            { label: 'Moderate Risk', value: maternalRecords.filter(m => m.risk_level === 'Moderate').length }
                           ],
                           tables: [{
                             title: 'High-Risk Maternal Patients',
@@ -1861,13 +1920,13 @@ export default function BhwDashboard() {
                             rows: maternalRecords.filter(m => m.risk_level === 'High' || m.risk_level === 'Moderate').map(m => [m.mother_name ?? '', String(m.age ?? ''), m.pregnancy_status ?? '', m.risk_level ?? '', m.notes ?? ''])
                           }]
                         });
-                        toast.success('High-risk maternal report opened as PDF');
+                        toast.success('High-risk maternal PDF downloaded');
                       }}
                       size="sm"
                       variant="outline"
                       className="w-full text-xs h-7 text-pink-700 border-pink-300 hover:bg-pink-100"
                     >
-                      <Download size={12} className="mr-1" /> Export High-Risk Patients
+                      <Download size={12} className="mr-1" /> Download High-Risk Patients (PDF)
                     </Button>
                   </CardContent>
                 </Card>
@@ -1884,26 +1943,27 @@ export default function BhwDashboard() {
                     <p className="text-xs text-slate-600 mb-3">Total health alerts dispatched: <strong>{notifications.length}</strong> sent.</p>
                     <Button
                       onClick={() => {
-                        printOfficialReport({
+                        downloadOfficialPdf({
                           title: 'SMS Health Dispatch Log Report',
                           subtitle: `Health alert notifications dispatched — ${new Date().toLocaleDateString()}`,
+                          filename: `SMS_Health_Dispatch_Log_${new Date().toISOString().slice(0, 10)}`,
                           preparedBy: user?.name || 'BHW Health Worker',
                           preparedByTitle: 'Barangay Health Worker',
                           department: 'Barangay Health Center',
-                          stats: [{ label: 'Total SMS Sent', value: notifications.length, color: '#7c3aed' }],
+                          stats: [{ label: 'Total SMS Sent', value: notifications.length }],
                           tables: [{
                             title: 'SMS Health Dispatch Log',
                             headers: ['Recipient', 'Phone', 'Type', 'Message', 'Status', 'Sent At'],
                             rows: notifications.map(n => [n.recipient_name, n.recipient_phone, n.type || 'General', (n.message || '').substring(0, 40) + '...', n.status || 'Sent', n.sent_at || 'Recent'])
                           }]
                         });
-                        toast.success('SMS dispatch log opened as PDF');
+                        toast.success('SMS dispatch log PDF downloaded');
                       }}
                       size="sm"
                       variant="outline"
                       className="w-full text-xs h-7 text-purple-700 border-purple-300 hover:bg-purple-100"
                     >
-                      <Download size={12} className="mr-1" /> Export SMS Log (PDF)
+                      <Download size={12} className="mr-1" /> Download SMS Log (PDF)
                     </Button>
                   </CardContent>
                 </Card>
