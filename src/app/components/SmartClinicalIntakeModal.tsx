@@ -559,7 +559,7 @@ export default function SmartClinicalIntakeModal({
                 <Select value={purok} onValueChange={setPurok}>
                   <SelectTrigger className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {['Purok 1', 'Purok 2', 'Purok 3', 'Purok 4', 'Purok 5', 'Purok 6', 'Purok 7'].map(p => (
+                    {['Purok 1', 'Purok 2', 'Purok 3', 'Purok 4', 'Purok 5', 'Purok 6'].map(p => (
                       <SelectItem key={p} value={p}>{p}</SelectItem>
                     ))}
                   </SelectContent>

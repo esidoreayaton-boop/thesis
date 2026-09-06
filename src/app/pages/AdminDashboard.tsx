@@ -2826,7 +2826,7 @@ export default function AdminDashboard() {
                       </div>
                       <div className="flex items-baseline gap-2">
                         <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                          {populationStats?.adoption_rate ?? 39}%
+                          {populationStats?.adoption_rate ?? 0}%
                         </span>
                         <span className="text-[11px] text-slate-500 font-medium">
                           ({populationStats?.online_registered ?? 0} active accounts)
@@ -2835,7 +2835,7 @@ export default function AdminDashboard() {
                       <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                         <div
                           className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500"
-                          style={{ width: `${Math.min(100, populationStats?.adoption_rate ?? 39)}%` }}
+                          style={{ width: `${Math.min(100, populationStats?.adoption_rate ?? 0)}%` }}
                         />
                       </div>
                     </div>
@@ -2897,7 +2897,7 @@ export default function AdminDashboard() {
                             {(populationStats?.gender?.male ?? 0).toLocaleString()}
                           </span>
                           <span className="text-[10px] text-slate-400 block mt-0.5">
-                            {populationStats?.total_population ? Math.round(((populationStats.gender.male) / populationStats.total_population) * 100) : 52}% of residents
+                            {populationStats?.total_population ? Math.round(((populationStats.gender.male) / populationStats.total_population) * 100) : 0}% of residents
                           </span>
                         </div>
                         <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200/80 dark:border-slate-700">
@@ -2906,7 +2906,7 @@ export default function AdminDashboard() {
                             {(populationStats?.gender?.female ?? 0).toLocaleString()}
                           </span>
                           <span className="text-[10px] text-slate-400 block mt-0.5">
-                            {populationStats?.total_population ? Math.round(((populationStats.gender.female) / populationStats.total_population) * 100) : 48}% of residents
+                            {populationStats?.total_population ? Math.round(((populationStats.gender.female) / populationStats.total_population) * 100) : 0}% of residents
                           </span>
                         </div>
                       </div>
@@ -2921,15 +2921,13 @@ export default function AdminDashboard() {
                       <div className="space-y-2">
                         {((populationStats?.purok_distribution && populationStats.purok_distribution.length > 0)
                           ? populationStats.purok_distribution
-                          : [
-                              { purok: 'Purok 1', count: 5 },
-                              { purok: 'Purok 2', count: 4 },
-                              { purok: 'Purok 3', count: 3 },
-                              { purok: 'Purok 4', count: 2 },
-                            ]
-                        ).slice(0, 5).map((pItem, pIdx) => {
-                          const totalPop = populationStats?.total_population || 14;
-                          const pct = Math.round((pItem.count / Math.max(1, totalPop)) * 100);
+                          : [1, 2, 3, 4, 5, 6].map(p => ({
+                              purok: `Purok ${p}`,
+                              count: residents.filter(r => (r.purok || '').toString().includes(String(p))).length
+                            }))
+                        ).map((pItem, pIdx) => {
+                          const totalPop = populationStats?.total_population || residents.length || 0;
+                          const pct = totalPop > 0 ? Math.round((pItem.count / totalPop) * 100) : 0;
                           return (
                             <div key={`purok-dist-${pIdx}`} className="space-y-1">
                               <div className="flex items-center justify-between text-xs">
@@ -2939,7 +2937,7 @@ export default function AdminDashboard() {
                               <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
                                 <div
                                   className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                                  style={{ width: `${Math.min(100, Math.max(5, pct))}%` }}
+                                  style={{ width: `${Math.min(100, pct)}%` }}
                                 />
                               </div>
                             </div>
@@ -4759,7 +4757,7 @@ export default function AdminDashboard() {
                     {censusStats?.total_population ?? filteredResidents.length}
                   </span>
                 </button>
-                {[1, 2, 3, 4, 5, 6, 7].map(p => {
+                {[1, 2, 3, 4, 5, 6].map(p => {
                   const pData = censusStats?.purok_breakdown?.find(b => b.purok.includes(String(p)));
                   const count = pData ? pData.population : 0;
                   const isSelected = selectedCensusPurok === String(p);
@@ -7082,9 +7080,9 @@ export default function AdminDashboard() {
                             name: bName,
                             status: bName === 'Pianing' || bName === 'Anticala' ? 'Active' : 'Unstaffed' as any,
                             admin: bName === 'Pianing' ? { id: 2, name: 'Admin Juan Dela Cruz', email: 'admin@pianing.gov.ph', phone: '0917-123-4567' } : null,
-                            total_residents: bName === 'Pianing' ? 14 : bName === 'Anticala' ? 6 : 0,
-                            pending_approvals: bName === 'Pianing' ? 1 : 0,
-                            total_documents: bName === 'Pianing' ? 9 : 0,
+                            total_residents: bName === 'Pianing' ? residents.length : 0,
+                            pending_approvals: bName === 'Pianing' ? pendingResidents.length : 0,
+                            total_documents: bName === 'Pianing' ? documents.length : 0,
                             office_address: `Barangay Hall, ${bName}, Butuan City`,
                             hotline: '0917-123-4567'
                           }))).filter(b => {

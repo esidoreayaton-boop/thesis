@@ -713,7 +713,6 @@ export default function LoginPage() {
                       <option value="Purok 4" />
                       <option value="Purok 5" />
                       <option value="Purok 6" />
-                      <option value="Purok 7" />
                     </datalist>
                   </div>
 

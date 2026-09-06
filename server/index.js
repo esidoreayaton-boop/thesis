@@ -2866,7 +2866,7 @@ app.get('/api/census/stats', async (req, res) => {
       `, barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide') ? [barangay.trim(), `%${barangay.trim()}%`] : []);
 
       const purokMap = {};
-      for (let i = 1; i <= 7; i++) {
+      for (let i = 1; i <= 6; i++) {
         purokMap[i.toString()] = {
           purok: `Purok ${i}`,
           population: 0,
@@ -2928,27 +2928,64 @@ app.get('/api/census/stats', async (req, res) => {
     }
   }
 
-  // Fallback mock stats
+  // Fallback mock stats dynamically computed from resident records
+  let fallbackResidents = mockData.residents || [];
+  if (barangay && barangay.toLowerCase() !== 'all' && !barangay.toLowerCase().includes('city-wide')) {
+    fallbackResidents = fallbackResidents.filter(r => (r.barangay || '').toLowerCase() === barangay.toLowerCase().trim());
+  }
+  if (purok && purok.toLowerCase() !== 'all') {
+    const cleanP = purok.toString().replace(/purok\s*/i, '').trim();
+    fallbackResidents = fallbackResidents.filter(r => {
+      const rp = (r.purok || '').toString().replace(/purok\s*/i, '').trim();
+      return rp === cleanP || (r.address || '').toLowerCase().includes(`purok ${cleanP}`.toLowerCase());
+    });
+  }
+
+  const totalPop = fallbackResidents.length;
+  const nowYear = new Date().getFullYear();
+  const getAge = (dob) => {
+    if (!dob) return 25;
+    const y = parseInt(dob.split('-')[0], 10);
+    return isNaN(y) ? 25 : nowYear - y;
+  };
+
+  const seniors = fallbackResidents.filter(r => getAge(r.date_of_birth) >= 60);
+  const seniorM = seniors.filter(r => (r.gender || 'Male') === 'Male').length;
+  const seniorF = seniors.length - seniorM;
+  const children = fallbackResidents.filter(r => getAge(r.date_of_birth) < 18).length;
+  const adults = fallbackResidents.filter(r => getAge(r.date_of_birth) >= 18 && getAge(r.date_of_birth) < 60).length;
+  const employed = fallbackResidents.filter(r => r.employment_status === 'Employed' || r.employment_status === 'Self-Employed').length;
+  const unemployed = fallbackResidents.filter(r => r.employment_status === 'Unemployed').length;
+  const rate = (employed + unemployed) > 0 ? Math.round((employed / (employed + unemployed)) * 100) : 0;
+  const totalHH = totalPop > 0 ? Math.ceil(totalPop / 3) : 0;
+
   return res.json({
     success: true,
     barangay: barangay || 'Pianing',
     purok: purok || 'all',
-    total_households: 28,
-    total_families: 30,
-    total_population: 85,
-    senior_citizens: { total: 18, male: 9, female: 9 },
-    children_count: 22,
-    adults_count: 45,
-    employment: { employed: 48, unemployed: 12, rate_percentage: 80 },
-    purok_breakdown: [1,2,3,4,5,6,7].map(i => ({
-      purok: `Purok ${i}`,
-      population: 12,
-      households: 4,
-      seniors: 3,
-      children: 3,
-      employed: 7,
-      unemployed: 2
-    }))
+    total_households: totalHH,
+    total_families: totalHH,
+    total_population: totalPop,
+    senior_citizens: { total: seniors.length, male: seniorM, female: seniorF },
+    children_count: children,
+    adults_count: adults,
+    employment: { employed, unemployed, rate_percentage: rate },
+    purok_breakdown: [1, 2, 3, 4, 5, 6].map(i => {
+      const pRes = fallbackResidents.filter(r => {
+        const rp = (r.purok || '').toString().replace(/purok\s*/i, '').trim();
+        return rp === String(i) || (r.address || '').toLowerCase().includes(`purok ${i}`.toLowerCase());
+      });
+      const pCount = pRes.length;
+      return {
+        purok: `Purok ${i}`,
+        population: pCount,
+        households: pCount > 0 ? Math.ceil(pCount / 3) : 0,
+        seniors: pRes.filter(r => getAge(r.date_of_birth) >= 60).length,
+        children: pRes.filter(r => getAge(r.date_of_birth) < 18).length,
+        employed: pRes.filter(r => r.employment_status === 'Employed' || r.employment_status === 'Self-Employed').length,
+        unemployed: pRes.filter(r => r.employment_status === 'Unemployed').length
+      };
+    })
   });
 });
 
@@ -4772,12 +4809,10 @@ app.get('/api/stats/population', async (req, res) => {
     senior_citizens: seniors,
     minors_children: minors,
     gender: { male: males, female: females, other: Math.max(0, total - males - females) },
-    purok_distribution: [
-      { purok: 'Purok 1', count: Math.ceil(total * 0.35) || 1 },
-      { purok: 'Purok 2', count: Math.floor(total * 0.25) || 1 },
-      { purok: 'Purok 3', count: Math.floor(total * 0.20) || 1 },
-      { purok: 'Purok 4', count: Math.floor(total * 0.20) || 1 }
-    ]
+    purok_distribution: [1, 2, 3, 4, 5, 6].map(i => ({
+      purok: `Purok ${i}`,
+      count: fallbackResidents.filter(r => (r.purok || '').toString().replace(/purok\s*/i, '').trim() === String(i) || (r.address || '').toLowerCase().includes(`purok ${i}`.toLowerCase())).length
+    }))
   });
 });
 
@@ -4826,9 +4861,9 @@ app.get('/api/system/barangays', async (req, res) => {
         email: assignedAdmin.email,
         phone: assignedAdmin.phone || 'N/A'
       } : null,
-      total_residents: residentsCounts[key] || (bName === 'Pianing' ? 14 : bName === 'Anticala' ? 6 : 0),
-      pending_approvals: pendingCounts[key] || (bName === 'Pianing' ? 1 : 0),
-      total_documents: documentsCounts[key] || (bName === 'Pianing' ? 9 : 0),
+      total_residents: residentsCounts[key] || 0,
+      pending_approvals: pendingCounts[key] || 0,
+      total_documents: documentsCounts[key] || 0,
       office_address: `Barangay Hall, ${bName}, Butuan City, Agusan del Norte`,
       hotline: assignedAdmin?.phone || '0917-123-4567'
     };
