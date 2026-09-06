@@ -2812,7 +2812,7 @@ export default function AdminDashboard() {
                         {(populationStats?.total_population ?? residents.length).toLocaleString()}
                       </div>
                       <p className="text-[11px] text-slate-500 font-medium">
-                        Verified resident profiles in civil census
+                        Civil census registered inhabitants
                       </p>
                     </div>
 
@@ -4983,14 +4983,13 @@ export default function AdminDashboard() {
                             <TableHead className="w-28 text-xs font-semibold text-slate-600">Birthday</TableHead>
                             <TableHead className="w-24 text-xs font-semibold text-slate-600">Purok</TableHead>
                             <TableHead className="w-32 text-xs font-semibold text-slate-600">Employment</TableHead>
-                            <TableHead className="w-32 text-xs font-semibold text-slate-600">Status</TableHead>
                             <TableHead className="w-24 text-xs font-semibold text-slate-600 text-right pr-4">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody className="divide-y divide-slate-100">
                           {filteredResidents.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={10} className="text-center py-12 text-slate-400 text-xs">
+                              <TableCell colSpan={9} className="text-center py-12 text-slate-400 text-xs">
                                 No inhabitants found matching criteria.
                               </TableCell>
                             </TableRow>
@@ -5036,12 +5035,6 @@ export default function AdminDashboard() {
                                       : 'bg-slate-100 text-slate-700 border-slate-200'
                                   }`}>
                                     {res.employment_status || 'Employed'}
-                                  </span>
-                                </TableCell>
-                                <TableCell>
-                                  {/* Official Population Resident Status (Replaced Unverified) */}
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    <CheckCircle size={12} className="text-emerald-600" /> Official Resident
                                   </span>
                                 </TableCell>
                                 <TableCell className="text-right pr-4">
