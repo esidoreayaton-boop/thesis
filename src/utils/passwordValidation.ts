@@ -6,21 +6,26 @@
  * - 1 number (0-9)
  * - 1 special character (!@#$%^&* etc.)
  */
-export function validatePasswordComplexity(password: string): { isValid: boolean; error?: string } {
+export function validatePasswordComplexity(password: string): { isValid: boolean; error?: string; message?: string } {
   if (!password || password.length < 8) {
-    return { isValid: false, error: 'Password must be at least 8 characters long.' };
+    const msg = 'Password must be at least 8 characters long.';
+    return { isValid: false, error: msg, message: msg };
   }
   if (!/[A-Z]/.test(password)) {
-    return { isValid: false, error: 'Password must contain at least 1 uppercase letter (A-Z).' };
+    const msg = 'Password must contain at least 1 uppercase letter (A-Z).';
+    return { isValid: false, error: msg, message: msg };
   }
   if (!/[a-z]/.test(password)) {
-    return { isValid: false, error: 'Password must contain at least 1 lowercase letter (a-z).' };
+    const msg = 'Password must contain at least 1 lowercase letter (a-z).';
+    return { isValid: false, error: msg, message: msg };
   }
   if (!/[0-9]/.test(password)) {
-    return { isValid: false, error: 'Password must contain at least 1 numeric digit (0-9).' };
+    const msg = 'Password must contain at least 1 numeric digit (0-9).';
+    return { isValid: false, error: msg, message: msg };
   }
   if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(password)) {
-    return { isValid: false, error: 'Password must contain at least 1 special character (e.g. @, $, !, %, *, #, ?, &).' };
+    const msg = 'Password must contain at least 1 special character (e.g. @, $, !, %, *, #, ?, &).';
+    return { isValid: false, error: msg, message: msg };
   }
   return { isValid: true };
 }

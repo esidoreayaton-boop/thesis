@@ -880,14 +880,19 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/register', async (req, res) => {
   const { name, first_name, middle_name, last_name, date_of_birth, gender, civil_status, email, password, role, address, phone, submitted_id, years_of_residency, employment_status } = req.body;
   
-  const firstName = (first_name || (name ? name.trim().split(' ')[0] : '') || 'Resident').trim();
-  const lastName = (last_name || (name ? name.trim().split(' ').slice(1).join(' ') : '') || 'Resident').trim();
-  const middleName = (middle_name || '').trim();
-  const fullName = name || `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
+  const toTitleCase = (str) => {
+    if (!str) return '';
+    return str.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  };
+
+  const firstName = toTitleCase(first_name || (name ? name.trim().split(' ')[0] : '') || 'Resident');
+  const lastName = toTitleCase(last_name || (name ? name.trim().split(' ').slice(1).join(' ') : '') || 'Resident');
+  const middleName = toTitleCase(middle_name || '');
+  const fullName = toTitleCase(name || `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim());
   const dob = date_of_birth || '2000-01-01';
-  const userGender = gender || 'Male';
-  const userCivilStatus = civil_status || 'Single';
-  const userEmployment = (employment_status || req.body.employment || 'Employed').trim();
+  const userGender = toTitleCase(gender || 'Male');
+  const userCivilStatus = toTitleCase(civil_status || 'Single');
+  const userEmployment = toTitleCase(employment_status || req.body.employment || 'Employed');
 
   if (!firstName || !lastName || !email) {
     return res.status(400).json({ success: false, message: 'First name, last name, and email are required.' });

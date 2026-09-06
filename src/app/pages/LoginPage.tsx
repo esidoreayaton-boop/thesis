@@ -291,15 +291,24 @@ export default function LoginPage() {
       return;
     }
 
-    const fullAddress = `${regPurok.trim()}, Barangay ${regBarangay.trim()}, Butuan City`;
-    const fullName = `${regFirstName.trim()}${regMiddleName.trim() ? ' ' + regMiddleName.trim() : ''} ${regLastName.trim()}`;
+    const toTitleCase = (str: string) =>
+      str ? str.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : '';
+
+    const formattedFirstName = toTitleCase(regFirstName);
+    const formattedMiddleName = toTitleCase(regMiddleName);
+    const formattedLastName = toTitleCase(regLastName);
+    const formattedPurok = regPurok.trim().toLowerCase().startsWith('purok')
+      ? toTitleCase(regPurok)
+      : `Purok ${regPurok.trim()}`;
+    const fullAddress = `${formattedPurok}, Barangay ${regBarangay.trim()}, Butuan City`;
+    const fullName = `${formattedFirstName}${formattedMiddleName ? ' ' + formattedMiddleName : ''} ${formattedLastName}`;
 
     setLoading(true);
     try {
       await apiService.register({
-        first_name: regFirstName.trim(),
-        middle_name: regMiddleName.trim(),
-        last_name: regLastName.trim(),
+        first_name: formattedFirstName,
+        middle_name: formattedMiddleName,
+        last_name: formattedLastName,
         date_of_birth: regDob,
         gender: regGender,
         civil_status: regCivilStatus,
@@ -317,9 +326,9 @@ export default function LoginPage() {
 
       const user = {
         name: fullName,
-        first_name: regFirstName.trim(),
-        middle_name: regMiddleName.trim(),
-        last_name: regLastName.trim(),
+        first_name: formattedFirstName,
+        middle_name: formattedMiddleName,
+        last_name: formattedLastName,
         date_of_birth: regDob,
         age: calculatedAge,
         gender: regGender,
