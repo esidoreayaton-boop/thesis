@@ -376,7 +376,10 @@ export default function SmartClinicalIntakeModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={open => { if (!open) { handleReset(); onClose(); } }}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto bg-white p-0 shadow-2xl rounded-2xl border border-slate-200">
+      <DialogContent 
+        onPointerDownOutside={(e) => e.preventDefault()}
+        className="max-w-2xl max-h-[92vh] overflow-y-auto bg-white p-0 shadow-2xl rounded-2xl border border-slate-200"
+      >
         {/* Clean White Clinical Header */}
         <div className="p-5 border-b border-slate-100 bg-white">
           <div className="flex items-center justify-between">

@@ -122,36 +122,6 @@ export default function LoginPage() {
     clearForm();
   };
 
-  const handleNextStep = () => {
-    if (!regFirstName.trim() || !regLastName.trim()) {
-      toast.error('Name required', { description: 'Please enter your first and last name.' });
-      return;
-    }
-    if (!regEmail.trim()) {
-      toast.error('Email required', { description: 'Please enter a valid email address.' });
-      return;
-    }
-    if (!validatePassword(regPassword)) {
-      toast.error('Password too weak', {
-        description: 'Password must be at least 8 characters and contain uppercase, lowercase, number, and special character.'
-      });
-      return;
-    }
-    if (!regDob) {
-      toast.error('Date of birth required', { description: 'Please enter your birthday.' });
-      return;
-    }
-    if (!regGender) {
-      toast.error('Gender required', { description: 'Please select your gender.' });
-      return;
-    }
-    if (!regCivilStatus) {
-      toast.error('Civil status required', { description: 'Please select your civil status.' });
-      return;
-    }
-    setRegStep(2);
-  };
-
   const getDynamicAge = (dobString: string): number | null => {
     if (!dobString) return null;
     const dob = new Date(dobString);

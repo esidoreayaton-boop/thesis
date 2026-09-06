@@ -112,7 +112,10 @@ export default function PatientDetailModal({ isOpen, onClose, patient, onSendSms
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-white w-[96vw] max-w-7xl h-[92vh] max-h-[95vh] overflow-y-auto p-0 rounded-2xl border-0 shadow-2xl">
+      <DialogContent 
+        onPointerDownOutside={(e) => e.preventDefault()}
+        className="bg-white w-[96vw] max-w-7xl h-[92vh] max-h-[95vh] overflow-y-auto p-0 rounded-2xl border-0 shadow-2xl"
+      >
         {/* Header - Clean, Soft & Eye-Friendly */}
         <div className="bg-white border-b border-slate-200 text-slate-900 p-6 relative rounded-t-2xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -121,7 +124,7 @@ export default function PatientDetailModal({ isOpen, onClose, patient, onSendSms
                 {patient.profile_photo ? (
                   <img src={patient.profile_photo} alt={patient.name} className="w-full h-full object-cover" />
                 ) : (
-                  patient.name.charAt(0)
+                  patient.name?.charAt(0) || 'P'
                 )}
               </div>
               <div>

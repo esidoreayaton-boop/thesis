@@ -146,7 +146,10 @@ export default function PendingApplicantReviewModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="bg-white dark:bg-slate-900 w-[94vw] max-w-4xl max-h-[90vh] overflow-y-auto shadow-xl border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6">
+      <DialogContent 
+        onPointerDownOutside={(e) => e.preventDefault()}
+        className="bg-white dark:bg-slate-900 w-[94vw] max-w-4xl max-h-[90vh] overflow-y-auto shadow-xl border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6"
+      >
         {/* Header */}
         <DialogHeader className="border-b border-slate-100 dark:border-slate-800 pb-3.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
