@@ -4,7 +4,8 @@ import {
   Stethoscope, Heart, Baby, Activity, CalendarCheck, Clock,
   CheckCircle2, PlusCircle, RefreshCcw, LogOut, MapPin, Pill,
   Syringe, Calendar, Check, X, Menu, Phone, Edit2, Trash2, Bell,
-  AlertTriangle, Send, Package, ClipboardList, UserPlus, Save, Archive, Eye, User
+  AlertTriangle, Send, Package, ClipboardList, UserPlus, Save, Archive, Eye, User,
+  Sparkles, Filter, ShieldCheck, UserCheck, ChevronRight, UserCircle, Plus
 } from 'lucide-react';
 import {
   apiService, ImmunizationRecord, MaternalRecord,
@@ -14,8 +15,9 @@ import PatientDetailModal, { PatientRecordData } from '../components/PatientDeta
 import SmartClinicalIntakeModal from '../components/SmartClinicalIntakeModal';
 import GmailNotificationHub from '../components/GmailNotificationHub';
 import ClinicalArchivesHub from '../components/ClinicalArchivesHub';
-import ProfileSettingsModal from '../components/ProfileSettingsModal';
+import ProfileSettingsView from '../components/ProfileSettingsView';
 import SmsDetailsModal from '../components/SmsDetailsModal';
+import BatchSmsReminderModal, { DuePatientItem } from '../components/BatchSmsReminderModal';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -36,8 +38,10 @@ interface ClinicalConsultation {
   gender: string;
   barangay: string;
   service_type: string;
+  program_type?: string;
   bp: string; temp: string; weight: string; heart_rate: string;
   chief_complaint: string; diagnosis: string; treatment: string;
+  prescribed_meds?: string;
   attending_nurse: string; consultation_date: string;
   status?: string;
 }
@@ -110,21 +114,30 @@ interface EncounterArchive {
   attending: string;
 }
 
+interface PrescribedMedItem {
+  id: string;
+  name: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions: string;
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function NurseDashboard() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'overview' | 'consultations' | 'maternal' | 'immunizations' | 'schedule' | 'inventory' | 'archives' | 'sms'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'consultations' | 'maternal' | 'immunizations' | 'schedule' | 'inventory' | 'archives' | 'sms' | 'profile'>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
 
   // User session
-  const [user] = useState<any>(() => {
+  const [user, setUser] = useState<any>(() => {
     try { return JSON.parse(localStorage.getItem('barangay_user') || 'null'); } catch { return null; }
   });
   const nurseBarangay = user?.barangay || 'Pianing';
-  const nurseName = user?.name || 'Health Center Nurse';
+  const nurseName = user?.name || 'Nurse Maria Santos, RN';
 
   // Auth guard
   useEffect(() => {
@@ -136,12 +149,22 @@ export default function NurseDashboard() {
     } catch { navigate('/login'); }
   }, [navigate]);
 
+  // Global Profile Update Listener
+  useEffect(() => {
+    const handleProfileSync = (e: any) => {
+      if (e.detail) setUser(e.detail);
+    };
+    window.addEventListener('user-profile-updated', handleProfileSync);
+    return () => window.removeEventListener('user-profile-updated', handleProfileSync);
+  }, []);
+
   // API Data States
   const [appointments, setAppointments] = useState<HealthAppointment[]>([]);
 
   // Clinical Intake, Notifications & Profile Modal States
   const [isIntakeOpen, setIsIntakeOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isBatchSmsOpen, setIsBatchSmsOpen] = useState(false);
   const [notifications, setNotifications] = useState<SmsNotification[]>([]);
   const [selectedSms, setSelectedSms] = useState<SmsNotification | null>(null);
   const [isSendSmsModalOpen, setIsSendSmsModalOpen] = useState(false);
@@ -150,28 +173,265 @@ export default function NurseDashboard() {
   const [composeMessage, setComposeMessage] = useState('');
   const [composeType, setComposeType] = useState('Health Alert');
 
+  // Filter States
+  const [consFilterProgram, setConsFilterProgram] = useState<string>('All');
+  const [maternalFilterVisit, setMaternalFilterVisit] = useState<'all' | '1st' | '2nd' | '3rd' | 'due'>('all');
+  const [immunFilterDose, setImmunFilterDose] = useState<'all' | 'dose1' | 'dose2' | 'dose3' | 'due'>('all');
+
   // 360 Patient Modal
   const [selectedPatientModal, setSelectedPatientModal] = useState<PatientRecordData | null>(null);
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
 
-  // Clinical Consultations State
+  // Clinical Consultations State (with rich baseline records)
   const [consultations, setConsultations] = useState<ClinicalConsultation[]>([
-    { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', age: 28, gender: 'Female', barangay: nurseBarangay, service_type: 'Prenatal Care', bp: '118/76 mmHg', temp: '36.5 °C', weight: '56.4 kg', heart_rate: '78 bpm', chief_complaint: 'Routine 2nd Trimester follow-up', diagnosis: 'IUP 22 Weeks AOG, Normal', treatment: 'FeSO4 + Folic Acid 400mcg daily', attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0], status: 'Completed' },
-    { id: 2, patient_name: 'Roberto Manalo', contact_number: '09289876543', age: 58, gender: 'Male', barangay: nurseBarangay, service_type: 'General Consultation', bp: '135/85 mmHg', temp: '36.7 °C', weight: '68.0 kg', heart_rate: '82 bpm', chief_complaint: 'Headache, BP monitoring', diagnosis: 'Stage 1 Hypertension, well-controlled', treatment: 'Amlodipine 5mg OD, low sodium diet', attending_nurse: nurseName, consultation_date: new Date().toISOString().split('T')[0], status: 'Completed' },
+    {
+      id: 101,
+      patient_name: 'Elena Ramos-Santos',
+      contact_number: '09171234567',
+      age: 28,
+      gender: 'Female',
+      barangay: nurseBarangay,
+      service_type: 'General Consultation',
+      program_type: 'General Consultation',
+      bp: '118/76 mmHg',
+      temp: '36.5 °C',
+      weight: '56.4 kg',
+      heart_rate: '78 bpm',
+      chief_complaint: 'Mild headache and fatigue for 2 days',
+      diagnosis: 'Tension headache, mild physical strain',
+      treatment: 'Paracetamol 500mg TID PRN; Adequate rest and hydration',
+      prescribed_meds: 'Paracetamol 500mg TID',
+      attending_nurse: nurseName,
+      consultation_date: '2026-03-02',
+      status: 'Completed'
+    },
+    {
+      id: 102,
+      patient_name: 'Joshua Kyle Dela Cruz',
+      contact_number: '09182345678',
+      age: 16,
+      gender: 'Male',
+      barangay: nurseBarangay,
+      service_type: 'Adolescent Health',
+      program_type: 'Adolescent Health',
+      bp: '112/74 mmHg',
+      temp: '36.6 °C',
+      weight: '52.0 kg',
+      heart_rate: '74 bpm',
+      chief_complaint: 'Routine youth health assessment & pubertal guidance',
+      diagnosis: 'Normal adolescent development, mild exam anxiety',
+      treatment: 'Adolescent lifestyle counseling, stress management education',
+      prescribed_meds: 'Multivitamins with Zinc 1 tab OD',
+      attending_nurse: nurseName,
+      consultation_date: '2026-03-03',
+      status: 'Completed'
+    },
+    {
+      id: 103,
+      patient_name: 'Clarisse Anne Mendoza',
+      contact_number: '09193456789',
+      age: 26,
+      gender: 'Female',
+      barangay: nurseBarangay,
+      service_type: 'Family Planning',
+      program_type: 'Family Planning',
+      bp: '115/75 mmHg',
+      temp: '36.4 °C',
+      weight: '51.5 kg',
+      heart_rate: '76 bpm',
+      chief_complaint: 'Family planning consultation and Depo resupply',
+      diagnosis: 'Current user, tolerated DMPA injectable without side effects',
+      treatment: 'DMPA 150mg/mL IM right deltoid; return for next injection on schedule',
+      prescribed_meds: 'DMPA Injectable (Depo-Provera)',
+      attending_nurse: nurseName,
+      consultation_date: '2026-03-04',
+      status: 'Completed'
+    },
+    {
+      id: 104,
+      patient_name: 'Angelica Rose Bautista',
+      contact_number: '09204567890',
+      age: 17,
+      gender: 'Female',
+      barangay: nurseBarangay,
+      service_type: 'Teenage Pregnancy Prevention',
+      program_type: 'Teenage Pregnancy Prevention',
+      bp: '110/70 mmHg',
+      temp: '36.5 °C',
+      weight: '48.0 kg',
+      heart_rate: '72 bpm',
+      chief_complaint: 'Adolescent reproductive health counseling',
+      diagnosis: 'Adolescent reproductive health assessment, healthy youth markers',
+      treatment: 'Comprehensive sexual health education, abstinence & protection counseling',
+      prescribed_meds: 'Iron + Folic Acid supplement 1 tab OD',
+      attending_nurse: nurseName,
+      consultation_date: '2026-03-04',
+      status: 'Completed'
+    },
+    {
+      id: 105,
+      patient_name: 'Danilo C. Ocampo',
+      contact_number: '09215678901',
+      age: 52,
+      gender: 'Male',
+      barangay: nurseBarangay,
+      service_type: 'NTP (TB-DOTS)',
+      program_type: 'NTP (TB-DOTS)',
+      bp: '124/82 mmHg',
+      temp: '36.7 °C',
+      weight: '58.0 kg',
+      heart_rate: '80 bpm',
+      chief_complaint: 'Persistent cough for 3 weeks, low grade afternoon fever',
+      diagnosis: 'Presumptive Pulmonary Tuberculosis - GeneXpert pending',
+      treatment: 'Sputum collected for GeneXpert test; Infection control counseling',
+      prescribed_meds: 'Cough expectorant, awaiting GeneXpert confirmation',
+      attending_nurse: nurseName,
+      consultation_date: '2026-03-05',
+      status: 'Completed'
+    }
   ]);
 
-  // Prenatal Records State
+  // Prenatal Records State (with 2nd Visit tracking)
   const [prenatalRecords, setPrenatalRecords] = useState<PrenatalRecord[]>([
-    { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', age: 28, barangay: nurseBarangay, gravida: 'G2', para: 'P1', lmp: '2025-02-10', edd: '2025-11-17', aog_weeks: '22', bp: '118/76', weight: '56.4', temp: '36.5', fetal_heart_rate: '148 bpm', fundic_height: '22 cm', next_visit_date: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0], next_visit_note: '3rd Trimester Check-up', prescribed_meds: 'FeSO4 60mg + Folic Acid 400mcg', attending_nurse: nurseName, visit_date: new Date().toISOString().split('T')[0], visit_number: 2, sms_sent: false },
+    {
+      id: 201,
+      patient_name: 'Elena Ramos-Santos',
+      contact_number: '09171234567',
+      age: 28,
+      barangay: nurseBarangay,
+      gravida: 'G2',
+      para: 'P1',
+      lmp: '2025-10-15',
+      edd: '2026-07-22',
+      aog_weeks: '20',
+      bp: '116/74',
+      weight: '58.2',
+      temp: '36.5',
+      fetal_heart_rate: '146 bpm',
+      fundic_height: '20 cm',
+      next_visit_date: '2026-03-12',
+      next_visit_note: '2nd Trimester Follow-up Ultrasound Review',
+      prescribed_meds: 'FeSO4 60mg + Folic Acid 400mcg daily',
+      attending_nurse: nurseName,
+      visit_date: '2026-02-12',
+      visit_number: 2,
+      sms_sent: false
+    },
+    {
+      id: 202,
+      patient_name: 'Maricel Gomez-Tolentino',
+      contact_number: '09278901234',
+      age: 24,
+      barangay: nurseBarangay,
+      gravida: 'G1',
+      para: 'P0',
+      lmp: '2025-11-20',
+      edd: '2026-08-27',
+      aog_weeks: '15',
+      bp: '110/70',
+      weight: '53.0',
+      temp: '36.6',
+      fetal_heart_rate: '152 bpm',
+      fundic_height: '15 cm',
+      next_visit_date: '2026-03-06',
+      next_visit_note: 'Routine 2nd Visit Maternal Check-up',
+      prescribed_meds: 'Calcium Carbonate 500mg + FeSO4',
+      attending_nurse: nurseName,
+      visit_date: '2026-02-06',
+      visit_number: 2,
+      sms_sent: false
+    },
+    {
+      id: 203,
+      patient_name: 'Jessica Alcantara',
+      contact_number: '09187654321',
+      age: 31,
+      barangay: nurseBarangay,
+      gravida: 'G3',
+      para: 'P2',
+      lmp: '2025-08-01',
+      edd: '2026-05-08',
+      aog_weeks: '30',
+      bp: '135/88',
+      weight: '64.5',
+      temp: '36.7',
+      fetal_heart_rate: '140 bpm',
+      fundic_height: '30 cm',
+      next_visit_date: '2026-03-01', // Overdue
+      next_visit_note: '3rd Trimester Gestational BP & Fundic Growth',
+      prescribed_meds: 'Methyldopa 250mg BID, FeSO4',
+      attending_nurse: nurseName,
+      visit_date: '2026-02-15',
+      visit_number: 3,
+      sms_sent: false
+    }
   ]);
 
-  // Immunization Records State (Standard DOH Fields)
+  // Immunization Records State (with Dose 2 tracking)
   const [immunRecords, setImmunRecords] = useState<ImmunRecord[]>([
-    { id: 1, child_name: 'Baby Liam Kenneth Diaz', contact_number: '09151234567', age_months: '6', gender: 'Male', guardian: 'Maria Diaz', barangay: nurseBarangay, weight: '7.8 kg', height: '66 cm', temp: '36.6 °C', vaccine_given: 'Pentavalent (DPT-HepB-Hib)', dose_number: 'Dose 3', batch_number: 'LOT-2026-X9', date_given: new Date().toISOString().split('T')[0], next_due_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0], remarks: 'Tolerated well, no adverse reactions', attending_nurse: nurseName, sms_sent: false },
-    { id: 2, child_name: 'Baby Sofia Grace Reyes', contact_number: '09281234567', age_months: '2', gender: 'Female', guardian: 'Lyn Reyes', barangay: nurseBarangay, weight: '4.5 kg', height: '54 cm', temp: '36.5 °C', vaccine_given: 'BCG', dose_number: 'Single Dose', batch_number: 'LOT-2026-BCG1', date_given: new Date(Date.now() - 60 * 86400000).toISOString().split('T')[0], next_due_date: new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0], remarks: 'Scar forming on left arm', attending_nurse: nurseName, sms_sent: false },
+    {
+      id: 301,
+      child_name: 'Baby Liam Kenneth Diaz',
+      contact_number: '09151234567',
+      age_months: '4',
+      gender: 'Male',
+      guardian: 'Maria Diaz',
+      barangay: nurseBarangay,
+      weight: '6.9 kg',
+      height: '63 cm',
+      temp: '36.6 °C',
+      vaccine_given: 'Pentavalent (DPT-HepB-Hib)',
+      dose_number: 'Dose 2',
+      batch_number: 'LOT-2026-P2',
+      date_given: '2026-02-15',
+      next_due_date: '2026-03-15',
+      remarks: 'Tolerated Dose 2 well, mild local erythema subsided',
+      attending_nurse: nurseName,
+      sms_sent: false
+    },
+    {
+      id: 302,
+      child_name: 'Baby Sofia Grace Reyes',
+      contact_number: '09281234567',
+      age_months: '2',
+      gender: 'Female',
+      guardian: 'Lyn Reyes',
+      barangay: nurseBarangay,
+      weight: '4.8 kg',
+      height: '56 cm',
+      temp: '36.5 °C',
+      vaccine_given: 'Oral Polio Vaccine (OPV)',
+      dose_number: 'Dose 1',
+      batch_number: 'LOT-2026-OPV1',
+      date_given: '2026-02-10',
+      next_due_date: '2026-03-10',
+      remarks: 'Cleared for routine vaccination, no adverse reactions',
+      attending_nurse: nurseName,
+      sms_sent: false
+    },
+    {
+      id: 303,
+      child_name: 'Baby Ethan Joshua Ramos',
+      contact_number: '09179876543',
+      age_months: '4',
+      gender: 'Male',
+      guardian: 'Claire Ramos',
+      barangay: nurseBarangay,
+      weight: '7.1 kg',
+      height: '64 cm',
+      temp: '36.5 °C',
+      vaccine_given: 'Pneumococcal Conjugate (PCV13)',
+      dose_number: 'Dose 2',
+      batch_number: 'LOT-2026-PCV2',
+      date_given: '2026-01-28',
+      next_due_date: '2026-02-28', // Overdue
+      remarks: 'Dose 2 scheduled; mother notified of catch-up day',
+      attending_nurse: nurseName,
+      sms_sent: false
+    }
   ]);
 
-  // Inventory State (NO cold_chain)
+  // Inventory State
   const [inventory, setInventory] = useState<InventoryItem[]>([
     { id: 1, item_name: 'Pentavalent Vaccine (DPT-HepB-Hib)', category: 'Vaccine (EPI)', stock: 45, unit: 'vials', expiry_date: '2026-06-30', status: 'In Stock' },
     { id: 2, item_name: 'PCV 13 (Pneumococcal Conjugate)', category: 'Vaccine (EPI)', stock: 32, unit: 'vials', expiry_date: '2026-09-30', status: 'In Stock' },
@@ -182,17 +442,17 @@ export default function NurseDashboard() {
     { id: 7, item_name: 'Oral Rehydration Salts (ORS)', category: 'Pediatric Supply', stock: 0, unit: 'packets', expiry_date: '2026-08-01', status: 'Out of Stock' },
   ]);
 
-  // Weekly Schedule State (NO slots, operating hours only)
+  // Weekly Schedule State
   const [weeklySchedules, setWeeklySchedules] = useState<WeeklySchedule[]>([
-    { id: 1, title: 'Prenatal & Maternal Care Clinic', service_type: 'Prenatal Care', day: 'Every Monday & Thursday', time_slot: '8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0] },
-    { id: 2, title: 'EPI Child Immunization Day', service_type: 'Child Immunization', day: 'Every Wednesday', time_slot: '8:00 AM – 12:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0] },
-    { id: 3, title: 'General Medical Consultation', service_type: 'General Consultation', day: 'Every Tuesday & Friday', time_slot: '8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0] },
+    { id: 1, title: 'Prenatal & Maternal Care Clinic', service_type: 'Prenatal Care', day: 'Every Monday & Thursday', time_slot: '8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: '2026-03-01' },
+    { id: 2, title: 'EPI Child Immunization Day', service_type: 'Child Immunization', day: 'Every Wednesday', time_slot: '8:00 AM – 12:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: '2026-03-01' },
+    { id: 3, title: 'Adolescent Health & General Consultation', service_type: 'General Consultation', day: 'Every Tuesday & Friday', time_slot: '8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM', location: `Barangay ${nurseBarangay} Health Center`, assigned_to: nurseName, posted_date: '2026-03-01' },
   ]);
 
   // Encounters Archive Log
   const [archives, setArchives] = useState<EncounterArchive[]>([
-    { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', encounter_type: 'Prenatal Consultation', details: 'AOG 22 Wks. FeSO4 prescribed.', date: new Date().toISOString().split('T')[0], attending: nurseName },
-    { id: 2, patient_name: 'Baby Liam Kenneth Diaz', contact_number: '09151234567', encounter_type: 'Immunization (Pentavalent-3)', details: 'Dose 3 administered successfully.', date: new Date().toISOString().split('T')[0], attending: nurseName },
+    { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', encounter_type: 'Prenatal Consultation', details: 'AOG 20 Wks. FeSO4 prescribed.', date: '2026-03-02', attending: nurseName },
+    { id: 2, patient_name: 'Baby Liam Kenneth Diaz', contact_number: '09151234567', encounter_type: 'Immunization (Pentavalent-2)', details: 'Dose 2 administered successfully.', date: '2026-02-15', attending: nurseName },
   ]);
 
   // Modals state
@@ -206,67 +466,122 @@ export default function NurseDashboard() {
   const [isEditScheduleOpen, setIsEditScheduleOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<WeeklySchedule | null>(null);
 
-  // Consult Form State
-  const [cName, setCName] = useState(''); const [cPhone, setCPhone] = useState('');
-  const [cAge, setCAge] = useState(''); const [cGender, setCGender] = useState<'Male'|'Female'>('Female');
-  const [cService, setCService] = useState('General Consultation');
-  const [cBp, setCBp] = useState('120/80'); const [cTemp, setCTemp] = useState('36.5');
-  const [cWeight, setCWeight] = useState(''); const [cHR, setCHR] = useState('75');
-  const [cComplaint, setCComplaint] = useState(''); const [cDiagnosis, setCDiagnosis] = useState('');
-  const [cTreatment, setCTreatment] = useState('');
+  // ══ Consult Form State ══
+  const [cName, setCName] = useState('');
+  const [cPhone, setCPhone] = useState('');
+  const [cAge, setCAge] = useState('');
+  const [cGender, setCGender] = useState<'Male'|'Female'>('Female');
+  const [cProgram, setCProgram] = useState<'General Consultation' | 'Adolescent Health' | 'Family Planning' | 'Teenage Pregnancy Prevention' | 'NTP (TB-DOTS)'>('General Consultation');
+  // Fixed Dual BP Inputs
+  const [cBpSys, setCBpSys] = useState('120');
+  const [cBpDia, setCBpDia] = useState('80');
+  const [cTemp, setCTemp] = useState('36.5');
+  const [cWeight, setCWeight] = useState('');
+  const [cHR, setCHR] = useState('75');
+  const [cComplaint, setCComplaint] = useState('');
+  const [cDiagnosis, setCDiagnosis] = useState('');
+  // Dynamic Prescription Builder
+  const [cPrescriptions, setCPrescriptions] = useState<PrescribedMedItem[]>([]);
+  const [medName, setMedName] = useState('');
+  const [medDose, setMedDose] = useState('500mg');
+  const [medFreq, setMedFreq] = useState('3x daily after meals');
+  const [medDuration, setMedDuration] = useState('7 days');
+  const [medInst, setMedInst] = useState('Take with plenty of water');
+  // Specialized Program Fields
+  const [cAdolescentStage, setCAdolescentStage] = useState('Mid Adolescent (15-17 yrs)');
+  const [cAdolescentFocus, setCAdolescentFocus] = useState('Pubertal Guidance & Mental Wellness');
+  const [cTeenSchool, setCTeenSchool] = useState('Enrolled in High School');
+  const [cTeenRisk, setCTeenRisk] = useState('Low Risk / Preventive Counseling');
+  const [cTeenGuardian, setCTeenGuardian] = useState('Accompanied by Guardian');
+  const [cFpClientType, setCFpClientType] = useState('New Acceptor');
+  const [cFpMethod, setCFpMethod] = useState('DMPA Injectable (Depo)');
+  const [cFpLmp, setCFpLmp] = useState('');
+  const [cFpNextSupply, setCFpNextSupply] = useState('');
+  const [cFpNotes, setCFpNotes] = useState('');
+  const [cTbRegNo, setCTbRegNo] = useState('');
+  const [cTbCategory, setCTbCategory] = useState('New Pulmonary Case');
+  const [cTbSputum, setCTbSputum] = useState('GeneXpert / AFB Pending');
+  const [cTbPhase, setCTbPhase] = useState('Intensive Phase (2 Months RHZE)');
+  const [cTbPartner, setCTbPartner] = useState('');
 
-  // Prenatal Form State
-  const [pName, setPName] = useState(''); const [pPhone, setPPhone] = useState('');
-  const [pAge, setPAge] = useState(''); const [pGravida, setPGravida] = useState('G1');
-  const [pPara, setPPara] = useState('P0'); const [pLmp, setPLmp] = useState('');
-  const [pEdd, setPEdd] = useState(''); const [pAog, setPAog] = useState('');
-  const [pBp, setPBp] = useState('120/80'); const [pWeight, setPWeight] = useState('');
-  const [pTemp, setPTemp] = useState('36.5'); const [pFhr, setPFhr] = useState('');
-  const [pFh, setPFh] = useState(''); const [pNextDate, setPNextDate] = useState('');
-  const [pNextNote, setPNextNote] = useState(''); const [pMeds, setPMeds] = useState('FeSO4 + Folic Acid');
+  // ══ Prenatal Form State ══
+  const [pName, setPName] = useState('');
+  const [pPhone, setPPhone] = useState('');
+  const [pAge, setPAge] = useState('');
+  const [pGravida, setPGravida] = useState('G1');
+  const [pPara, setPPara] = useState('P0');
+  const [pLmp, setPLmp] = useState('');
+  const [pEdd, setPEdd] = useState('');
+  const [pAog, setPAog] = useState('');
+  const [pVisitNum, setPVisitNum] = useState('2'); // default 2nd visit
+  // Fixed Dual BP Inputs
+  const [pBpSys, setPBpSys] = useState('120');
+  const [pBpDia, setPBpDia] = useState('80');
+  const [pWeight, setPWeight] = useState('');
+  const [pTemp, setPTemp] = useState('36.5');
+  const [pFhr, setPFhr] = useState('');
+  const [pFh, setPFh] = useState('');
+  const [pNextDate, setPNextDate] = useState('');
+  const [pNextNote, setPNextNote] = useState('');
+  const [pMeds, setPMeds] = useState('FeSO4 + Folic Acid 400mcg daily');
 
-  // Immunization Form State (Full DOH Barangay Health Center Standard)
-  const [iChild, setIChild] = useState(''); const [iPhone, setIPhone] = useState('');
-  const [iAge, setIAge] = useState(''); const [iGender, setIGender] = useState('Male');
-  const [iGuardian, setIGuardian] = useState(''); const [iWeight, setIWeight] = useState('');
-  const [iHeight, setIHeight] = useState(''); const [iTemp, setITemp] = useState('36.5');
-  const [iVaccine, setIVaccine] = useState('Pentavalent (DPT-HepB-Hib)'); const [iDose, setIDose] = useState('Dose 1');
-  const [iBatch, setIBatch] = useState(''); const [iDateGiven, setIDateGiven] = useState(new Date().toISOString().split('T')[0]);
-  const [iNextDue, setINextDue] = useState(''); const [iRemarks, setIRemarks] = useState('Cleared for routine vaccination');
+  // ══ Immunization Form State ══
+  const [iChild, setIChild] = useState('');
+  const [iPhone, setIPhone] = useState('');
+  const [iAge, setIAge] = useState('');
+  const [iGender, setIGender] = useState('Male');
+  const [iGuardian, setIGuardian] = useState('');
+  const [iWeight, setIWeight] = useState('');
+  const [iHeight, setIHeight] = useState('');
+  const [iVaccine, setIVaccine] = useState('Pentavalent (DPT-HepB-Hib)');
+  const [iCustomVaccine, setICustomVaccine] = useState('');
+  const [iDose, setIDose] = useState('Dose 2'); // Highlighted 2nd dose
+  const [iBatch, setIBatch] = useState('');
+  const [iDateGiven, setIDateGiven] = useState(new Date().toISOString().split('T')[0]);
+  const [iNextDue, setINextDue] = useState('');
+  const [iRemarks, setIRemarks] = useState('Cleared for routine vaccination');
 
-  // Inventory Form State
-  const [invName, setInvName] = useState(''); const [invCat, setInvCat] = useState('Vaccine (EPI)');
-  const [invStock, setInvStock] = useState(''); const [invUnit, setInvUnit] = useState('vials');
+  // ══ Inventory & Schedule Form States ══
+  const [invName, setInvName] = useState('');
+  const [invCat, setInvCat] = useState('Vaccine (EPI)');
+  const [invStock, setInvStock] = useState('');
+  const [invUnit, setInvUnit] = useState('vials');
   const [invExpiry, setInvExpiry] = useState('');
-
-  // Schedule Form State
-  const [sTitle, setSTitle] = useState(''); const [sService, setSService] = useState('Prenatal Care');
-  const [sDay, setSDay] = useState('Every Monday'); const [sTime, setSTime] = useState('8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM');
+  const [sTitle, setSTitle] = useState('');
+  const [sService, setSService] = useState('Prenatal Care');
+  const [sDay, setSDay] = useState('Every Monday');
+  const [sTime, setSTime] = useState('8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM');
   const [sLocation, setSLocation] = useState(`Barangay ${nurseBarangay} Health Center`);
 
-  const handleSendCustomSms = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!composeRecipient || !composePhone || !composeMessage) {
-      toast.error('Recipient name, phone, and message are required');
+  // Helper: Live BP category
+  const getBpCategory = (sys: string, dia: string) => {
+    const s = parseInt(sys, 10);
+    const d = parseInt(dia, 10);
+    if (isNaN(s) || isNaN(d)) return { label: 'Incomplete', color: 'bg-slate-100 text-slate-700' };
+    if (s >= 180 || d >= 120) return { label: 'Crisis / Alert', color: 'bg-red-600 text-white animate-pulse' };
+    if (s >= 140 || d >= 90) return { label: 'Stage 2 HTN', color: 'bg-red-100 text-red-800 font-bold' };
+    if (s >= 130 || d >= 80) return { label: 'Stage 1 HTN', color: 'bg-amber-100 text-amber-800 font-semibold' };
+    if (s >= 120 && d < 80) return { label: 'Elevated BP', color: 'bg-yellow-100 text-yellow-800' };
+    return { label: 'Normal BP', color: 'bg-emerald-100 text-emerald-800 font-semibold' };
+  };
+
+  // Add medicine to prescription
+  const handleAddMedToRx = () => {
+    if (!medName.trim()) {
+      toast.error('Enter medication name');
       return;
     }
-    try {
-      await apiService.sendNotification({
-        recipient_name: composeRecipient,
-        recipient_phone: composePhone,
-        type: composeType,
-        message: composeMessage,
-        status: 'Sent'
-      });
-      toast.success(`SMS alert dispatched to ${composeRecipient}!`);
-      setIsSendSmsModalOpen(false);
-      setComposeRecipient('');
-      setComposePhone('');
-      setComposeMessage('');
-      loadData();
-    } catch {
-      toast.error('Failed to dispatch SMS');
-    }
+    const item: PrescribedMedItem = {
+      id: String(Date.now()),
+      name: medName.trim(),
+      dosage: medDose.trim(),
+      frequency: medFreq.trim(),
+      duration: medDuration.trim(),
+      instructions: medInst.trim()
+    };
+    setCPrescriptions(prev => [...prev, item]);
+    setMedName('');
+    toast.success(`Added ${item.name} to prescription`);
   };
 
   // Load API data dynamically from backend
@@ -292,7 +607,8 @@ export default function NurseDashboard() {
           age: c.age || '—',
           gender: c.gender || 'Female',
           barangay: c.barangay || nurseBarangay,
-          service_type: c.service_type || 'General Consultation',
+          service_type: c.program_type || c.service_type || 'General Consultation',
+          program_type: c.program_type || c.service_type || 'General Consultation',
           bp: c.bp || '120/80',
           temp: c.temp || '36.5',
           weight: c.weight ? `${c.weight} kg` : '—',
@@ -300,6 +616,7 @@ export default function NurseDashboard() {
           chief_complaint: c.chief_complaint || 'Routine Health Visit',
           diagnosis: c.diagnosis || 'Assessment Complete',
           treatment: c.treatment || 'Health counseling advised.',
+          prescribed_meds: c.prescribed_meds || c.treatment || '',
           attending_nurse: c.attending_nurse || c.attending_worker || nurseName,
           consultation_date: c.consultation_date ? String(c.consultation_date).split('T')[0] : (c.encounter_date ? String(c.encounter_date).split('T')[0] : new Date().toISOString().split('T')[0]),
           status: c.status || 'Completed'
@@ -313,8 +630,8 @@ export default function NurseDashboard() {
           contact_number: m.contact_number || m.mother_phone || '',
           age: m.age || '—',
           barangay: m.barangay || nurseBarangay,
-          gravida: m.gravida || 1,
-          para: m.para || 0,
+          gravida: m.gravida || 'G1',
+          para: m.para || 'P0',
           lmp: m.lmp ? String(m.lmp).split('T')[0] : (m.last_visit ? String(m.last_visit).split('T')[0] : '2026-01-10'),
           edd: m.expected_due_date ? String(m.expected_due_date).split('T')[0] : (m.edd ? String(m.edd).split('T')[0] : '2026-10-15'),
           aog_weeks: m.aog_weeks || '20',
@@ -328,7 +645,7 @@ export default function NurseDashboard() {
           prescribed_meds: m.prescribed_meds || 'FeSO4 + Folic Acid',
           attending_nurse: m.attending_nurse || nurseName,
           visit_date: m.last_visit ? String(m.last_visit).split('T')[0] : new Date().toISOString().split('T')[0],
-          visit_number: m.visit_number || 1,
+          visit_number: m.visit_number || (String(m.notes || '').includes('2nd') ? 2 : 1),
           sms_sent: Boolean(m.sms_sent)
         })));
       }
@@ -393,6 +710,64 @@ export default function NurseDashboard() {
       return diff > 0 && diff <= 7;
     }), [immunRecords]);
 
+  // Combined Due Patients List for Safe Batch SMS Modal
+  const duePatientsList = useMemo<DuePatientItem[]>(() => {
+    const list: DuePatientItem[] = [];
+    overduePrenatal.forEach(p => {
+      list.push({
+        id: `mat-${p.id}`,
+        name: p.patient_name,
+        phone: p.contact_number,
+        service: 'Prenatal Check-up',
+        detail: `Visit #${p.visit_number} (${p.aog_weeks} wks)`,
+        dueDate: p.next_visit_date,
+        isOverdue: true,
+        category: 'maternal'
+      });
+    });
+    upcomingPrenatal.forEach(p => {
+      if (!list.find(item => item.name === p.patient_name)) {
+        list.push({
+          id: `mat-up-${p.id}`,
+          name: p.patient_name,
+          phone: p.contact_number,
+          service: 'Prenatal Check-up',
+          detail: `Visit #${p.visit_number}`,
+          dueDate: p.next_visit_date,
+          isOverdue: false,
+          category: 'maternal'
+        });
+      }
+    });
+    overdueImmun.forEach(i => {
+      list.push({
+        id: `imm-${i.id}`,
+        name: i.child_name,
+        phone: i.contact_number,
+        service: 'Child Immunization',
+        detail: `${i.vaccine_given} (${i.dose_number})`,
+        dueDate: i.next_due_date,
+        isOverdue: true,
+        category: 'immunization'
+      });
+    });
+    upcomingImmun.forEach(i => {
+      if (!list.find(item => item.name === i.child_name)) {
+        list.push({
+          id: `imm-up-${i.id}`,
+          name: i.child_name,
+          phone: i.contact_number,
+          service: 'Child Immunization',
+          detail: `${i.vaccine_given} (${i.dose_number})`,
+          dueDate: i.next_due_date,
+          isOverdue: false,
+          category: 'immunization'
+        });
+      }
+    });
+    return list;
+  }, [overduePrenatal, upcomingPrenatal, overdueImmun, upcomingImmun]);
+
   // Open 360 Patient Profile Modal
   const openPatient360 = (name: string, phone: string, barangay?: string) => {
     const patientCons = consultations.filter(c => c.patient_name.toLowerCase() === name.toLowerCase()).map(c => ({
@@ -427,23 +802,81 @@ export default function NurseDashboard() {
     setCPhone(pData.contact_number || '');
     setCAge(pData.age ? String(pData.age) : '');
     setCGender((pData.gender as any) || 'Female');
-    setCService('General Consultation');
-    setCBp(pData.bp || '120/80');
+    setCProgram('General Consultation');
+    setCBpSys('120');
+    setCBpDia('80');
     setCTemp(pData.temp || '36.5');
     setCWeight(pData.weight ? String(pData.weight) : '');
     setCHR('78');
     setCComplaint('Follow-up Checkup / Return Visit');
     setCDiagnosis('');
-    setCTreatment('');
+    setCPrescriptions([]);
     setIsPatientModalOpen(false);
     setIsNewConsultOpen(true);
     toast.info(`Pre-filled return visit consultation for ${pData.name}`);
   };
 
-  // Handlers
+  // ══ Submit Handlers with Immediate Optimistic Updates ══
+
   const handleCreateConsultation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cName.trim()) { toast.error('Patient name is required'); return; }
+
+    const cleanSys = cBpSys.replace(/\D/g, '') || '120';
+    const cleanDia = cBpDia.replace(/\D/g, '') || '80';
+    const bpString = `${cleanSys}/${cleanDia} mmHg`;
+
+    const formattedRx = cPrescriptions.length > 0
+      ? cPrescriptions.map(m => `${m.name} ${m.dosage} (${m.frequency}, ${m.duration}) - ${m.instructions}`).join('; ')
+      : 'Health counseling advised.';
+
+    let finalComplaint = cComplaint;
+    let finalDiagnosis = cDiagnosis;
+    let finalTreatment = formattedRx;
+
+    if (cProgram === 'Adolescent Health') {
+      finalComplaint = cComplaint || `Adolescent Health Consultation (${cAdolescentStage}, ${cTeenSchool})`;
+      finalDiagnosis = cDiagnosis || `Youth Assessment: ${cAdolescentFocus}`;
+      finalTreatment = formattedRx !== 'Health counseling advised.' ? formattedRx : `Adolescent counseling provided on ${cAdolescentFocus}.`;
+    } else if (cProgram === 'Teenage Pregnancy Prevention') {
+      finalComplaint = cComplaint || `Teenage Pregnancy Prevention Counseling (${cTeenSchool})`;
+      finalDiagnosis = cDiagnosis || `Risk Assessment: ${cTeenRisk}. Guardian Status: ${cTeenGuardian}`;
+      finalTreatment = formattedRx !== 'Health counseling advised.' ? formattedRx : 'Adolescent reproductive health counseling, dual protection education, and youth center support.';
+    } else if (cProgram === 'NTP (TB-DOTS)') {
+      finalComplaint = cComplaint || `TB-DOTS Encounter (Reg #${cTbRegNo || 'Pending'}) - ${cTbCategory}`;
+      finalDiagnosis = cDiagnosis || `Sputum Status: ${cTbSputum} | DOT Partner: ${cTbPartner || 'Assigned BHW'}`;
+      finalTreatment = formattedRx !== 'Health counseling advised.' ? formattedRx : `Treatment Regimen: ${cTbPhase}`;
+    } else if (cProgram === 'Family Planning') {
+      finalComplaint = cComplaint || `Family Planning Consultation (${cFpClientType})${cFpLmp ? ' - LMP: ' + cFpLmp : ''}`;
+      finalDiagnosis = cDiagnosis || `Method Selected: ${cFpMethod} (${cFpClientType})`;
+      finalTreatment = formattedRx !== 'Health counseling advised.' ? formattedRx : `Supplied: ${cFpMethod}. Next Supply/Injection: ${cFpNextSupply || 'Scheduled'}. ${cFpNotes ? 'Notes: ' + cFpNotes : ''}`;
+    }
+
+    const optimisticConsult: ClinicalConsultation = {
+      id: Date.now(),
+      patient_name: cName.trim(),
+      contact_number: cPhone.trim(),
+      age: cAge || '—',
+      gender: cGender,
+      barangay: nurseBarangay,
+      service_type: cProgram,
+      program_type: cProgram,
+      bp: bpString,
+      temp: `${cTemp} °C`,
+      weight: cWeight ? `${cWeight} kg` : '—',
+      heart_rate: cHR ? `${cHR} bpm` : '78 bpm',
+      chief_complaint: finalComplaint || 'Routine Health Visit',
+      diagnosis: finalDiagnosis || 'Assessment Complete',
+      treatment: finalTreatment,
+      prescribed_meds: formattedRx,
+      attending_nurse: nurseName,
+      consultation_date: new Date().toISOString().split('T')[0],
+      status: 'Completed'
+    };
+
+    // Immediate UI update
+    setConsultations(prev => [optimisticConsult, ...prev]);
+
     try {
       await apiService.createConsultation({
         patient_name: cName.trim(),
@@ -451,25 +884,27 @@ export default function NurseDashboard() {
         age: cAge || '—',
         gender: cGender,
         barangay: nurseBarangay,
-        service_type: cService,
-        bp: cBp ? `${cBp} mmHg` : '120/80 mmHg',
-        temp: cTemp ? `${cTemp} °C` : '36.5 °C',
+        service_type: cProgram,
+        program_type: cProgram,
+        bp: bpString,
+        temp: `${cTemp} °C`,
         weight: cWeight ? `${cWeight} kg` : 'N/A',
         heart_rate: cHR ? `${cHR} bpm` : '78 bpm',
-        chief_complaint: cComplaint || 'Routine Health Visit',
-        diagnosis: cDiagnosis || 'Assessment Complete',
-        treatment: cTreatment || 'Health counseling advised.',
+        chief_complaint: finalComplaint || 'Routine Health Visit',
+        diagnosis: finalDiagnosis || 'Assessment Complete',
+        treatment: finalTreatment,
+        prescribed_meds: formattedRx,
         attending_nurse: nurseName,
         consultation_date: new Date().toISOString().split('T')[0],
         status: 'Completed'
       });
 
-      toast.success('Consultation recorded & saved to Patient Archives!');
+      toast.success('Consultation recorded & saved to Patient Registry!');
       setIsNewConsultOpen(false);
-      setCName(''); setCPhone(''); setCAge(''); setCComplaint(''); setCDiagnosis(''); setCTreatment('');
+      setCName(''); setCPhone(''); setCAge(''); setCComplaint(''); setCDiagnosis(''); setCPrescriptions([]);
       loadData();
     } catch {
-      toast.error('Failed to save consultation');
+      toast.error('Could not save to remote server (cached locally)');
     }
   };
 
@@ -479,6 +914,39 @@ export default function NurseDashboard() {
     if (!pPhone.trim()) { toast.error('Contact number is required for SMS reminders'); return; }
     if (!pLmp) { toast.error('Last Menstrual Period (LMP) is required'); return; }
     if (!pNextDate) { toast.error('Next visit date is required'); return; }
+
+    const cleanSys = pBpSys.replace(/\D/g, '') || '120';
+    const cleanDia = pBpDia.replace(/\D/g, '') || '80';
+    const bpString = `${cleanSys}/${cleanDia}`;
+
+    const optimisticRecord: PrenatalRecord = {
+      id: Date.now(),
+      patient_name: pName.trim(),
+      contact_number: pPhone.trim(),
+      age: pAge ? Number(pAge) || 25 : 25,
+      barangay: nurseBarangay,
+      gravida: pGravida,
+      para: pPara,
+      lmp: pLmp,
+      edd: pEdd,
+      aog_weeks: pAog || '18',
+      bp: bpString,
+      weight: pWeight || '56.0',
+      temp: pTemp || '36.5',
+      fetal_heart_rate: pFhr ? `${pFhr} bpm` : '144 bpm',
+      fundic_height: pFh ? `${pFh} cm` : '18 cm',
+      next_visit_date: pNextDate,
+      next_visit_note: pNextNote || `Visit #${pVisitNum} Follow-up`,
+      prescribed_meds: pMeds,
+      attending_nurse: nurseName,
+      visit_date: new Date().toISOString().split('T')[0],
+      visit_number: Number(pVisitNum) || 2,
+      sms_sent: false
+    };
+
+    // Immediate UI update
+    setPrenatalRecords(prev => [optimisticRecord, ...prev]);
+
     try {
       await apiService.createMaternalRecord({
         mother_name: pName.trim(),
@@ -490,14 +958,14 @@ export default function NurseDashboard() {
         lmp: pLmp,
         edd: pEdd,
         aog_weeks: pAog,
-        bp: pBp,
+        bp: bpString,
         weight: pWeight,
         temp: pTemp,
         fetal_heart_rate: pFhr,
         fundic_height: pFh,
         next_visit: pNextDate,
         next_visit_date: pNextDate,
-        notes: `AOG: ${pAog} wks. ${pNextNote || ''}`,
+        notes: `Visit #${pVisitNum}. ${pNextNote || ''}`,
         prescribed_meds: pMeds,
         attending_nurse: nurseName
       });
@@ -505,19 +973,46 @@ export default function NurseDashboard() {
       toast.success(`Prenatal record for ${pName} saved & archived!`);
       setIsNewPrenatalOpen(false);
       setPName(''); setPPhone(''); setPAge(''); setPLmp(''); setPEdd(''); setPAog('');
-      setPBp('120/80'); setPWeight(''); setPTemp('36.5'); setPFhr(''); setPFh('');
-      setPNextDate(''); setPNextNote(''); setPMeds('FeSO4 + Folic Acid');
+      setPBpSys('120'); setPBpDia('80'); setPWeight(''); setPFhr(''); setPFh('');
+      setPNextDate(''); setPNextNote('');
       loadData();
     } catch {
-      toast.error('Failed to save prenatal record');
+      toast.error('Saved to local view (server offline)');
     }
   };
 
   const handleCreateImmun = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!iChild.trim()) { toast.error('Child name is required'); return; }
-    if (!iPhone.trim()) { toast.error('Contact number is required for SMS reminders'); return; }
+    if (!iChild.trim()) { toast.error("Child's full name is required"); return; }
+    if (!iPhone.trim()) { toast.error('Guardian contact number is required'); return; }
     if (!iGuardian.trim()) { toast.error('Guardian name is required'); return; }
+
+    const activeVaccine = iCustomVaccine.trim() || iVaccine;
+
+    const optimisticRecord: ImmunRecord = {
+      id: Date.now(),
+      child_name: iChild.trim(),
+      contact_number: iPhone.trim(),
+      age_months: iAge || '6',
+      gender: iGender,
+      guardian: iGuardian.trim(),
+      barangay: nurseBarangay,
+      weight: iWeight ? `${iWeight} kg` : '7.5 kg',
+      height: iHeight ? `${iHeight} cm` : '65 cm',
+      temp: '36.5',
+      vaccine_given: activeVaccine,
+      dose_number: iDose,
+      batch_number: iBatch || `LOT-${new Date().getFullYear()}-EPI`,
+      date_given: iDateGiven,
+      next_due_date: iNextDue,
+      remarks: iRemarks || 'Cleared for routine vaccination',
+      attending_nurse: nurseName,
+      sms_sent: false
+    };
+
+    // Immediate UI update
+    setImmunRecords(prev => [optimisticRecord, ...prev]);
+
     try {
       await apiService.createImmunization({
         child_name: iChild.trim(),
@@ -529,7 +1024,7 @@ export default function NurseDashboard() {
         barangay: nurseBarangay,
         weight_kg: iWeight || '7.5',
         height_cm: iHeight || '65',
-        vaccine_name: iVaccine,
+        vaccine_name: activeVaccine,
         dose_number: iDose,
         batch_lot: iBatch || `LOT-${new Date().getFullYear()}-EPI`,
         date_administered: iDateGiven,
@@ -543,11 +1038,11 @@ export default function NurseDashboard() {
 
       toast.success(`Immunization for ${iChild} recorded & archived!`);
       setIsNewImmunOpen(false);
-      setIChild(''); setIPhone(''); setIAge(''); setIGuardian(''); setIVaccine('Pentavalent (DPT-HepB-Hib)');
-      setIDose('Dose 1'); setIBatch(''); setINextDue(''); setIRemarks('Cleared for routine vaccination');
+      setIChild(''); setIPhone(''); setIAge(''); setIGuardian('');
+      setICustomVaccine(''); setINextDue('');
       loadData();
     } catch {
-      toast.error('Failed to save immunization record');
+      toast.error('Saved to local view (server offline)');
     }
   };
 
@@ -579,16 +1074,16 @@ export default function NurseDashboard() {
 
   const handleDeleteInventory = (id: number | string) => {
     setInventory(prev => prev.filter(i => i.id !== id));
-    toast.success('Item removed from inventory');
+    toast.success('Inventory item removed');
   };
 
-  const handleAddSchedule = async (e: React.FormEvent) => {
+  const handlePostSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!sTitle.trim()) { toast.error('Schedule title is required'); return; }
+    if (!sTitle.trim()) { toast.error('Title is required'); return; }
     const newSch: WeeklySchedule = {
       id: Date.now(), title: sTitle.trim(), service_type: sService,
-      day: sDay, time_slot: sTime, location: sLocation,
-      assigned_to: nurseName, posted_date: new Date().toISOString().split('T')[0]
+      day: sDay, time_slot: sTime, location: sLocation, assigned_to: nurseName,
+      posted_date: new Date().toISOString().split('T')[0]
     };
     setWeeklySchedules(prev => [newSch, ...prev]);
     try {
@@ -605,13 +1100,10 @@ export default function NurseDashboard() {
       if (created && created.id) {
         setWeeklySchedules(prev => prev.map(s => s.id === newSch.id ? { ...s, id: created.id } : s));
       }
-    } catch {
-      // Local state is already updated as fallback
-    }
+    } catch {}
     toast.success('Weekly clinic schedule posted!');
     setIsScheduleOpen(false);
-    setSTitle(''); setSService('Prenatal Care'); setSDay('Every Monday');
-    setSTime('8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM');
+    setSTitle('');
   };
 
   const handleUpdateSchedule = async (e: React.FormEvent) => {
@@ -645,45 +1137,27 @@ export default function NurseDashboard() {
     toast.success('Schedule removed');
   };
 
-  const handleSendSmsReminder = async (name: string, phone: string, message: string, type: string) => {
-    try {
-      await apiService.sendSmsNotification({ recipient_name: name, recipient_phone: phone, type, message });
-      toast.success(`SMS reminder sent to ${name} (${phone})`);
-    } catch {
-      toast.info(`SMS queued for ${name}. Content: "${message.substring(0, 50)}..."`);
+  const handleSendCustomSms = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!composeRecipient || !composePhone || !composeMessage) {
+      toast.error('Recipient name, phone, and message are required');
+      return;
     }
-  };
-
-  const handleSendDueSmsAll = () => {
-    let sent = 0;
-    overduePrenatal.forEach(r => {
-      if (r.contact_number) {
-        handleSendSmsReminder(r.patient_name, r.contact_number,
-          `Reminder: Your prenatal check-up was due on ${r.next_visit_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`,
-          'Prenatal Visit Due');
-        setPrenatalRecords(prev => prev.map(p => p.id === r.id ? { ...p, sms_sent: true } : p));
-        sent++;
-      }
-    });
-    overdueImmun.forEach(r => {
-      if (r.contact_number) {
-        handleSendSmsReminder(r.child_name, r.contact_number,
-          `Reminder: ${r.child_name}'s ${r.vaccine_given} (${r.dose_number}) was due on ${r.next_due_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`,
-          'Immunization Due');
-        setImmunRecords(prev => prev.map(i => i.id === r.id ? { ...i, sms_sent: true } : i));
-        sent++;
-      }
-    });
-    if (sent === 0) toast.info('No overdue records with contact numbers found');
-    else toast.success(`Sent ${sent} SMS reminders!`);
-  };
-
-  const handleApproveAppointment = async (appt: HealthAppointment) => {
     try {
-      await apiService.updateAppointment(appt.id, { status: 'Approved', attending_bhw: nurseName, bhw_notes: 'Confirmed by Nurse. Please arrive on time with Health Card.' });
-      toast.success(`Appointment for ${appt.resident_name} approved!`);
+      await apiService.sendNotification({
+        recipient_name: composeRecipient,
+        recipient_phone: composePhone,
+        type: composeType,
+        message: composeMessage,
+        status: 'Sent'
+      });
+      toast.success(`SMS alert dispatched to ${composeRecipient}!`);
+      setIsSendSmsModalOpen(false);
+      setComposeRecipient(''); setComposePhone(''); setComposeMessage('');
       loadData();
-    } catch { toast.error('Failed to approve appointment'); }
+    } catch {
+      toast.error('Failed to dispatch SMS');
+    }
   };
 
   const menuItems = [
@@ -695,78 +1169,131 @@ export default function NurseDashboard() {
     { id: 'inventory', label: 'Vaccines & Medicine Supply', icon: Pill },
     { id: 'archives', label: 'Clinical Archives & EHR', icon: Archive },
     { id: 'sms', label: 'Gmail Notification Hub', icon: Bell },
+    { id: 'profile', label: 'Profile Settings', icon: UserCircle },
   ];
 
-  const totalAlerts = overduePrenatal.length + overdueImmun.length + upcomingPrenatal.length + upcomingImmun.length;
+  // Filtered lists
+  const filteredConsultations = useMemo(() => {
+    return consultations.filter(c => {
+      const matchSearch = !search || c.patient_name.toLowerCase().includes(search.toLowerCase()) || c.contact_number.includes(search);
+      const matchProg = consFilterProgram === 'All' || (c.program_type || c.service_type || '').toLowerCase().includes(consFilterProgram.toLowerCase());
+      return matchSearch && matchProg;
+    });
+  }, [consultations, search, consFilterProgram]);
+
+  const filteredMaternal = useMemo(() => {
+    return prenatalRecords.filter(r => {
+      const matchSearch = !search || r.patient_name.toLowerCase().includes(search.toLowerCase()) || r.contact_number.includes(search);
+      if (!matchSearch) return false;
+      if (maternalFilterVisit === '1st') return r.visit_number === 1;
+      if (maternalFilterVisit === '2nd') return r.visit_number === 2;
+      if (maternalFilterVisit === '3rd') return r.visit_number >= 3;
+      if (maternalFilterVisit === 'due') {
+        const isOverdue = r.next_visit_date && new Date(r.next_visit_date) <= new Date();
+        const isDueSoon = r.next_visit_date && (new Date(r.next_visit_date).getTime() - Date.now()) / 86400000 <= 7;
+        return isOverdue || isDueSoon;
+      }
+      return true;
+    });
+  }, [prenatalRecords, search, maternalFilterVisit]);
+
+  const filteredImmun = useMemo(() => {
+    return immunRecords.filter(r => {
+      const matchSearch = !search || r.child_name.toLowerCase().includes(search.toLowerCase()) || r.contact_number.includes(search);
+      if (!matchSearch) return false;
+      if (immunFilterDose === 'dose1') return r.dose_number.includes('1');
+      if (immunFilterDose === 'dose2') return r.dose_number.includes('2');
+      if (immunFilterDose === 'dose3') return r.dose_number.includes('3') || r.dose_number.toLowerCase().includes('booster');
+      if (immunFilterDose === 'due') {
+        const isOverdue = r.next_due_date && new Date(r.next_due_date) <= new Date();
+        const isDueSoon = r.next_due_date && (new Date(r.next_due_date).getTime() - Date.now()) / 86400000 <= 7;
+        return isOverdue || isDueSoon;
+      }
+      return true;
+    });
+  }, [immunRecords, search, immunFilterDose]);
+
+  const cBpStatus = getBpCategory(cBpSys, cBpDia);
+  const pBpStatus = getBpCategory(pBpSys, pBpDia);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {/* Top Navbar */}
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex flex-col font-sans">
+      {/* Top Header Navbar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-3 sm:px-6 py-2.5 shadow-xs">
         <div className="flex items-center justify-between w-full">
-          {/* Left: Mobile Burger Button + Health Center Branding */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Burger menu button: visible ONLY on cellphone and tablet (< 1024px) */}
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               className="p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 rounded-xl cursor-pointer lg:hidden focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors"
-              aria-label="Open clinical navigation menu"
-              title="Navigation Menu"
+              aria-label="Open mobile navigation menu"
             >
               <Menu size={22} />
             </button>
 
             <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-full bg-teal-100 border-2 border-teal-300 flex items-center justify-center shrink-0">
-                <Stethoscope size={20} className="text-teal-700" />
+              <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-teal-200 flex items-center justify-center shrink-0">
+                <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-sm font-bold text-slate-900">Barangay {nurseBarangay} Health Center</h1>
-                  <Badge className="bg-teal-600 text-white text-[10px] font-bold px-1.5">Nurse Portal</Badge>
+                  <Badge className="bg-teal-50 text-teal-800 border-teal-200 text-[10px] font-bold px-1.5">Nurse Portal</Badge>
                 </div>
-                <span className="text-xs text-teal-700 font-medium hidden sm:block">Primary Health Center Clinical Management</span>
+                <span className="text-xs text-slate-500 font-medium hidden sm:block">Primary Healthcare Clinical EHR &amp; Due Scheduler</span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Primary Action: Add Patient / Clinical Intake */}
+            {/* Primary Action: + Add Patient (Smart Clinical Intake) */}
             <Button
               size="sm"
               onClick={() => setIsIntakeOpen(true)}
-              className="bg-teal-700 hover:bg-teal-800 text-white text-xs gap-1.5 font-bold shadow-xs cursor-pointer h-8 px-3 rounded-xl"
+              className="bg-teal-700 hover:bg-teal-800 text-white text-xs gap-1.5 font-bold shadow-md cursor-pointer h-8 px-3.5 rounded-xl transition-all hover:shadow-teal-100"
             >
               <PlusCircle size={14} />
-              <span className="hidden xs:inline sm:inline">+ Add Patient</span>
-              <span className="xs:hidden sm:hidden">Intake</span>
+              <span>+ Add Patient</span>
             </Button>
 
-            {/* Profile Settings Trigger */}
+            {/* Profile Settings Tab Trigger */}
             <button
-              onClick={() => setIsProfileOpen(true)}
-              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 rounded-full text-xs font-semibold cursor-pointer transition-colors"
-              title="Click to manage profile and credentials"
+              onClick={() => setActiveTab('profile')}
+              className={`hidden md:inline-flex items-center gap-2 pl-2 pr-3 py-1 border rounded-full text-xs font-semibold cursor-pointer transition-colors ${
+                activeTab === 'profile'
+                  ? 'bg-teal-50 text-teal-900 border-teal-300'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+              }`}
+              title="Click to view and edit profile settings"
             >
-              <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
+              {user?.profile_photo ? (
+                <img
+                  src={user.profile_photo}
+                  alt={nurseName}
+                  className="w-5 h-5 rounded-full object-cover border border-teal-300 shrink-0"
+                />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center text-[10px] font-bold border border-teal-200 shrink-0">
+                  {nurseName ? nurseName.charAt(0) : 'N'}
+                </div>
+              )}
               <span>{nurseName}</span>
-              <User size={12} className="text-teal-600" />
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
             </button>
 
-            <Button variant="outline" size="sm" onClick={loadData} className="text-xs gap-1.5 border-slate-200 cursor-pointer h-8 px-2 sm:px-3">
+            <Button variant="outline" size="sm" onClick={loadData} className="text-xs gap-1.5 border-slate-200 cursor-pointer h-8 px-2 sm:px-3 rounded-xl">
               <RefreshCcw size={13} className={loading ? 'animate-spin text-teal-600' : ''} />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
 
-            <Button variant="destructive" size="sm" onClick={() => { localStorage.removeItem('barangay_user'); navigate('/login'); }} className="text-xs gap-1 bg-red-600 hover:bg-red-700 cursor-pointer h-8 px-2 sm:px-3">
+            <Button variant="destructive" size="sm" onClick={() => { localStorage.removeItem('barangay_user'); navigate('/login'); }} className="text-xs gap-1 bg-red-600 hover:bg-red-700 cursor-pointer h-8 px-2 sm:px-3 rounded-xl">
               <LogOut size={13} /> <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Mobile / Tablet Slide-over Navigation Drawer with Backdrop */}
+      {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div
           onClick={() => setMobileMenuOpen(false)}
@@ -781,8 +1308,8 @@ export default function NurseDashboard() {
       >
         <div className="flex items-center justify-between px-4 pb-3 border-b border-slate-200">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-teal-100 border border-teal-300 flex items-center justify-center shrink-0">
-              <Stethoscope size={18} className="text-teal-700" />
+            <div className="w-9 h-9 rounded-full overflow-hidden bg-white shadow-xs border border-teal-200 flex items-center justify-center shrink-0">
+              <img src="/assets/pianing-logo.png" alt="Barangay Pianing" className="w-full h-full object-contain" />
             </div>
             <div>
               <span className="text-xs font-bold text-slate-900 block">Health Center</span>
@@ -793,7 +1320,6 @@ export default function NurseDashboard() {
             type="button"
             onClick={() => setMobileMenuOpen(false)}
             className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg cursor-pointer"
-            aria-label="Close navigation"
           >
             <X size={20} />
           </button>
@@ -806,17 +1332,21 @@ export default function NurseDashboard() {
               <button
                 key={item.id}
                 onClick={() => {
-                  setActiveTab(item.id as any);
                   setMobileMenuOpen(false);
+                  if (item.action) {
+                    item.action();
+                  } else {
+                    setActiveTab(item.id as any);
+                  }
                 }}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   isActive
-                    ? 'bg-[#EBF5FF] text-[#2563EB] shadow-xs'
+                    ? 'bg-teal-50 text-teal-800 font-bold shadow-xs'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <item.icon size={17} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
+                  <item.icon size={17} className={`shrink-0 ${isActive ? 'text-teal-700' : 'text-slate-500'}`} />
                   <span>{item.label}</span>
                 </div>
               </button>
@@ -839,9 +1369,9 @@ export default function NurseDashboard() {
         </div>
       </aside>
 
-      {/* Full-width container flush to the left of the viewport (no side margin gap) */}
+      {/* Main Layout Container */}
       <div className="flex-1 flex w-full">
-        {/* Permanent Desktop Sidebar pinned to left edge (hidden on mobile/tablet) */}
+        {/* Permanent Desktop Sidebar */}
         <aside className="hidden lg:flex w-64 shrink-0 bg-white border-r border-slate-200 flex flex-col py-4 sticky top-[57px] h-[calc(100vh-57px)]">
           <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto">
             {menuItems.map(item => {
@@ -850,29 +1380,41 @@ export default function NurseDashboard() {
                 <button
                   key={item.id}
                   onClick={() => {
-                    setActiveTab(item.id as any);
+                    if (item.action) {
+                      item.action();
+                    } else {
+                      setActiveTab(item.id as any);
+                    }
                   }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-[#EBF5FF] text-[#2563EB] shadow-xs'
+                      ? 'bg-teal-50 text-teal-800 font-bold border border-teal-200/80 shadow-xs'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <item.icon size={17} className={`shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-500'}`} />
+                    <item.icon size={17} className={`shrink-0 ${isActive ? 'text-teal-700' : 'text-slate-500'}`} />
                     <span>{item.label}</span>
                   </div>
+                  {item.id === 'maternal' && overduePrenatal.length > 0 && (
+                    <span className="bg-rose-100 text-rose-700 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+                      {overduePrenatal.length}
+                    </span>
+                  )}
+                  {item.id === 'immunizations' && overdueImmun.length > 0 && (
+                    <span className="bg-amber-100 text-amber-700 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+                      {overdueImmun.length}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </nav>
 
-          {/* Fixed Bottom Logout */}
           <div className="mt-auto pt-3 px-3 border-t border-slate-200">
             <button
               onClick={() => { localStorage.removeItem('barangay_user'); navigate('/login'); }}
               className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-all cursor-pointer group"
-              title="Sign out of account"
             >
               <LogOut size={18} className="shrink-0 text-rose-500 group-hover:text-rose-700" />
               <span>Logout</span>
@@ -880,347 +1422,700 @@ export default function NurseDashboard() {
           </div>
         </aside>
 
-        {/* Main Content */}
+        {/* Main Content View */}
         <main className="flex-1 p-4 sm:p-6 space-y-6 overflow-y-auto">
 
           {/* ═══ OVERVIEW ═══════════════════════════════════════════════════ */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                    <Stethoscope className="text-teal-700" size={22} />
-                    Barangay {nurseBarangay} — Clinical Command
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Real-time health center overview, patient encounters, and due alerts</p>
-                </div>
-                <Button onClick={() => setIsNewConsultOpen(true)} className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold gap-1.5 cursor-pointer">
-                  <PlusCircle size={14} /> New Consultation
-                </Button>
-              </div>
-
-              {/* Alerts Banner */}
-              {(overduePrenatal.length > 0 || overdueImmun.length > 0) && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={18} />
-                    <div>
-                      <p className="text-sm font-bold text-red-800">⚠ Overdue Patient Alerts</p>
-                      <p className="text-xs text-red-600">
-                        {overduePrenatal.length > 0 && `${overduePrenatal.length} prenatal visit(s) overdue. `}
-                        {overdueImmun.length > 0 && `${overdueImmun.length} immunization(s) overdue.`}
-                      </p>
+              {/* Executive Overview Header Card */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-teal-50 text-teal-800 border-teal-200 text-[10px] font-bold px-2 py-0.5 uppercase tracking-wider">
+                        Primary Care Operations
+                      </Badge>
+                      <span className="text-xs text-slate-500 font-medium">Barangay {nurseBarangay} Health Center</span>
                     </div>
+                    <h2 className="text-xl font-bold text-slate-900 mt-1 flex items-center gap-2">
+                      <Stethoscope className="text-teal-600" size={20} />
+                      Clinical Health Command &amp; Registry
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xl">
+                      Real-time maternal tracking, EPI immunization registry, specialized youth &amp; TB programs, and safe automated SMS reminders.
+                    </p>
                   </div>
-                  <Button size="sm" onClick={handleSendDueSmsAll} className="bg-red-600 hover:bg-red-700 text-white text-xs gap-1.5 shrink-0 cursor-pointer">
-                    <Send size={13} /> Send SMS Reminders
-                  </Button>
+
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <Button
+                      onClick={() => setIsBatchSmsOpen(true)}
+                      className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-semibold gap-1.5 shadow-xs cursor-pointer rounded-xl h-9 px-3.5 transition-all"
+                    >
+                      <Send size={13} className="text-amber-700" />
+                      <span>Review &amp; Send Due SMS ({duePatientsList.length})</span>
+                    </Button>
+                    <Button
+                      onClick={() => setIsNewConsultOpen(true)}
+                      className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold gap-1.5 shadow-xs cursor-pointer rounded-xl h-9 px-3.5"
+                    >
+                      <PlusCircle size={14} /> + New Consultation
+                    </Button>
+                  </div>
                 </div>
-              )}
+
+                {/* Overdue Urgent Alert Ribbon inside Banner */}
+                {duePatientsList.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-700 bg-amber-50/70 p-3 rounded-xl border border-amber-200/80">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                      <span><strong>{overduePrenatal.length} Maternal</strong> and <strong>{overdueImmun.length} Child Immunization</strong> records are currently overdue.</span>
+                    </span>
+                    <button
+                      onClick={() => setIsBatchSmsOpen(true)}
+                      className="text-amber-800 hover:text-amber-950 font-bold underline cursor-pointer text-xs shrink-0"
+                    >
+                      Open Safe Batch Dispatcher &rarr;
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Stats Grid */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
                   { label: 'Consultations Recorded', value: consultations.length, icon: Stethoscope, color: 'teal', action: () => setActiveTab('consultations') },
-                  { label: 'Prenatal Patients', value: prenatalRecords.length, icon: Heart, color: 'pink', action: () => setActiveTab('maternal') },
-                  { label: 'Immunization Records', value: immunRecords.length, icon: Syringe, color: 'blue', action: () => setActiveTab('immunizations') },
-                  { label: 'Archived Encounters', value: archives.length, icon: Archive, color: 'violet', action: () => setActiveTab('archives') },
+                  { label: 'Maternal Patients', value: prenatalRecords.length, icon: Heart, color: 'pink', action: () => setActiveTab('maternal') },
+                  { label: 'Child Immunizations', value: immunRecords.length, icon: Syringe, color: 'blue', action: () => setActiveTab('immunizations') },
+                  { label: 'Overdue / Due Soon', value: duePatientsList.length, icon: Clock, color: 'amber', action: () => setIsBatchSmsOpen(true) },
                 ].map((s, i) => (
-                  <Card key={i} className="bg-white border border-slate-200 cursor-pointer hover:shadow-md transition-shadow" onClick={s.action}>
+                  <Card key={i} className="bg-white border border-slate-200 rounded-2xl shadow-xs cursor-pointer hover:shadow-md transition-shadow" onClick={s.action}>
                     <CardContent className="p-4 flex items-start justify-between">
                       <div>
-                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{s.label}</p>
-                        <h3 className="text-3xl font-black mt-1 text-slate-900">{s.value}</h3>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{s.label}</p>
+                        <h3 className="text-2xl font-black mt-1 text-slate-900">{s.value}</h3>
                       </div>
-                      <div className={`w-10 h-10 rounded-xl bg-${s.color}-100 text-${s.color}-700 flex items-center justify-center`}>
-                        <s.icon size={20} />
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                        <s.icon size={20} className={s.color === 'teal' ? 'text-teal-600' : s.color === 'pink' ? 'text-pink-600' : s.color === 'blue' ? 'text-blue-600' : 'text-amber-600'} />
                       </div>
                     </CardContent>
                   </Card>
                 ))}
               </div>
 
-              {/* Quick Actions */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {[
-                  { label: 'New Prenatal Record', icon: Heart, color: 'pink', action: () => { setActiveTab('maternal'); setIsNewPrenatalOpen(true); } },
-                  { label: 'Record Immunization', icon: Syringe, color: 'blue', action: () => { setActiveTab('immunizations'); setIsNewImmunOpen(true); } },
-                  { label: 'Post Weekly Schedule', icon: CalendarCheck, color: 'violet', action: () => { setActiveTab('schedule'); setIsScheduleOpen(true); } },
-                  { label: 'Add to Inventory', icon: Package, color: 'emerald', action: () => { setActiveTab('inventory'); setIsInventoryOpen(true); } },
-                  { label: 'Send SMS Alerts', icon: Send, color: 'amber', action: handleSendDueSmsAll },
-                  { label: 'View Encounters Log', icon: Archive, color: 'teal', action: () => setActiveTab('archives') },
-                ].map((q, i) => (
-                  <button key={i} onClick={q.action}
-                    className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-teal-200 transition-all cursor-pointer text-left">
-                    <div className={`w-9 h-9 rounded-lg bg-${q.color}-100 text-${q.color}-700 flex items-center justify-center shrink-0`}>
-                      <q.icon size={16} />
-                    </div>
-                    <span className="text-xs font-semibold text-slate-700">{q.label}</span>
-                  </button>
-                ))}
+              {/* Quick Actions Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <button
+                  onClick={() => setIsIntakeOpen(true)}
+                  className="flex items-center gap-3 p-3.5 bg-white border border-slate-200 rounded-2xl hover:shadow-md hover:border-teal-300 transition-all cursor-pointer text-left"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center shrink-0">
+                    <UserPlus size={18} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">+ Add Patient</span>
+                    <span className="text-[10px] text-slate-400">Intake &amp; Register</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab('maternal'); setIsNewPrenatalOpen(true); }}
+                  className="flex items-center gap-3 p-3.5 bg-white border border-slate-200 rounded-2xl hover:shadow-md hover:border-pink-300 transition-all cursor-pointer text-left"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-pink-100 text-pink-700 flex items-center justify-center shrink-0">
+                    <Heart size={18} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">Prenatal Record</span>
+                    <span className="text-[10px] text-slate-400">Log 2nd/3rd Visit</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab('immunizations'); setIsNewImmunOpen(true); }}
+                  className="flex items-center gap-3 p-3.5 bg-white border border-slate-200 rounded-2xl hover:shadow-md hover:border-blue-300 transition-all cursor-pointer text-left"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                    <Baby size={18} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">Child Vaccine</span>
+                    <span className="text-[10px] text-slate-400">Record Dose 1/2/3</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setIsBatchSmsOpen(true)}
+                  className="flex items-center gap-3 p-3.5 bg-white border border-slate-200 rounded-2xl hover:shadow-md hover:border-amber-300 transition-all cursor-pointer text-left"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <Send size={18} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">Batch Due SMS</span>
+                    <span className="text-[10px] text-slate-400">Preview &amp; Send</span>
+                  </div>
+                </button>
               </div>
 
-              {/* Due This Week */}
-              {(upcomingPrenatal.length > 0 || upcomingImmun.length > 0) && (
-                <Card className="border-amber-200 bg-amber-50/50">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-bold text-amber-800 flex items-center gap-2">
-                      <Clock size={16} /> Patients Due Within 7 Days
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {upcomingPrenatal.map(r => (
-                      <div key={r.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200">
-                        <div>
-                          <p className="text-xs font-bold text-slate-800 cursor-pointer hover:text-teal-700" onClick={() => openPatient360(r.patient_name, r.contact_number)}>{r.patient_name}</p>
-                          <p className="text-[11px] text-slate-500">Prenatal visit due: {r.next_visit_date} — {r.contact_number}</p>
+              {/* Due Patients Section */}
+              {duePatientsList.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <Clock className="text-amber-600" size={16} /> Patients Scheduled / Due This Week
+                      </h3>
+                      <p className="text-xs text-slate-500">Mothers and infant guardians requiring follow-up clinical visits.</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => setIsBatchSmsOpen(true)}
+                      className="bg-amber-600 hover:bg-amber-700 text-white text-xs gap-1.5 rounded-xl cursor-pointer"
+                    >
+                      <Send size={12} /> Dispatch Batch SMS Reminders
+                    </Button>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
+                    {duePatientsList.slice(0, 5).map((p, idx) => (
+                      <div key={idx} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${p.category === 'maternal' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {p.category === 'maternal' ? <Heart size={14} /> : <Baby size={14} />}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-900">{p.name}</span>
+                              <Badge variant="outline" className={`text-[9px] py-0 px-1 border-0 ${p.detail.includes('2nd') ? 'bg-purple-100 text-purple-800 font-bold' : 'bg-slate-100 text-slate-700'}`}>
+                                {p.detail}
+                              </Badge>
+                            </div>
+                            <p className="text-[11px] text-slate-500">Phone: {p.phone || 'No phone'} · Due: {p.dueDate}</p>
+                          </div>
                         </div>
-                        <Button size="sm" variant="outline" onClick={() => handleSendSmsReminder(r.patient_name, r.contact_number, `Reminder: Your prenatal visit is scheduled on ${r.next_visit_date} at ${nurseBarangay} Health Center. — ${nurseName}`, 'Prenatal Reminder')} className="text-[10px] gap-1 h-7 border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer">
-                          <Send size={11} /> SMS
-                        </Button>
+                        <Badge className={`text-[10px] border-0 ${p.isOverdue ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {p.isOverdue ? 'Overdue' : 'Due Soon'}
+                        </Badge>
                       </div>
                     ))}
-                    {upcomingImmun.map(r => (
-                      <div key={r.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200">
-                        <div>
-                          <p className="text-xs font-bold text-slate-800 cursor-pointer hover:text-teal-700" onClick={() => openPatient360(r.child_name, r.contact_number)}>{r.child_name}</p>
-                          <p className="text-[11px] text-slate-500">Vaccine due: {r.next_due_date} — {r.contact_number}</p>
-                        </div>
-                        <Button size="sm" variant="outline" onClick={() => handleSendSmsReminder(r.child_name, r.contact_number, `Reminder: ${r.child_name}'s ${r.vaccine_given} (${r.dose_number}) is due on ${r.next_due_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`, 'Immunization Reminder')} className="text-[10px] gap-1 h-7 border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer">
-                          <Send size={11} /> SMS
-                        </Button>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               )}
             </div>
           )}
 
-          {/* ═══ CONSULTATIONS ══════════════════════════════════════════════ */}
+          {/* ═══ CONSULTATIONS TAB ══════════════════════════════════════════ */}
           {activeTab === 'consultations' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Stethoscope className="text-teal-700" size={20} /> Patient Consultations</h2>
-                <Button onClick={() => setIsNewConsultOpen(true)} className="bg-teal-700 hover:bg-teal-800 text-white text-xs gap-1.5 cursor-pointer">
-                  <PlusCircle size={14} /> New Consultation
-                </Button>
+              {/* Clean White Consultations Header Card */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-teal-50 text-teal-800 border-teal-200 text-[10px] font-bold px-2 py-0.5 uppercase">
+                      Clinical Encounters
+                    </Badge>
+                    <span className="text-xs text-slate-500 font-medium">Barangay {nurseBarangay}</span>
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900 mt-1 flex items-center gap-2">
+                    <Stethoscope className="text-teal-600" size={20} /> Patient Consultations &amp; Specialized Programs
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    General consultations, adolescent health checks, family planning counseling, and TB-DOTS clinical records.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setIsIntakeOpen(true)}
+                    variant="outline"
+                    className="border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold gap-1.5 rounded-xl cursor-pointer"
+                  >
+                    <UserPlus size={14} className="text-slate-500" /> + Add Patient
+                  </Button>
+                  <Button
+                    onClick={() => setIsNewConsultOpen(true)}
+                    className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold gap-1.5 shadow-xs cursor-pointer rounded-xl h-9 px-4"
+                  >
+                    <PlusCircle size={14} /> + New Consultation
+                  </Button>
+                </div>
               </div>
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Patient Name (Click for 360° Profile)</TableHead>
-                        <TableHead className="text-xs">Contact Number</TableHead>
-                        <TableHead className="text-xs">Service</TableHead>
-                        <TableHead className="text-xs">Vitals</TableHead>
-                        <TableHead className="text-xs">Date</TableHead>
-                        <TableHead className="text-xs">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {consultations.filter(c => !search || c.patient_name.toLowerCase().includes(search.toLowerCase())).map((c, idx) => (
-                        <TableRow key={`cons-${c.id}-${idx}`} className="text-xs hover:bg-teal-50/30">
+
+              {/* Filter Pills */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[
+                    { id: 'All', label: 'All Programs' },
+                    { id: 'General Consultation', label: 'General' },
+                    { id: 'Adolescent Health', label: 'Adolescent' },
+                    { id: 'Family Planning', label: 'Family Planning' },
+                    { id: 'Teenage Pregnancy Prevention', label: 'Teenage Prevention' },
+                    { id: 'NTP (TB-DOTS)', label: 'NTP (TB-DOTS)' }
+                  ].map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setConsFilterProgram(p.id)}
+                      className={`text-xs px-3 py-1.5 rounded-xl font-semibold transition-all cursor-pointer border ${
+                        consFilterProgram === p.id
+                          ? 'bg-teal-800 text-white border-teal-800 shadow-xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="w-64">
+                  <Input
+                    placeholder="Search patient or phone..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="h-8 text-xs bg-white rounded-xl border-slate-200"
+                  />
+                </div>
+              </div>
+
+              {/* Consultations Table */}
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-xs font-bold text-slate-700">Patient Details</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Program / Service</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Vitals &amp; Category</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Chief Complaint &amp; Diagnosis</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Prescription / Management</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Date</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredConsultations.map((c, idx) => {
+                      const prog = c.program_type || c.service_type || 'General Consultation';
+                      const badgeStyle = prog.includes('Adolescent')
+                        ? 'bg-purple-100 text-purple-800 border-purple-200'
+                        : prog.includes('Family Planning')
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                        : prog.includes('Teenage')
+                        ? 'bg-rose-100 text-rose-800 border-rose-200'
+                        : prog.includes('TB-DOTS') || prog.includes('NTP')
+                        ? 'bg-amber-100 text-amber-800 border-amber-200'
+                        : 'bg-teal-100 text-teal-800 border-teal-200';
+
+                      return (
+                        <TableRow key={`cons-${c.id}-${idx}`} className="text-xs hover:bg-slate-50/70 transition-colors">
                           <TableCell>
                             <button
                               onClick={() => openPatient360(c.patient_name, c.contact_number, c.barangay)}
-                              className="font-bold text-teal-800 hover:underline text-left cursor-pointer flex items-center gap-1.5"
+                              className="font-bold text-slate-900 hover:text-teal-700 text-left cursor-pointer flex items-center gap-1.5"
                             >
                               <User size={13} className="text-teal-600" />
                               {c.patient_name}
                             </button>
-                            <span className="text-[10px] text-slate-400 block ml-4.5">{c.age} / {c.gender}</span>
+                            <span className="text-[11px] text-slate-500 block ml-4.5">
+                              {c.age} yrs · {c.gender} · <span className="font-mono">{c.contact_number || 'No phone'}</span>
+                            </span>
                           </TableCell>
-                          <TableCell><span className="flex items-center gap-1 text-slate-700 font-mono"><Phone size={11} className="text-teal-600" />{c.contact_number || '—'}</span></TableCell>
-                          <TableCell><Badge className="bg-teal-100 text-teal-800 text-[10px] font-medium border-0">{c.service_type}</Badge></TableCell>
-                          <TableCell className="text-slate-500 text-[10px]">BP: {c.bp}<br />Temp: {c.temp} | Wt: {c.weight}</TableCell>
-                          <TableCell className="text-slate-400">{c.consultation_date}</TableCell>
+
                           <TableCell>
-                            {c.contact_number && (
-                              <Button size="sm" variant="outline" onClick={() => handleSendSmsReminder(c.patient_name, c.contact_number, `Dear ${c.patient_name}, follow up check-up recommended at ${nurseBarangay} Health Center. — ${nurseName}`, 'Follow-up')} className="text-[10px] h-6 gap-1 border-teal-200 text-teal-700 cursor-pointer">
-                                <Send size={10} /> SMS
-                              </Button>
-                            )}
+                            <Badge className={`text-[10px] font-bold border ${badgeStyle}`}>
+                              {prog}
+                            </Badge>
+                          </TableCell>
+
+                          <TableCell>
+                            <span className="font-mono font-semibold text-slate-800">{c.bp}</span>
+                            <span className="text-[10px] text-slate-400 block">{c.temp} · {c.weight}</span>
+                          </TableCell>
+
+                          <TableCell className="max-w-[200px]">
+                            <p className="font-semibold text-slate-800 truncate" title={c.chief_complaint}>{c.chief_complaint}</p>
+                            <p className="text-[11px] text-slate-500 truncate" title={c.diagnosis}>{c.diagnosis}</p>
+                          </TableCell>
+
+                          <TableCell className="max-w-[200px]">
+                            <span className="text-[11px] text-teal-900 bg-teal-50/70 px-2 py-0.5 rounded border border-teal-200/50 block truncate" title={c.prescribed_meds || c.treatment}>
+                              {c.prescribed_meds || c.treatment || 'Routine care advised'}
+                            </span>
+                          </TableCell>
+
+                          <TableCell className="text-slate-500 font-mono text-[11px]">
+                            {c.consultation_date}
+                          </TableCell>
+
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openPatient360(c.patient_name, c.contact_number, c.barangay)}
+                              className="text-[10px] h-7 px-2 border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer rounded-lg"
+                            >
+                              View 360°
+                            </Button>
                           </TableCell>
                         </TableRow>
-                      ))}
-                      {consultations.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-xs py-8 text-slate-400">No consultations recorded yet</TableCell></TableRow>}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                      );
+                    })}
+                    {filteredConsultations.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-xs py-10 text-slate-400">
+                          No consultations match the selected filters.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
 
-          {/* ═══ PRENATAL / MATERNAL ════════════════════════════════════════ */}
+          {/* ═══ PRENATAL & MATERNAL TAB ════════════════════════════════════ */}
           {activeTab === 'maternal' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Heart className="text-pink-600" size={20} /> Prenatal & Maternal Care Records</h2>
-                <div className="flex gap-2">
-                  <Button onClick={handleSendDueSmsAll} variant="outline" className="text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer">
-                    <Send size={13} /> Send All Due SMS
+              {/* Clean White Maternal Header Card */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-pink-50 text-pink-800 border-pink-200 text-[10px] font-bold px-2 py-0.5 uppercase">
+                      Maternal Health &amp; Safe Motherhood
+                    </Badge>
+                    <span className="text-xs text-slate-500 font-medium">Barangay {nurseBarangay}</span>
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900 mt-1 flex items-center gap-2">
+                    <Heart className="text-pink-600" size={20} /> Prenatal &amp; Maternal Registry (2nd Visit Tracking)
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Track LMP, EDD, AOG weeks, fundic height, fetal heart tones, and scheduled 2nd visit follow-ups.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setIsBatchSmsOpen(true)}
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-semibold gap-1.5 shadow-xs cursor-pointer rounded-xl h-9 px-3.5"
+                  >
+                    <Send size={13} className="text-amber-700" />
+                    <span>Send Due Reminders ({overduePrenatal.length})</span>
                   </Button>
-                  <Button onClick={() => setIsNewPrenatalOpen(true)} className="bg-pink-600 hover:bg-pink-700 text-white text-xs gap-1.5 cursor-pointer">
-                    <PlusCircle size={14} /> New Prenatal Record
+                  <Button
+                    onClick={() => setIsNewPrenatalOpen(true)}
+                    className="bg-pink-600 hover:bg-pink-700 text-white text-xs font-bold gap-1.5 shadow-xs cursor-pointer rounded-xl h-9 px-4"
+                  >
+                    <PlusCircle size={14} /> + New Prenatal Record
                   </Button>
                 </div>
               </div>
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-pink-50/50">
-                        <TableHead className="text-xs">Mother Patient (Click for 360° Profile)</TableHead>
-                        <TableHead className="text-xs">Contact Number</TableHead>
-                        <TableHead className="text-xs">AOG / EDD</TableHead>
-                        <TableHead className="text-xs">Vitals & FHR</TableHead>
-                        <TableHead className="text-xs">Next Visit Date</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs">SMS Alert</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {prenatalRecords.map((r, idx) => {
-                        const isOverdue = r.next_visit_date && new Date(r.next_visit_date) < new Date();
-                        const isDueSoon = r.next_visit_date && !isOverdue && (new Date(r.next_visit_date).getTime() - Date.now()) / 86400000 <= 7;
-                        return (
-                          <TableRow key={`prn-${r.id}-${idx}`} className={`text-xs ${isOverdue ? 'bg-red-50' : isDueSoon ? 'bg-amber-50' : ''}`}>
-                            <TableCell>
-                              <button
+
+              {/* Filter Pills with 2nd Visit highlight */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[
+                    { id: 'all', label: 'All Mothers' },
+                    { id: '1st', label: '1st Visit' },
+                    { id: '2nd', label: '⭐ 2nd Visit' },
+                    { id: '3rd', label: '3rd+ Visit' },
+                    { id: 'due', label: '⚠️ Overdue / Due Soon' }
+                  ].map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setMaternalFilterVisit(f.id as any)}
+                      className={`text-xs px-3 py-1.5 rounded-xl font-semibold transition-all cursor-pointer border ${
+                        maternalFilterVisit === f.id
+                          ? f.id === '2nd'
+                            ? 'bg-purple-800 text-white border-purple-800 shadow-xs'
+                            : 'bg-pink-700 text-white border-pink-700 shadow-xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="w-64">
+                  <Input
+                    placeholder="Search mother or phone..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="h-8 text-xs bg-white rounded-xl border-slate-200"
+                  />
+                </div>
+              </div>
+
+              {/* Maternal Table */}
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-xs font-bold text-slate-700">Mother Patient</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Visit Number</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">AOG / EDD</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Vitals &amp; FHR</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Next Scheduled Visit</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Schedule Status</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredMaternal.map((r, idx) => {
+                      const isOverdue = r.next_visit_date && new Date(r.next_visit_date) <= new Date();
+                      const isDueSoon = r.next_visit_date && !isOverdue && (new Date(r.next_visit_date).getTime() - Date.now()) / 86400000 <= 7;
+                      const isSecondVisit = r.visit_number === 2;
+
+                      return (
+                        <TableRow key={`prn-${r.id}-${idx}`} className={`text-xs hover:bg-slate-50/70 transition-colors ${isOverdue ? 'bg-red-50/40' : isDueSoon ? 'bg-amber-50/40' : ''}`}>
+                          <TableCell>
+                            <button
+                              onClick={() => openPatient360(r.patient_name, r.contact_number, r.barangay)}
+                              className="font-bold text-slate-900 hover:text-pink-700 text-left cursor-pointer flex items-center gap-1.5"
+                            >
+                              <Heart size={13} className="text-pink-600" />
+                              {r.patient_name}
+                            </button>
+                            <span className="text-[11px] text-slate-500 block ml-4.5">
+                              {r.age} yrs · {r.gravida} {r.para} · <span className="font-mono">{r.contact_number}</span>
+                            </span>
+                          </TableCell>
+
+                          <TableCell>
+                            <Badge className={`text-[10px] font-bold border ${isSecondVisit ? 'bg-purple-100 text-purple-900 border-purple-300' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
+                              {isSecondVisit ? '⭐ 2nd Visit' : `Visit #${r.visit_number}`}
+                            </Badge>
+                          </TableCell>
+
+                          <TableCell>
+                            <span className="font-bold text-slate-800">{r.aog_weeks} wks AOG</span>
+                            <span className="text-[10px] text-slate-400 block font-mono">EDD: {r.edd || '—'}</span>
+                          </TableCell>
+
+                          <TableCell>
+                            <span className="font-mono font-semibold text-slate-800">BP: {r.bp}</span>
+                            <span className="text-[10px] text-slate-500 block">FHR: {r.fetal_heart_rate} · Fundic: {r.fundic_height}</span>
+                          </TableCell>
+
+                          <TableCell>
+                            <span className={`font-semibold font-mono ${isOverdue ? 'text-red-700' : isDueSoon ? 'text-amber-700' : 'text-slate-800'}`}>
+                              {r.next_visit_date}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block truncate max-w-[150px]">{r.next_visit_note}</span>
+                          </TableCell>
+
+                          <TableCell>
+                            <Badge className={`text-[10px] border-0 font-bold ${isOverdue ? 'bg-red-100 text-red-700' : isDueSoon ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                              {isOverdue ? 'Overdue' : isDueSoon ? 'Due Soon' : 'On Track'}
+                            </Badge>
+                          </TableCell>
+
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
                                 onClick={() => openPatient360(r.patient_name, r.contact_number, r.barangay)}
-                                className="font-bold text-pink-900 hover:underline text-left cursor-pointer flex items-center gap-1.5"
+                                className="text-[10px] h-7 px-2 border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer rounded-lg"
                               >
-                                <Heart size={13} className="text-pink-600" />
-                                {r.patient_name}
-                              </button>
-                              <span className="text-[10px] text-slate-400 block ml-4.5">{r.gravida} {r.para} · Visit #{r.visit_number}</span>
-                            </TableCell>
-                            <TableCell><span className="flex items-center gap-1 text-slate-700 font-mono"><Phone size={11} className="text-pink-600" />{r.contact_number}</span></TableCell>
-                            <TableCell className="text-[10px]">{r.aog_weeks} wks AOG<br />EDD: {r.edd || '—'}</TableCell>
-                            <TableCell className="text-[10px] text-slate-500">BP: {r.bp}<br />Wt: {r.weight} kg · FHR: {r.fetal_heart_rate}</TableCell>
-                            <TableCell className="text-[10px]">
-                              <span className={`font-semibold ${isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-slate-700'}`}>{r.next_visit_date}</span>
-                              <br /><span className="text-slate-400">{r.next_visit_note}</span>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={`text-[10px] border-0 ${isOverdue ? 'bg-red-100 text-red-700' : isDueSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                                {isOverdue ? 'Overdue' : isDueSoon ? 'Due Soon' : 'On Track'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              {r.contact_number && (
-                                <Button size="sm" variant="outline" onClick={() => handleSendSmsReminder(r.patient_name, r.contact_number, `Dear ${r.patient_name}, your prenatal check-up visit${isOverdue ? ' was due on' : ' is scheduled for'} ${r.next_visit_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`, 'Prenatal Reminder')}
-                                  className={`text-[10px] h-6 gap-1 cursor-pointer ${isOverdue ? 'border-red-200 text-red-700' : 'border-teal-200 text-teal-700'}`}>
-                                  <Send size={10} /> {r.sms_sent ? '✓ Sent' : 'Send SMS'}
-                                </Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                      {prenatalRecords.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-xs py-8 text-slate-400">No prenatal records registered yet.</TableCell></TableRow>}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                                360° Profile
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {filteredMaternal.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-xs py-10 text-slate-400">
+                          No maternal records match the selected filter.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
 
-          {/* ═══ IMMUNIZATIONS (Standard DOH Fields) ════════════════════════ */}
+          {/* ═══ IMMUNIZATIONS TAB ══════════════════════════════════════════ */}
           {activeTab === 'immunizations' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Syringe className="text-blue-600" size={20} /> EPI Child Immunization Records (DOH Standard)</h2>
-                <div className="flex gap-2">
-                  <Button onClick={handleSendDueSmsAll} variant="outline" className="text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 cursor-pointer">
-                    <Send size={13} /> Send Due SMS
+              {/* Clean White Immunizations Header Card */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-blue-50 text-blue-800 border-blue-200 text-[10px] font-bold px-2 py-0.5 uppercase">
+                      National Immunization Program
+                    </Badge>
+                    <span className="text-xs text-slate-500 font-medium">Barangay {nurseBarangay}</span>
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900 mt-1 flex items-center gap-2">
+                    <Syringe className="text-blue-600" size={20} /> EPI Child Immunization Registry (Dose 2 Tracking)
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    DOH standard child vaccination records, dynamic vaccine types, batch tracking, and reminder scheduling.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setIsBatchSmsOpen(true)}
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-semibold gap-1.5 shadow-xs cursor-pointer rounded-xl h-9 px-3.5"
+                  >
+                    <Send size={13} className="text-amber-700" />
+                    <span>Send Due Reminders ({overdueImmun.length})</span>
                   </Button>
-                  <Button onClick={() => setIsNewImmunOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 cursor-pointer">
-                    <PlusCircle size={14} /> Record Child Vaccination
+                  <Button
+                    onClick={() => setIsNewImmunOpen(true)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold gap-1.5 shadow-xs cursor-pointer rounded-xl h-9 px-4"
+                  >
+                    <PlusCircle size={14} /> + Record Child Vaccination
                   </Button>
                 </div>
               </div>
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-blue-50/50">
-                        <TableHead className="text-xs">Child Patient (Click for 360° Profile)</TableHead>
-                        <TableHead className="text-xs">Guardian Contact</TableHead>
-                        <TableHead className="text-xs">Vaccine & Batch #</TableHead>
-                        <TableHead className="text-xs">Growth & Vitals</TableHead>
-                        <TableHead className="text-xs">Date Administered</TableHead>
-                        <TableHead className="text-xs">Next Due Date</TableHead>
-                        <TableHead className="text-xs">SMS Reminder</TableHead>
+
+              {/* Filter Pills with Dose 2 Highlight */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[
+                    { id: 'all', label: 'All Doses' },
+                    { id: 'dose1', label: 'Dose 1' },
+                    { id: 'dose2', label: '⭐ Dose 2' },
+                    { id: 'dose3', label: 'Dose 3 / Booster' },
+                    { id: 'due', label: '⚠️ Overdue / Due Soon' }
+                  ].map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setImmunFilterDose(f.id as any)}
+                      className={`text-xs px-3 py-1.5 rounded-xl font-semibold transition-all cursor-pointer border ${
+                        immunFilterDose === f.id
+                          ? f.id === 'dose2'
+                            ? 'bg-purple-800 text-white border-purple-800 shadow-xs'
+                            : 'bg-blue-700 text-white border-blue-700 shadow-xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="w-64">
+                  <Input
+                    placeholder="Search child or guardian phone..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="h-8 text-xs bg-white rounded-xl border-slate-200"
+                  />
+                </div>
+              </div>
+
+              {/* Immunization Table */}
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-xs font-bold text-slate-700">Child Patient</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Vaccine &amp; Dose</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Batch / Lot #</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Date Administered</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Next Due Date</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Observations / Remarks</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredImmun.map((r, idx) => {
+                      const isOverdue = r.next_due_date && new Date(r.next_due_date) <= new Date();
+                      const isDueSoon = r.next_due_date && !isOverdue && (new Date(r.next_due_date).getTime() - Date.now()) / 86400000 <= 7;
+                      const isDose2 = r.dose_number.includes('2');
+
+                      return (
+                        <TableRow key={`imm-${r.id}-${idx}`} className={`text-xs hover:bg-slate-50/70 transition-colors ${isOverdue ? 'bg-red-50/40' : isDueSoon ? 'bg-amber-50/40' : ''}`}>
+                          <TableCell>
+                            <button
+                              onClick={() => openPatient360(r.child_name, r.contact_number, r.barangay)}
+                              className="font-bold text-slate-900 hover:text-blue-700 text-left cursor-pointer flex items-center gap-1.5"
+                            >
+                              <Baby size={13} className="text-blue-600" />
+                              {r.child_name}
+                            </button>
+                            <span className="text-[11px] text-slate-500 block ml-4.5">
+                              {r.age_months} mos · Guardian: {r.guardian} · <span className="font-mono">{r.contact_number}</span>
+                            </span>
+                          </TableCell>
+
+                          <TableCell>
+                            <span className="font-bold text-slate-900 block">{r.vaccine_given}</span>
+                            <Badge className={`text-[9px] font-bold border mt-0.5 ${isDose2 ? 'bg-purple-100 text-purple-900 border-purple-300' : 'bg-blue-100 text-blue-900 border-blue-200'}`}>
+                              {r.dose_number}
+                            </Badge>
+                          </TableCell>
+
+                          <TableCell className="font-mono text-slate-600 text-[11px]">
+                            {r.batch_number || 'LOT-2026-X9'}
+                          </TableCell>
+
+                          <TableCell className="font-mono text-slate-600 text-[11px]">
+                            {r.date_given}
+                          </TableCell>
+
+                          <TableCell>
+                            <span className={`font-semibold font-mono ${isOverdue ? 'text-red-700' : isDueSoon ? 'text-amber-700' : 'text-slate-800'}`}>
+                              {r.next_due_date || 'Completed Series'}
+                            </span>
+                            {isOverdue && <span className="text-[10px] text-red-600 block font-bold">⚠️ Overdue</span>}
+                          </TableCell>
+
+                          <TableCell className="max-w-[200px]">
+                            <span className="text-[11px] text-slate-600 truncate block" title={r.remarks}>
+                              {r.remarks || 'Cleared for routine vaccination'}
+                            </span>
+                          </TableCell>
+
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openPatient360(r.child_name, r.contact_number, r.barangay)}
+                              className="text-[10px] h-7 px-2 border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer rounded-lg"
+                            >
+                              360° Profile
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {filteredImmun.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-xs py-10 text-slate-400">
+                          No child immunization records match the selected filter.
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {immunRecords.map((r, idx) => {
-                        const isOverdue = r.next_due_date && new Date(r.next_due_date) < new Date();
-                        const isDueSoon = r.next_due_date && !isOverdue && (new Date(r.next_due_date).getTime() - Date.now()) / 86400000 <= 7;
-                        return (
-                          <TableRow key={`imm-${r.id}-${idx}`} className={`text-xs ${isOverdue ? 'bg-red-50' : isDueSoon ? 'bg-amber-50' : ''}`}>
-                            <TableCell>
-                              <button
-                                onClick={() => openPatient360(r.child_name, r.contact_number, r.barangay)}
-                                className="font-bold text-blue-900 hover:underline text-left cursor-pointer flex items-center gap-1.5"
-                              >
-                                <Baby size={13} className="text-blue-600" />
-                                {r.child_name}
-                              </button>
-                              <span className="text-[10px] text-slate-400 block ml-4.5">{r.age_months} mos · Guardian: {r.guardian}</span>
-                            </TableCell>
-                            <TableCell><span className="flex items-center gap-1 text-slate-700 font-mono"><Phone size={11} className="text-blue-600" />{r.contact_number}</span></TableCell>
-                            <TableCell>
-                              <Badge className="bg-blue-100 text-blue-800 text-[10px] border-0">{r.vaccine_given}</Badge>
-                              <br />
-                              <span className="text-[10px] text-slate-500 font-mono">{r.dose_number} · Batch: {r.batch_number || 'N/A'}</span>
-                            </TableCell>
-                            <TableCell className="text-[10px] text-slate-500">Wt: {r.weight || '—'} · Ht: {r.height || '—'}<br />Temp: {r.temp || '—'}</TableCell>
-                            <TableCell className="text-slate-500 text-[10px]">{r.date_given}</TableCell>
-                            <TableCell>
-                              <span className={`text-xs font-semibold ${isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-slate-700'}`}>
-                                {r.next_due_date || 'Complete'}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              {r.contact_number && r.next_due_date && (
-                                <Button size="sm" variant="outline" onClick={() => handleSendSmsReminder(r.child_name, r.contact_number, `Reminder: ${r.child_name}'s ${r.vaccine_given} (${r.dose_number}) is${isOverdue ? ' overdue since' : ' due on'} ${r.next_due_date}. Please visit ${nurseBarangay} Health Center. — ${nurseName}`, 'Immunization Reminder')}
-                                  className={`text-[10px] h-6 gap-1 cursor-pointer ${isOverdue ? 'border-red-200 text-red-700' : 'border-teal-200 text-teal-700'}`}>
-                                  <Send size={10} /> {r.sms_sent ? '✓ Sent' : 'Send SMS'}
-                                </Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                      {immunRecords.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-xs py-8 text-slate-400">No immunization records yet.</TableCell></TableRow>}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
 
-          {/* ═══ WEEKLY SCHEDULE (NO SLOTS - OPERATING HOURS ONLY) ═════════ */}
+          {/* ═══ WEEKLY SCHEDULE TAB ════════════════════════════════════════ */}
           {activeTab === 'schedule' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><CalendarCheck className="text-violet-600" size={20} /> Weekly Clinic Schedule & Operating Hours</h2>
-                  <p className="text-xs text-slate-500">Post and edit official health center consultation hours (no slot limits)</p>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <CalendarCheck className="text-violet-600" size={20} /> Weekly Clinic Schedule &amp; Operating Hours
+                  </h2>
+                  <p className="text-xs text-slate-500">Official health center consultation hours (no slot limits)</p>
                 </div>
-                <Button onClick={() => setIsScheduleOpen(true)} className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1.5 cursor-pointer">
+                <Button onClick={() => setIsScheduleOpen(true)} className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1.5 cursor-pointer rounded-xl">
                   <PlusCircle size={14} /> Post Weekly Schedule
                 </Button>
               </div>
 
-              {/* Posted Schedules Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {weeklySchedules.map((s, idx) => (
-                  <Card key={`sch-${s.id}-${idx}`} className="border border-violet-200 bg-white hover:shadow-md transition-shadow">
+                  <Card key={`sch-${s.id}-${idx}`} className="border border-slate-200 bg-white rounded-2xl shadow-xs hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-2">
                         <div>
@@ -1242,7 +2137,6 @@ export default function NurseDashboard() {
                         <div className="flex items-center gap-2"><MapPin size={13} className="text-violet-600" />{s.location}</div>
                         <div className="flex items-center gap-2 text-[11px] text-slate-500"><UserPlus size={13} className="text-violet-600" />Attending: {s.assigned_to}</div>
                       </div>
-                      <p className="text-[10px] text-slate-400 mt-3 pt-2 border-t border-slate-100">Posted date: {s.posted_date}</p>
                     </CardContent>
                   </Card>
                 ))}
@@ -1250,54 +2144,55 @@ export default function NurseDashboard() {
             </div>
           )}
 
-          {/* ═══ INVENTORY (NO COLD CHAIN) ═════════════════════════════════ */}
+          {/* ═══ INVENTORY TAB ═══════════════════════════════════════════════ */}
           {activeTab === 'inventory' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Package className="text-emerald-600" size={20} /> Vaccines & Medicine Supply</h2>
-                  <p className="text-xs text-slate-500">Track stock levels and expiration dates for essential health center supplies</p>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <Pill className="text-emerald-600" size={20} /> Vaccines &amp; Medicine Inventory
+                  </h2>
+                  <p className="text-xs text-slate-500">Live stock tracking for maternal vitamins, EPI vaccines, and clinic medicines</p>
                 </div>
-                <Button onClick={() => setIsInventoryOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 cursor-pointer">
-                  <PlusCircle size={14} /> Add Medicine / Vaccine
+                <Button onClick={() => setIsInventoryOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 cursor-pointer rounded-xl">
+                  <PlusCircle size={14} /> Add Inventory Item
                 </Button>
               </div>
 
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-emerald-50/50">
-                        <TableHead className="text-xs">Item Name</TableHead>
-                        <TableHead className="text-xs">Category</TableHead>
-                        <TableHead className="text-xs">Stock Level</TableHead>
-                        <TableHead className="text-xs">Expiry Date</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs text-right">Actions</TableHead>
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-xs font-bold text-slate-700">Item Name</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Category</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Stock on Hand</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Expiration</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700">Status</TableHead>
+                      <TableHead className="text-xs font-bold text-slate-700 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {inventory.map(item => (
+                      <TableRow key={item.id} className="text-xs hover:bg-slate-50/70">
+                        <TableCell className="font-bold text-slate-900">{item.item_name}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-[10px]">{item.category}</Badge></TableCell>
+                        <TableCell className="font-bold font-mono">{item.stock} {item.unit}</TableCell>
+                        <TableCell className="font-mono text-slate-500">{item.expiry_date}</TableCell>
+                        <TableCell>
+                          <Badge className={`text-[10px] border-0 ${item.status === 'In Stock' ? 'bg-emerald-100 text-emerald-800' : item.status === 'Low Stock' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}>
+                            {item.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <button onClick={() => handleDeleteInventory(item.id)} className="p-1 text-slate-400 hover:text-red-600 cursor-pointer">
+                            <Trash2 size={13} />
+                          </button>
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {inventory.map((item, idx) => (
-                        <TableRow key={`inv-${item.id}-${idx}`} className="text-xs hover:bg-emerald-50/30">
-                          <TableCell className="font-semibold text-slate-800">{item.item_name}</TableCell>
-                          <TableCell><Badge className="bg-slate-100 text-slate-700 text-[10px] border-0">{item.category}</Badge></TableCell>
-                          <TableCell className="font-bold text-slate-800">{item.stock} <span className="text-slate-400 font-normal">{item.unit}</span></TableCell>
-                          <TableCell className="text-[11px] text-slate-500">{item.expiry_date || '—'}</TableCell>
-                          <TableCell>
-                            <Badge className={`text-[10px] border-0 ${item.status === 'In Stock' ? 'bg-emerald-100 text-emerald-700' : item.status === 'Low Stock' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{item.status}</Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              <button onClick={() => { setEditingItem({ ...item }); setIsEditInventoryOpen(true); }} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg cursor-pointer"><Edit2 size={13} /></button>
-                              <button onClick={() => handleDeleteInventory(item.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"><Trash2 size={13} /></button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
 
@@ -1312,31 +2207,6 @@ export default function NurseDashboard() {
           {/* ═══ GMAIL-STYLE SMS NOTIFICATIONS ═════════════════════════════════ */}
           {activeTab === 'sms' && (
             <div className="space-y-4">
-              {/* Overdue Urgent Action Banner (if any) */}
-              {(overduePrenatal.length > 0 || overdueImmun.length > 0) && (
-                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="text-amber-600 shrink-0" size={20} />
-                    <div>
-                      <p className="text-xs font-bold text-amber-900">
-                        {overduePrenatal.length + overdueImmun.length} Patients Have Overdue Visits
-                      </p>
-                      <p className="text-[11px] text-amber-700">
-                        {overduePrenatal.length} prenatal check-ups and {overdueImmun.length} child immunizations require immediate follow-up.
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleSendDueSmsAll}
-                    size="sm"
-                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs gap-1.5 cursor-pointer shrink-0"
-                  >
-                    <Send size={13} /> Batch Send Overdue SMS
-                  </Button>
-                </div>
-              )}
-
-              {/* Gmail-Style Notification Center */}
               <GmailNotificationHub
                 notifications={notifications}
                 onRefresh={loadData}
@@ -1347,283 +2217,33 @@ export default function NurseDashboard() {
               />
             </div>
           )}
-
+          {/* ═══ PROFILE SETTINGS DEDICATED TAB ═════════════════════════════ */}
+          {activeTab === 'profile' && (
+            <ProfileSettingsView
+              user={user}
+              onProfileUpdated={(updated) => setUser(updated)}
+            />
+          )}
         </main>
       </div>
 
       {/* ─── MODALS ──────────────────────────────────────────────────────────── */}
 
-      {/* 360 Patient Details Modal */}
-      <PatientDetailModal
-        isOpen={isPatientModalOpen}
-        onClose={() => setIsPatientModalOpen(false)}
-        patient={selectedPatientModal}
+      {/* Safe Batch SMS Preview & Confirmation Modal */}
+      <BatchSmsReminderModal
+        isOpen={isBatchSmsOpen}
+        onClose={() => setIsBatchSmsOpen(false)}
+        duePatients={duePatientsList}
+        barangay={nurseBarangay}
+        attendingName={nurseName}
+        onBatchSent={(sentIds) => {
+          setPrenatalRecords(prev => prev.map(p => sentIds.includes(`mat-${p.id}`) ? { ...p, sms_sent: true } : p));
+          setImmunRecords(prev => prev.map(i => sentIds.includes(`imm-${i.id}`) ? { ...i, sms_sent: true } : i));
+          loadData();
+        }}
       />
 
-      {/* New Consultation Modal */}
-      <Dialog open={isNewConsultOpen} onOpenChange={setIsNewConsultOpen}>
-        <DialogContent className="bg-white max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><Stethoscope className="text-teal-600" size={18} /> Record Patient Consultation</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCreateConsultation} className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="col-span-2"><Label className="text-xs font-semibold">Patient Name <span className="text-red-500">*</span></Label><Input value={cName} onChange={e => setCName(e.target.value)} placeholder="Full name" required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label><Input value={cPhone} onChange={e => setCPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required className="h-9 text-xs font-mono mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Age</Label><Input value={cAge} onChange={e => setCAge(e.target.value)} placeholder="e.g. 28" className="h-9 text-xs mt-1" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs font-semibold">Gender</Label>
-                <Select value={cGender} onValueChange={v => setCGender(v as any)}>
-                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="Female">Female</SelectItem><SelectItem value="Male">Male</SelectItem></SelectContent>
-                </Select>
-              </div>
-              <div><Label className="text-xs font-semibold">Service Type</Label>
-                <Select value={cService} onValueChange={setCService}>
-                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['General Consultation', 'Prenatal Care', 'Child Immunization', 'Family Planning', 'BP/Diabetes Monitoring', 'Wound Care', 'TB-DOTS'].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="bg-teal-50 border border-teal-200 rounded-xl p-3">
-              <p className="text-[11px] font-bold text-teal-900 mb-2">Vital Signs</p>
-              <div className="grid grid-cols-4 gap-2">
-                <div><Label className="text-[10px]">BP (mmHg)</Label><Input value={cBp} onChange={e => setCBp(e.target.value)} placeholder="120/80" className="h-8 text-xs bg-white" /></div>
-                <div><Label className="text-[10px]">Temp (°C)</Label><Input value={cTemp} onChange={e => setCTemp(e.target.value)} placeholder="36.5" className="h-8 text-xs bg-white" /></div>
-                <div><Label className="text-[10px]">Weight (kg)</Label><Input value={cWeight} onChange={e => setCWeight(e.target.value)} placeholder="54" className="h-8 text-xs bg-white" /></div>
-                <div><Label className="text-[10px]">HR (bpm)</Label><Input value={cHR} onChange={e => setCHR(e.target.value)} placeholder="76" className="h-8 text-xs bg-white" /></div>
-              </div>
-            </div>
-            <div><Label className="text-xs font-semibold">Chief Complaint</Label><Input value={cComplaint} onChange={e => setCComplaint(e.target.value)} placeholder="e.g. Mild fever for 2 days" className="h-9 text-xs mt-1" /></div>
-            <div><Label className="text-xs font-semibold">Diagnosis</Label><Input value={cDiagnosis} onChange={e => setCDiagnosis(e.target.value)} placeholder="e.g. URTI" className="h-9 text-xs mt-1" /></div>
-            <div><Label className="text-xs font-semibold">Treatment / Prescription</Label><textarea value={cTreatment} onChange={e => setCTreatment(e.target.value)} placeholder="e.g. Paracetamol 500mg..." rows={2} className="w-full px-3 py-2 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 resize-none mt-1" /></div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsNewConsultOpen(false)} className="text-xs">Cancel</Button>
-              <Button type="submit" className="bg-teal-700 hover:bg-teal-800 text-white text-xs gap-1 cursor-pointer"><Check size={13} /> Save Consultation</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* New Prenatal Modal */}
-      <Dialog open={isNewPrenatalOpen} onOpenChange={setIsNewPrenatalOpen}>
-        <DialogContent className="bg-white max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><Heart className="text-pink-600" size={18} /> New Prenatal / Maternal Record</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCreatePrenatal} className="space-y-3 py-2">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2"><Label className="text-xs font-semibold">Patient Name <span className="text-red-500">*</span></Label><Input value={pName} onChange={e => setPName(e.target.value)} placeholder="Full name" required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Age</Label><Input value={pAge} onChange={e => setPAge(e.target.value)} placeholder="e.g. 28" className="h-9 text-xs mt-1" /></div>
-            </div>
-            <div><Label className="text-xs font-semibold">Contact Number <span className="text-red-500">*</span></Label><Input value={pPhone} onChange={e => setPPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required className="h-9 text-xs font-mono mt-1" /></div>
-            <div className="grid grid-cols-4 gap-2">
-              <div><Label className="text-xs font-semibold">Gravida</Label><Input value={pGravida} onChange={e => setPGravida(e.target.value)} placeholder="G1" className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Para</Label><Input value={pPara} onChange={e => setPPara(e.target.value)} placeholder="P0" className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">LMP <span className="text-red-500">*</span></Label><Input type="date" value={pLmp} onChange={e => setPLmp(e.target.value)} required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">EDD</Label><Input type="date" value={pEdd} onChange={e => setPEdd(e.target.value)} className="h-9 text-xs mt-1" /></div>
-            </div>
-            <div><Label className="text-xs font-semibold">AOG (weeks)</Label><Input value={pAog} onChange={e => setPAog(e.target.value)} placeholder="e.g. 22" className="h-9 text-xs mt-1 w-40" /></div>
-            <div className="bg-pink-50 border border-pink-200 rounded-xl p-3">
-              <p className="text-[11px] font-bold text-pink-900 mb-2">Vitals & Fetal Measurements</p>
-              <div className="grid grid-cols-3 gap-2">
-                <div><Label className="text-[10px]">BP (mmHg)</Label><Input value={pBp} onChange={e => setPBp(e.target.value)} placeholder="120/80" className="h-8 text-xs bg-white mt-0.5" /></div>
-                <div><Label className="text-[10px]">Weight (kg)</Label><Input value={pWeight} onChange={e => setPWeight(e.target.value)} placeholder="56.5" className="h-8 text-xs bg-white mt-0.5" /></div>
-                <div><Label className="text-[10px]">Temp (°C)</Label><Input value={pTemp} onChange={e => setPTemp(e.target.value)} placeholder="36.5" className="h-8 text-xs bg-white mt-0.5" /></div>
-                <div><Label className="text-[10px]">Fetal Heart Rate</Label><Input value={pFhr} onChange={e => setPFhr(e.target.value)} placeholder="148 bpm" className="h-8 text-xs bg-white mt-0.5" /></div>
-                <div><Label className="text-[10px]">Fundic Height</Label><Input value={pFh} onChange={e => setPFh(e.target.value)} placeholder="22 cm" className="h-8 text-xs bg-white mt-0.5" /></div>
-              </div>
-            </div>
-            <div><Label className="text-xs font-semibold">Prescribed Medicines</Label><Input value={pMeds} onChange={e => setPMeds(e.target.value)} placeholder="e.g. FeSO4 + Folic Acid" className="h-9 text-xs mt-1" /></div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs font-semibold">Next Visit Date <span className="text-red-500">*</span></Label><Input type="date" value={pNextDate} onChange={e => setPNextDate(e.target.value)} required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Visit Note</Label><Input value={pNextNote} onChange={e => setPNextNote(e.target.value)} placeholder="e.g. 3rd Trimester Check-up" className="h-9 text-xs mt-1" /></div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsNewPrenatalOpen(false)} className="text-xs">Cancel</Button>
-              <Button type="submit" className="bg-pink-600 hover:bg-pink-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Save Record</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* New Child Immunization Modal (DOH Barangay Standard) */}
-      <Dialog open={isNewImmunOpen} onOpenChange={setIsNewImmunOpen}>
-        <DialogContent className="bg-white max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><Baby className="text-blue-600" size={18} /> Record Child Immunization (DOH Standard)</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCreateImmun} className="space-y-3 py-2">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2"><Label className="text-xs font-semibold">Child's Full Name <span className="text-red-500">*</span></Label><Input value={iChild} onChange={e => setIChild(e.target.value)} placeholder="Full name of child" required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Sex</Label>
-                <Select value={iGender} onValueChange={setIGender}>
-                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="Male">Male</SelectItem><SelectItem value="Female">Female</SelectItem></SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs font-semibold">Guardian Name <span className="text-red-500">*</span></Label><Input value={iGuardian} onChange={e => setIGuardian(e.target.value)} placeholder="Parent/Guardian" required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Guardian Phone Number <span className="text-red-500">*</span></Label><Input value={iPhone} onChange={e => setIPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required className="h-9 text-xs font-mono mt-1" /></div>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div><Label className="text-xs font-semibold">Age (months)</Label><Input value={iAge} onChange={e => setIAge(e.target.value)} placeholder="e.g. 6" className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Weight (kg)</Label><Input value={iWeight} onChange={e => setIWeight(e.target.value)} placeholder="e.g. 7.8" className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Height (cm)</Label><Input value={iHeight} onChange={e => setIHeight(e.target.value)} placeholder="e.g. 66" className="h-9 text-xs mt-1" /></div>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div><Label className="text-xs font-semibold">Vaccine Type</Label>
-                <Select value={iVaccine} onValueChange={setIVaccine}>
-                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['BCG', 'Hepatitis B', 'Pentavalent (DPT-HepB-Hib)', 'OPV (Oral Polio)', 'IPV (Inactivated Polio)', 'PCV13', 'MMR (Measles-Mumps-Rubella)', 'Measles-Rubella (MR)', 'Vitamin A'].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div><Label className="text-xs font-semibold">Dose Number</Label>
-                <Select value={iDose} onValueChange={setIDose}>
-                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['Dose 1', 'Dose 2', 'Dose 3', 'Booster 1', 'Booster 2', 'Single Dose'].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div><Label className="text-xs font-semibold">Batch / Lot Number</Label><Input value={iBatch} onChange={e => setIBatch(e.target.value)} placeholder="e.g. LOT-2026-X9" className="h-9 text-xs font-mono mt-1" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs font-semibold">Date Given</Label><Input type="date" value={iDateGiven} onChange={e => setIDateGiven(e.target.value)} className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Next Due Date</Label><Input type="date" value={iNextDue} onChange={e => setINextDue(e.target.value)} className="h-9 text-xs mt-1" /></div>
-            </div>
-            <div><Label className="text-xs font-semibold">Remarks / Adverse Effects Observation</Label><Input value={iRemarks} onChange={e => setIRemarks(e.target.value)} placeholder="e.g. Tolerated well, no post-vaccine reaction" className="h-9 text-xs mt-1" /></div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsNewImmunOpen(false)} className="text-xs">Cancel</Button>
-              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1 cursor-pointer"><Check size={13} /> Save Immunization Record</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Inventory Modal (NO cold_chain) */}
-      <Dialog open={isInventoryOpen} onOpenChange={setIsInventoryOpen}>
-        <DialogContent className="bg-white max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><Package className="text-emerald-600" size={18} /> Add Inventory Item</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleAddInventory} className="space-y-3 py-2">
-            <div><Label className="text-xs font-semibold">Item Name <span className="text-red-500">*</span></Label><Input value={invName} onChange={e => setInvName(e.target.value)} placeholder="e.g. Pentavalent Vaccine" required className="h-9 text-xs mt-1" /></div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs font-semibold">Category</Label>
-                <Select value={invCat} onValueChange={setInvCat}>
-                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['Vaccine (EPI)', 'Maternal Vitamin', 'Essential Medicine', 'Pediatric Supply', 'Family Planning', 'TB-DOTS Supply', 'Contraceptive', 'Other'].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div><Label className="text-xs font-semibold">Unit</Label>
-                <Select value={invUnit} onValueChange={setInvUnit}>
-                  <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['vials', 'tablets', 'capsules', 'packets', 'bottles', 'ampoules', 'units', 'pieces'].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs font-semibold">Stock Quantity <span className="text-red-500">*</span></Label><Input type="number" min="0" value={invStock} onChange={e => setInvStock(e.target.value)} placeholder="e.g. 45" required className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Expiry Date</Label><Input type="date" value={invExpiry} onChange={e => setInvExpiry(e.target.value)} className="h-9 text-xs mt-1" /></div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsInventoryOpen(false)} className="text-xs">Cancel</Button>
-              <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1 cursor-pointer"><PlusCircle size={13} /> Add Item</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Inventory Modal (NO cold_chain) */}
-      <Dialog open={isEditInventoryOpen} onOpenChange={setIsEditInventoryOpen}>
-        <DialogContent className="bg-white max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><Edit2 className="text-emerald-600" size={18} /> Edit Inventory Item</DialogTitle>
-          </DialogHeader>
-          {editingItem && (
-            <form onSubmit={handleUpdateInventory} className="space-y-3 py-2">
-              <div><Label className="text-xs font-semibold">Item Name</Label><Input value={editingItem.item_name} onChange={e => setEditingItem({ ...editingItem, item_name: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><Label className="text-xs font-semibold">Stock Level</Label><Input type="number" min="0" value={editingItem.stock} onChange={e => setEditingItem({ ...editingItem, stock: parseInt(e.target.value) || 0 })} className="h-9 text-xs mt-1" /></div>
-                <div><Label className="text-xs font-semibold">Unit</Label><Input value={editingItem.unit} onChange={e => setEditingItem({ ...editingItem, unit: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              </div>
-              <div><Label className="text-xs font-semibold">Expiry Date</Label><Input type="date" value={editingItem.expiry_date} onChange={e => setEditingItem({ ...editingItem, expiry_date: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsEditInventoryOpen(false)} className="text-xs">Cancel</Button>
-                <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Save Changes</Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Post Schedule Modal (NO SLOTS - OPERATING HOURS ONLY) */}
-      <Dialog open={isScheduleOpen} onOpenChange={setIsScheduleOpen}>
-        <DialogContent className="bg-white max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><CalendarCheck className="text-violet-600" size={18} /> Post Weekly Clinic Schedule</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleAddSchedule} className="space-y-3 py-2">
-            <div><Label className="text-xs font-semibold">Schedule Title <span className="text-red-500">*</span></Label><Input value={sTitle} onChange={e => setSTitle(e.target.value)} placeholder="e.g. Prenatal & Maternal Care Clinic" required className="h-9 text-xs mt-1" /></div>
-            <div><Label className="text-xs font-semibold">Service Type</Label>
-              <Select value={sService} onValueChange={setSService}>
-                <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['Prenatal Care', 'Child Immunization', 'Family Planning', 'General Consultation', 'TB-DOTS', 'BP/Diabetes Monitoring', 'Nutrition Program', 'Dental Health'].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div><Label className="text-xs font-semibold">Day / Days of Week</Label>
-              <Select value={sDay} onValueChange={setSDay}>
-                <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['Every Monday', 'Every Tuesday', 'Every Wednesday', 'Every Thursday', 'Every Friday', 'Every Monday & Thursday', 'Every Tuesday & Friday', '1st & 3rd Wednesday', 'Every Day (Mon-Fri)'].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div><Label className="text-xs font-semibold">Operating Hours / Time Slot <span className="text-red-500">*</span></Label><Input value={sTime} onChange={e => setSTime(e.target.value)} placeholder="e.g. 8:00 AM – 12:00 PM & 1:00 PM – 4:00 PM" required className="h-9 text-xs mt-1" /></div>
-            <div><Label className="text-xs font-semibold">Location</Label><Input value={sLocation} onChange={e => setSLocation(e.target.value)} placeholder={`Barangay ${nurseBarangay} Health Center`} className="h-9 text-xs mt-1" /></div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsScheduleOpen(false)} className="text-xs">Cancel</Button>
-              <Button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Post Schedule</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Schedule Modal (NO SLOTS) */}
-      <Dialog open={isEditScheduleOpen} onOpenChange={setIsEditScheduleOpen}>
-        <DialogContent className="bg-white max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900"><Edit2 className="text-violet-600" size={18} /> Edit Clinic Operating Hours</DialogTitle>
-          </DialogHeader>
-          {editingSchedule && (
-            <form onSubmit={handleUpdateSchedule} className="space-y-3 py-2">
-              <div><Label className="text-xs font-semibold">Title</Label><Input value={editingSchedule.title} onChange={e => setEditingSchedule({ ...editingSchedule, title: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Day</Label><Input value={editingSchedule.day} onChange={e => setEditingSchedule({ ...editingSchedule, day: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Operating Hours / Time Slot</Label><Input value={editingSchedule.time_slot} onChange={e => setEditingSchedule({ ...editingSchedule, time_slot: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              <div><Label className="text-xs font-semibold">Location</Label><Input value={editingSchedule.location} onChange={e => setEditingSchedule({ ...editingSchedule, location: e.target.value })} className="h-9 text-xs mt-1" /></div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsEditScheduleOpen(false)} className="text-xs">Cancel</Button>
-                <Button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1 cursor-pointer"><Save size={13} /> Save Changes</Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* 360 Patient Detail Modal */}
+      {/* 360 Patient Details Modal */}
       <PatientDetailModal
         isOpen={isPatientModalOpen}
         onClose={() => setIsPatientModalOpen(false)}
@@ -1632,21 +2252,19 @@ export default function NurseDashboard() {
         onLogReturnVisit={handleLogReturnVisitFromModal}
       />
 
-      {/* Dynamic Smart Clinical Intake Modal */}
+      {/* Smart Clinical Intake Modal (Unified + Auto-sync) */}
       <SmartClinicalIntakeModal
         isOpen={isIntakeOpen}
         onClose={() => setIsIntakeOpen(false)}
-        onSuccess={loadData}
+        onSuccess={(created) => {
+          if (created) {
+            setConsultations(prev => [created, ...prev]);
+          }
+          loadData();
+        }}
         barangay={nurseBarangay}
         attendingWorker={nurseName}
         workerRole="nurse"
-      />
-
-      {/* Official Nurse Profile Settings Modal */}
-      <ProfileSettingsModal
-        isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        user={user}
       />
 
       {/* SMS Details & View Modal */}
@@ -1656,74 +2274,820 @@ export default function NurseDashboard() {
         notification={selectedSms}
       />
 
-      {/* Compose Custom SMS Alert Modal */}
-      <Dialog open={isSendSmsModalOpen} onOpenChange={setIsSendSmsModalOpen}>
-        <DialogContent className="bg-white max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900">
-              <Send className="text-teal-600" size={18} />
-              Compose SMS Alert / Notification
+      {/* New Consultation Modal with Clean White Header & Dynamic Program Selection */}
+      <Dialog open={isNewConsultOpen} onOpenChange={setIsNewConsultOpen}>
+        <DialogContent className="bg-white max-w-xl max-h-[92vh] overflow-y-auto p-0 rounded-2xl shadow-xl border border-slate-200">
+          <div className="p-5 border-b border-slate-100 bg-white">
+            <div className="flex items-center justify-between">
+              <span className="bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                Clinical Encounter
+              </span>
+              <span className="text-xs text-slate-400 font-medium">Brgy. {nurseBarangay}</span>
+            </div>
+            <DialogTitle className="text-lg font-bold text-slate-900 mt-1.5 flex items-center gap-2">
+              <Stethoscope className="text-teal-600" size={18} /> Record Patient Consultation
             </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              Directly dispatch a live SMS text message to a patient's mobile phone.
+            <DialogDescription className="text-xs text-slate-500 mt-0.5">
+              Select program below to display relevant clinical assessment and consultation fields.
             </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSendCustomSms} className="space-y-3 py-2">
-            <div>
-              <Label className="text-xs font-semibold">Recipient Patient Name <span className="text-red-500">*</span></Label>
-              <Input
-                value={composeRecipient}
-                onChange={e => setComposeRecipient(e.target.value)}
-                placeholder="e.g. Maria Clara Santos"
-                required
-                className="h-9 text-xs mt-1"
-              />
+          </div>
+
+          <form onSubmit={handleCreateConsultation} className="p-6 space-y-4">
+            {/* Patient Demographics */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="col-span-2">
+                <Label className="text-xs font-semibold text-slate-700">Patient Name <span className="text-red-500">*</span></Label>
+                <Input value={cName} onChange={e => setCName(e.target.value)} placeholder="Full legal name" required className="h-9 text-xs mt-1 rounded-xl border-slate-200 focus:border-teal-500" />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">Contact Mobile Phone <span className="text-red-500">*</span></Label>
+                <Input value={cPhone} onChange={e => setCPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required maxLength={11} className="h-9 text-xs font-mono mt-1 rounded-xl border-slate-200 focus:border-teal-500" />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">Age</Label>
+                <Input value={cAge} onChange={e => setCAge(e.target.value)} placeholder="e.g. 28" className="h-9 text-xs mt-1 rounded-xl border-slate-200 focus:border-teal-500" />
+              </div>
             </div>
-            <div>
-              <Label className="text-xs font-semibold">Mobile Phone (11 Digits) <span className="text-red-500">*</span></Label>
-              <Input
-                value={composePhone}
-                onChange={e => setComposePhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                placeholder="09XXXXXXXXX"
-                required
-                maxLength={11}
-                className="h-9 text-xs font-mono mt-1"
-              />
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">Gender</Label>
+                <Select value={cGender} onValueChange={v => setCGender(v as any)}>
+                  <SelectTrigger className="h-9 text-xs mt-1 rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="Female">Female</SelectItem><SelectItem value="Male">Male</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">Consultation Program</Label>
+                <Select value={cProgram} onValueChange={(v: any) => setCProgram(v)}>
+                  <SelectTrigger className="h-9 text-xs mt-1 rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="General Consultation">General Medical Consultation</SelectItem>
+                    <SelectItem value="Family Planning">Family Planning Counseling</SelectItem>
+                    <SelectItem value="Adolescent Health">Adolescent Health Consultation</SelectItem>
+                    <SelectItem value="Teenage Pregnancy Prevention">Teenage Pregnancy Prevention</SelectItem>
+                    <SelectItem value="NTP (TB-DOTS)">NTP (TB-DOTS Program)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label className="text-xs font-semibold">Notification Category</Label>
-              <Select value={composeType} onValueChange={setComposeType}>
-                <SelectTrigger className="h-9 text-xs mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Health Alert">Health Alert / Consultation Notice</SelectItem>
-                  <SelectItem value="Prenatal Checkup Alert">Prenatal Checkup Alert</SelectItem>
-                  <SelectItem value="Immunization Reminder">Immunization Reminder</SelectItem>
-                  <SelectItem value="Family Planning Supply">Family Planning Supply Notice</SelectItem>
-                  <SelectItem value="Clinic Schedule Notice">Clinic Schedule Notice</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs font-semibold">Message Text <span className="text-red-500">*</span></Label>
-              <textarea
-                value={composeMessage}
-                onChange={e => setComposeMessage(e.target.value)}
-                rows={3}
-                required
-                placeholder="Barangay Pianing Health Center: Reminder regarding your clinic appointment..."
-                className="w-full border border-slate-200 rounded-md p-2.5 text-xs focus:ring-2 focus:ring-teal-500"
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsSendSmsModalOpen(false)} className="text-xs">Cancel</Button>
-              <Button type="submit" className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold gap-1.5 cursor-pointer">
-                <Send size={13} /> Dispatch SMS
+
+            {/* DYNAMIC PROGRAM-SPECIFIC FORM CONTENT */}
+
+            {/* Program 1: General Medical Consultation */}
+            {cProgram === 'General Consultation' && (
+              <div className="space-y-3.5">
+                {/* Triage Vital Signs */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">Triage Vital Signs</p>
+                    <Badge className={`text-[9px] border-0 ${cBpStatus.color}`}>{cBpStatus.label}</Badge>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="col-span-1">
+                      <Label className="text-[10px]">BP (Sys / Dia)</Label>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Input
+                          value={cBpSys}
+                          onChange={e => setCBpSys(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                          placeholder="120"
+                          maxLength={3}
+                          className="h-8 text-xs font-mono text-center bg-white rounded-lg"
+                        />
+                        <span className="text-slate-400 font-bold">/</span>
+                        <Input
+                          value={cBpDia}
+                          onChange={e => setCBpDia(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                          placeholder="80"
+                          maxLength={3}
+                          className="h-8 text-xs font-mono text-center bg-white rounded-lg"
+                        />
+                      </div>
+                    </div>
+                    <div><Label className="text-[10px]">Temp (°C)</Label><Input value={cTemp} onChange={e => setCTemp(e.target.value)} placeholder="36.5" className="h-8 text-xs bg-white rounded-lg mt-0.5" /></div>
+                    <div><Label className="text-[10px]">Weight (kg)</Label><Input value={cWeight} onChange={e => setCWeight(e.target.value)} placeholder="54" className="h-8 text-xs bg-white rounded-lg mt-0.5" /></div>
+                    <div><Label className="text-[10px]">HR (bpm)</Label><Input value={cHR} onChange={e => setCHR(e.target.value)} placeholder="76" className="h-8 text-xs bg-white rounded-lg mt-0.5" /></div>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Chief Complaint / Symptoms <span className="text-red-500">*</span></Label>
+                  <Input value={cComplaint} onChange={e => setCComplaint(e.target.value)} placeholder="e.g. Headache, fever, productive cough" required className="h-9 text-xs mt-1 rounded-xl" />
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Clinical Diagnosis</Label>
+                  <Input value={cDiagnosis} onChange={e => setCDiagnosis(e.target.value)} placeholder="e.g. Upper respiratory tract infection" className="h-9 text-xs mt-1 rounded-xl" />
+                </div>
+
+                {/* Dynamic Prescription Builder */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Pill size={13} className="text-teal-600" />
+                      Dynamic Prescription Builder
+                    </Label>
+                    <span className="text-[10px] text-slate-400">Add multiple meds</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1">
+                    {['Paracetamol 500mg', 'Amoxicillin 500mg', 'Mefenamic Acid 500mg', 'Cetirizine 10mg', 'Salbutamol', 'ORS'].map(m => (
+                      <button
+                        type="button"
+                        key={m}
+                        onClick={() => setMedName(m)}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-white hover:bg-teal-50 text-slate-700 border border-slate-200 cursor-pointer"
+                      >
+                        + {m}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <Input value={medName} onChange={e => setMedName(e.target.value)} placeholder="Medication name..." className="h-8 text-xs bg-white rounded-lg" />
+                    </div>
+                    <div>
+                      <Button type="button" onClick={handleAddMedToRx} size="sm" className="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs h-8 rounded-lg cursor-pointer gap-1">
+                        <Plus size={12} /> Add Med
+                      </Button>
+                    </div>
+                  </div>
+
+                  {cPrescriptions.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      {cPrescriptions.map((item, i) => (
+                        <div key={item.id} className="flex items-center justify-between bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs">
+                          <div>
+                            <span className="font-bold text-slate-800">{i + 1}. {item.name} {item.dosage}</span>
+                            <span className="text-[11px] text-slate-500 block">{item.frequency} for {item.duration}</span>
+                          </div>
+                          <button type="button" onClick={() => setCPrescriptions(prev => prev.filter(p => p.id !== item.id))} className="text-red-500 hover:text-red-700 cursor-pointer p-1">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Program 2: Family Planning Counseling */}
+            {cProgram === 'Family Planning' && (
+              <div className="space-y-3.5 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Heart size={14} className="text-teal-600" /> Family Planning &amp; Reproductive Care
+                  </span>
+                  <Badge className="bg-teal-50 text-teal-800 border-teal-200 text-[10px]">DOH Program</Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Client Classification</Label>
+                    <Select value={cFpClientType} onValueChange={setCFpClientType}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="New Acceptor">New Acceptor</SelectItem>
+                        <SelectItem value="Current User (Routine Supply)">Current User (Routine Supply)</SelectItem>
+                        <SelectItem value="Method Switcher">Method Switcher</SelectItem>
+                        <SelectItem value="Medical Restart">Medical Restart</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Contraceptive Method</Label>
+                    <Select value={cFpMethod} onValueChange={setCFpMethod}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DMPA Injectable (Depo)">DMPA Injectable (Depo-Provera)</SelectItem>
+                        <SelectItem value="Combined Oral Contraceptive (COC) Pills">Oral Contraceptive Pills (COC)</SelectItem>
+                        <SelectItem value="Progestin-Only Pills (POP - Lactating)">Progestin-Only Pills (POP)</SelectItem>
+                        <SelectItem value="Subdermal Implant (Implanon)">Subdermal Implant (3-yr)</SelectItem>
+                        <SelectItem value="Intrauterine Device (IUD)">Intrauterine Device (IUD)</SelectItem>
+                        <SelectItem value="Barrier / Condoms">Barrier / Condoms</SelectItem>
+                        <SelectItem value="Standard Days Method (SDM / Natural)">Standard Days Method (Natural)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Last Menstrual Period (LMP)</Label>
+                    <Input type="date" value={cFpLmp} onChange={e => setCFpLmp(e.target.value)} className="h-9 text-xs bg-white mt-1 rounded-xl" />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Next Supply / Injection Date</Label>
+                    <Input type="date" value={cFpNextSupply} onChange={e => setCFpNextSupply(e.target.value)} className="h-9 text-xs bg-white mt-1 rounded-xl" />
+                  </div>
+                </div>
+
+                {/* Quick BP & Weight Triage */}
+                <div className="bg-white border border-slate-200 rounded-xl p-2.5 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-700">Physical Eligibility Check</span>
+                    <Badge className={`text-[9px] border-0 ${cBpStatus.color}`}>{cBpStatus.label}</Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <Label className="text-[10px]">Blood Pressure (Sys / Dia)</Label>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Input value={cBpSys} onChange={e => setCBpSys(e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="120" maxLength={3} className="h-8 text-xs font-mono text-center bg-slate-50 rounded-lg" />
+                        <span className="text-slate-400 font-bold">/</span>
+                        <Input value={cBpDia} onChange={e => setCBpDia(e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="80" maxLength={3} className="h-8 text-xs font-mono text-center bg-slate-50 rounded-lg" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-[10px]">Weight (kg)</Label>
+                      <Input value={cWeight} onChange={e => setCWeight(e.target.value)} placeholder="52" className="h-8 text-xs bg-slate-50 rounded-lg mt-0.5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Counseling Notes / Side Effects Discussed</Label>
+                  <Input value={cFpNotes} onChange={e => setCFpNotes(e.target.value)} placeholder="e.g. Mild spotting discussed, advised hydration and prompt return if unusual pain." className="h-9 text-xs bg-white mt-1 rounded-xl" />
+                </div>
+              </div>
+            )}
+
+            {/* Program 3: Adolescent Health Consultation */}
+            {cProgram === 'Adolescent Health' && (
+              <div className="space-y-3.5 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <User size={14} className="text-purple-600" /> Adolescent Health &amp; Guidance
+                  </span>
+                  <Badge className="bg-purple-50 text-purple-800 border-purple-200 text-[10px]">Youth Wellness</Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Age / Pubertal Stage</Label>
+                    <Select value={cAdolescentStage} onValueChange={setCAdolescentStage}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Early Adolescent (10-14 yrs)">Early Adolescent (10-14 yrs)</SelectItem>
+                        <SelectItem value="Mid Adolescent (15-17 yrs)">Mid Adolescent (15-17 yrs)</SelectItem>
+                        <SelectItem value="Late Adolescent (18-24 yrs)">Late Adolescent (18-24 yrs)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">School / Education Status</Label>
+                    <Select value={cTeenSchool} onValueChange={setCTeenSchool}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Enrolled in High School">Enrolled in High School</SelectItem>
+                        <SelectItem value="Enrolled in College/Vocational">Enrolled in College/Vocational</SelectItem>
+                        <SelectItem value="Out of School Youth (OSY)">Out of School Youth (OSY)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Assessment &amp; Counseling Area</Label>
+                  <Select value={cAdolescentFocus} onValueChange={setCAdolescentFocus}>
+                    <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Pubertal Guidance & Mental Wellness">Pubertal Guidance &amp; Mental Wellness</SelectItem>
+                      <SelectItem value="Physical Growth & Nutrition Counseling">Physical Growth &amp; Nutrition Counseling</SelectItem>
+                      <SelectItem value="Substance, Smoking & Screen Exposure">Substance, Smoking &amp; Screen Exposure</SelectItem>
+                      <SelectItem value="Reproductive Health & Safe Behaviors">Reproductive Health &amp; Safe Behaviors</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-xl p-2.5 space-y-1">
+                  <span className="text-[11px] font-bold text-slate-700">Vital Signs Check</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <Label className="text-[10px]">BP (Sys / Dia)</Label>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Input value={cBpSys} onChange={e => setCBpSys(e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="110" maxLength={3} className="h-8 text-xs font-mono text-center bg-slate-50 rounded-lg" />
+                        <span className="text-slate-400 font-bold">/</span>
+                        <Input value={cBpDia} onChange={e => setCBpDia(e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="70" maxLength={3} className="h-8 text-xs font-mono text-center bg-slate-50 rounded-lg" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-[10px]">Weight (kg)</Label>
+                      <Input value={cWeight} onChange={e => setCWeight(e.target.value)} placeholder="50" className="h-8 text-xs bg-slate-50 rounded-lg mt-0.5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Counseling Summary &amp; Recommendations</Label>
+                  <Input value={cComplaint} onChange={e => setCComplaint(e.target.value)} placeholder="e.g. Addressed exam stress, encouraged 8hrs sleep and balanced nutrition." className="h-9 text-xs bg-white mt-1 rounded-xl" />
+                </div>
+              </div>
+            )}
+
+            {/* Program 4: Teenage Pregnancy Prevention */}
+            {cProgram === 'Teenage Pregnancy Prevention' && (
+              <div className="space-y-3.5 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <ShieldCheck size={14} className="text-rose-600" /> Teenage Pregnancy Prevention &amp; Education
+                  </span>
+                  <Badge className="bg-rose-50 text-rose-800 border-rose-200 text-[10px]">Adolescent Program</Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Risk Assessment</Label>
+                    <Select value={cTeenRisk} onValueChange={setCTeenRisk}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Low Risk / Preventive Counseling">Low Risk / Preventive Counseling</SelectItem>
+                        <SelectItem value="Sexually Active Youth">Sexually Active Youth</SelectItem>
+                        <SelectItem value="High Risk / Out of School">High Risk / Out of School</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Guardian Attendance</Label>
+                    <Select value={cTeenGuardian} onValueChange={setCTeenGuardian}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Accompanied by Guardian">Accompanied by Guardian</SelectItem>
+                        <SelectItem value="Confidential Youth Encounter">Confidential Youth Encounter</SelectItem>
+                        <SelectItem value="Referred by School Guidance">Referred by School Guidance</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Guidance Module Provided</Label>
+                  <Input value="Comprehensive Sexuality Education, Abstinence & Dual Protection" readOnly className="h-9 text-xs bg-white mt-1 rounded-xl text-slate-600" />
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Youth Support Plan &amp; Facility Referral</Label>
+                  <Input value={cComplaint} onChange={e => setCComplaint(e.target.value)} placeholder="e.g. Enrolled in Peer Wellness Club; scheduled monthly check-in." className="h-9 text-xs bg-white mt-1 rounded-xl" />
+                </div>
+              </div>
+            )}
+
+            {/* Program 5: NTP (TB-DOTS) */}
+            {cProgram === 'NTP (TB-DOTS)' && (
+              <div className="space-y-3.5 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Activity size={14} className="text-amber-600" /> National TB Control Program (NTP / TB-DOTS)
+                  </span>
+                  <Badge className="bg-amber-50 text-amber-800 border-amber-200 text-[10px]">Infectious Disease</Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">TB Case Registration No.</Label>
+                    <Input value={cTbRegNo} onChange={e => setCTbRegNo(e.target.value)} placeholder="e.g. TB-2026-0042" className="h-9 text-xs bg-white mt-1 rounded-xl font-mono" />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Case Category</Label>
+                    <Select value={cTbCategory} onValueChange={setCTbCategory}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="New Pulmonary Case">New Pulmonary Case</SelectItem>
+                        <SelectItem value="Relapse / Retreatment">Relapse / Retreatment</SelectItem>
+                        <SelectItem value="Extrapulmonary TB">Extrapulmonary TB</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Sputum / GeneXpert Status</Label>
+                    <Select value={cTbSputum} onValueChange={setCTbSputum}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="GeneXpert / AFB Pending">GeneXpert Pending</SelectItem>
+                        <SelectItem value="Positive (MTB Detected)">Positive (MTB Detected)</SelectItem>
+                        <SelectItem value="Negative (Not Detected)">Negative (Not Detected)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Treatment Phase</Label>
+                    <Select value={cTbPhase} onValueChange={setCTbPhase}>
+                      <SelectTrigger className="h-9 text-xs bg-white mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Intensive Phase (2 Months RHZE)">Intensive Phase (2 Months RHZE)</SelectItem>
+                        <SelectItem value="Continuation Phase (4 Months RH)">Continuation Phase (4 Months RH)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Directly Observed Treatment (DOT) Supporter</Label>
+                  <Input value={cTbPartner} onChange={e => setCTbPartner(e.target.value)} placeholder="e.g. BHW Rosa Mendoza / Family Supporter" className="h-9 text-xs bg-white mt-1 rounded-xl" />
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsNewConsultOpen(false)} className="text-xs rounded-xl border-slate-200">Cancel</Button>
+              <Button type="submit" className="bg-teal-600 hover:bg-teal-700 text-white text-xs gap-1 font-bold cursor-pointer rounded-xl px-4 shadow-xs">
+                <Check size={13} /> Save Encounter Record
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* New Prenatal Modal with Fixed Dual BP & 2nd Visit Tracking */}
+      <Dialog open={isNewPrenatalOpen} onOpenChange={setIsNewPrenatalOpen}>
+        <DialogContent className="bg-white max-w-2xl max-h-[92vh] overflow-y-auto p-0 rounded-2xl shadow-xl border border-slate-200">
+          <div className="p-5 border-b border-slate-100 bg-white">
+            <div className="flex items-center justify-between">
+              <span className="bg-pink-50 text-pink-800 border border-pink-200 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                Maternal Care
+              </span>
+              <span className="text-xs text-slate-400 font-medium">Brgy. {nurseBarangay}</span>
+            </div>
+            <DialogTitle className="text-lg font-bold text-slate-900 mt-1.5 flex items-center gap-2">
+              <Heart className="text-pink-600" size={18} /> New Prenatal / Maternal Record (2nd Visit Tracking)
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 mt-0.5">
+              Record gestational parameters, fundic height, fetal heart tones, and scheduled revisit reminders.
+            </DialogDescription>
+          </div>
+
+          <form onSubmit={handleCreatePrenatal} className="p-6 space-y-3.5">
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="col-span-2">
+                <Label className="text-xs font-semibold">Mother's Full Name <span className="text-red-500">*</span></Label>
+                <Input value={pName} onChange={e => setPName(e.target.value)} placeholder="Full name" required className="h-9 text-xs mt-1 rounded-xl" />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold">Age</Label>
+                <Input value={pAge} onChange={e => setPAge(e.target.value)} placeholder="e.g. 28" className="h-9 text-xs mt-1 rounded-xl" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <Label className="text-xs font-semibold">Contact Mobile Phone <span className="text-red-500">*</span></Label>
+                <Input value={pPhone} onChange={e => setPPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required maxLength={11} className="h-9 text-xs font-mono mt-1 rounded-xl" />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold">Visit Number</Label>
+                <Select value={pVisitNum} onValueChange={setPVisitNum}>
+                  <SelectTrigger className="h-9 text-xs mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1st Visit (1st Trimester Initial)</SelectItem>
+                    <SelectItem value="2">⭐ 2nd Visit (Mid-Gestation Follow-up)</SelectItem>
+                    <SelectItem value="3">3rd Visit (Late 2nd Trimester)</SelectItem>
+                    <SelectItem value="4">4th Visit (3rd Trimester Pre-delivery)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2">
+              <div><Label className="text-xs font-semibold">Gravida</Label><Input value={pGravida} onChange={e => setPGravida(e.target.value)} placeholder="G1" className="h-9 text-xs mt-1 rounded-xl font-mono text-center" /></div>
+              <div><Label className="text-xs font-semibold">Para</Label><Input value={pPara} onChange={e => setPPara(e.target.value)} placeholder="P0" className="h-9 text-xs mt-1 rounded-xl font-mono text-center" /></div>
+              <div><Label className="text-xs font-semibold">LMP <span className="text-red-500">*</span></Label><Input type="date" value={pLmp} onChange={e => setPLmp(e.target.value)} required className="h-9 text-xs mt-1 rounded-xl" /></div>
+              <div><Label className="text-xs font-semibold">EDD</Label><Input type="date" value={pEdd} onChange={e => setPEdd(e.target.value)} className="h-9 text-xs mt-1 rounded-xl" /></div>
+            </div>
+
+            {/* FIXED DUAL BP INPUTS & FETAL ASSESSMENT */}
+            <div className="bg-pink-50/60 border border-pink-200 rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-bold text-pink-900 uppercase tracking-wide">Vitals &amp; Fetal Assessment</p>
+                <Badge className={`text-[9px] border-0 ${pBpStatus.color}`}>{pBpStatus.label}</Badge>
+              </div>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                <div className="col-span-2 sm:col-span-1">
+                  <Label className="text-[10px]">BP (Sys/Dia)</Label>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <Input
+                      value={pBpSys}
+                      onChange={e => setPBpSys(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                      placeholder="120"
+                      maxLength={3}
+                      className="h-8 text-xs font-mono text-center bg-white rounded-lg"
+                    />
+                    <span className="text-slate-400 font-bold">/</span>
+                    <Input
+                      value={pBpDia}
+                      onChange={e => setPBpDia(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                      placeholder="80"
+                      maxLength={3}
+                      className="h-8 text-xs font-mono text-center bg-white rounded-lg"
+                    />
+                  </div>
+                </div>
+                <div><Label className="text-[10px]">Weight (kg)</Label><Input value={pWeight} onChange={e => setPWeight(e.target.value)} placeholder="56.5" className="h-8 text-xs bg-white rounded-lg mt-0.5" /></div>
+                <div><Label className="text-[10px]">Temp (°C)</Label><Input value={pTemp} onChange={e => setPTemp(e.target.value)} placeholder="36.5" className="h-8 text-xs bg-white rounded-lg mt-0.5" /></div>
+                <div><Label className="text-[10px]">FHR (bpm)</Label><Input value={pFhr} onChange={e => setPFhr(e.target.value)} placeholder="148" className="h-8 text-xs bg-white rounded-lg mt-0.5" /></div>
+                <div><Label className="text-[10px]">Fundic Ht (cm)</Label><Input value={pFh} onChange={e => setPFh(e.target.value)} placeholder="22" className="h-8 text-xs bg-white rounded-lg mt-0.5" /></div>
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs font-semibold">Prescribed Medicines &amp; Supplements</Label>
+              <Input value={pMeds} onChange={e => setPMeds(e.target.value)} placeholder="e.g. FeSO4 60mg + Folic Acid 400mcg daily" className="h-9 text-xs mt-1 rounded-xl" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <Label className="text-xs font-semibold">Next Visit Date <span className="text-red-500">*</span></Label>
+                <Input type="date" value={pNextDate} onChange={e => setPNextDate(e.target.value)} required className="h-9 text-xs mt-1 rounded-xl" />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold">Next Visit Note</Label>
+                <Input value={pNextNote} onChange={e => setPNextNote(e.target.value)} placeholder="e.g. 2nd Trimester Routine Follow-up" className="h-9 text-xs mt-1 rounded-xl" />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsNewPrenatalOpen(false)} className="text-xs rounded-xl">Cancel</Button>
+              <Button type="submit" className="bg-pink-600 hover:bg-pink-700 text-white text-xs font-bold gap-1 cursor-pointer rounded-xl px-4">
+                <Save size={13} /> Save Maternal Record
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Child Immunization Modal with Dynamic Vaccines & Dynamic Remarks */}
+      <Dialog open={isNewImmunOpen} onOpenChange={setIsNewImmunOpen}>
+        <DialogContent className="bg-white max-w-xl max-h-[92vh] overflow-y-auto p-0 rounded-2xl shadow-xl border border-slate-200">
+          <div className="p-5 border-b border-slate-100 bg-white">
+            <div className="flex items-center justify-between">
+              <span className="bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                Child Immunization (EPI)
+              </span>
+              <span className="text-xs text-slate-400 font-medium">Brgy. {nurseBarangay}</span>
+            </div>
+            <DialogTitle className="text-lg font-bold text-slate-900 mt-1.5 flex items-center gap-2">
+              <Baby className="text-blue-600" size={18} /> Record Child Immunization (DOH Standard)
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 mt-0.5">
+              Dynamic vaccine selection, batch recording, dose 2 tracking, and automated reminder alerts.
+            </DialogDescription>
+          </div>
+
+          <form onSubmit={handleCreateImmun} className="p-6 space-y-3.5">
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="col-span-2">
+                <Label className="text-xs font-semibold">Child's Full Name <span className="text-red-500">*</span></Label>
+                <Input value={iChild} onChange={e => setIChild(e.target.value)} placeholder="Full name of child" required className="h-9 text-xs mt-1 rounded-xl" />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold">Sex</Label>
+                <Select value={iGender} onValueChange={setIGender}>
+                  <SelectTrigger className="h-9 text-xs mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="Male">Male</SelectItem><SelectItem value="Female">Female</SelectItem></SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <Label className="text-xs font-semibold">Guardian Name <span className="text-red-500">*</span></Label>
+                <Input value={iGuardian} onChange={e => setIGuardian(e.target.value)} placeholder="Parent/Guardian" required className="h-9 text-xs mt-1 rounded-xl" />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold">Guardian Phone <span className="text-red-500">*</span></Label>
+                <Input value={iPhone} onChange={e => setIPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required maxLength={11} className="h-9 text-xs font-mono mt-1 rounded-xl" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div><Label className="text-xs font-semibold">Age (Months)</Label><Input value={iAge} onChange={e => setIAge(e.target.value)} placeholder="e.g. 4" className="h-9 text-xs mt-1 rounded-xl" /></div>
+              <div><Label className="text-xs font-semibold">Weight (kg)</Label><Input value={iWeight} onChange={e => setIWeight(e.target.value)} placeholder="e.g. 6.8" className="h-9 text-xs mt-1 rounded-xl" /></div>
+              <div><Label className="text-xs font-semibold">Height (cm)</Label><Input value={iHeight} onChange={e => setIHeight(e.target.value)} placeholder="e.g. 62" className="h-9 text-xs mt-1 rounded-xl" /></div>
+            </div>
+
+            {/* DYNAMIC VACCINE TYPE SELECTOR */}
+            <div className="space-y-1.5 bg-slate-50 border border-slate-200 rounded-xl p-3">
+              <Label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                <Syringe size={13} className="text-blue-600" /> Vaccine Type &amp; Dose Number
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Select value={iVaccine} onValueChange={setIVaccine}>
+                    <SelectTrigger className="h-9 text-xs bg-white rounded-xl"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BCG (Birth)">BCG (Birth)</SelectItem>
+                      <SelectItem value="Hepatitis B (Birth)">Hepatitis B (Birth)</SelectItem>
+                      <SelectItem value="Pentavalent (DPT-HepB-Hib)">Pentavalent (DPT-HepB-Hib)</SelectItem>
+                      <SelectItem value="Oral Polio Vaccine (OPV)">OPV (Oral Polio)</SelectItem>
+                      <SelectItem value="Inactivated Polio (IPV)">IPV (Inactivated Polio)</SelectItem>
+                      <SelectItem value="Pneumococcal Conjugate (PCV13)">PCV13 Conjugate</SelectItem>
+                      <SelectItem value="Measles, Mumps, Rubella (MMR)">MMR Vaccine</SelectItem>
+                      <SelectItem value="Rotavirus">Rotavirus</SelectItem>
+                      <SelectItem value="Other">Other / Custom Vaccine</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Select value={iDose} onValueChange={setIDose}>
+                    <SelectTrigger className="h-9 text-xs bg-white rounded-xl"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Dose 1">Dose 1 (Initial)</SelectItem>
+                      <SelectItem value="Dose 2">⭐ Dose 2 (Secondary)</SelectItem>
+                      <SelectItem value="Dose 3">Dose 3 (Tertiary)</SelectItem>
+                      <SelectItem value="Booster 1">Booster Dose 1</SelectItem>
+                      <SelectItem value="Single Dose">Single Dose</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {iVaccine === 'Other' && (
+                <div className="pt-1">
+                  <Input
+                    value={iCustomVaccine}
+                    onChange={e => setICustomVaccine(e.target.value)}
+                    placeholder="Type custom vaccine name (e.g. Japanese Encephalitis, HPV)..."
+                    className="h-8 text-xs bg-white rounded-lg border-slate-200"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div><Label className="text-xs font-semibold">Batch / Lot #</Label><Input value={iBatch} onChange={e => setIBatch(e.target.value)} placeholder="e.g. LOT-2026-X9" className="h-9 text-xs font-mono mt-1 rounded-xl" /></div>
+              <div><Label className="text-xs font-semibold">Date Administered</Label><Input type="date" value={iDateGiven} onChange={e => setIDateGiven(e.target.value)} className="h-9 text-xs mt-1 rounded-xl" /></div>
+              <div><Label className="text-xs font-semibold">Next Due Date</Label><Input type="date" value={iNextDue} onChange={e => setINextDue(e.target.value)} className="h-9 text-xs mt-1 rounded-xl" /></div>
+            </div>
+
+            {/* DYNAMIC REMARKS WITH QUICK TAG PILLS */}
+            <div className="space-y-1.5 bg-slate-50 border border-slate-200 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold text-slate-800">Dynamic Remarks &amp; Observations</Label>
+                <span className="text-[10px] text-slate-400">Click pill to append</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  'Cleared / No adverse reaction',
+                  'Mild low-grade fever / Given Paracetamol',
+                  'Left deltoid / Normal erythema',
+                  'Catch-up dose administered'
+                ].map(tag => (
+                  <button
+                    type="button"
+                    key={tag}
+                    onClick={() => setIRemarks(prev => prev ? `${prev}. ${tag}` : tag)}
+                    className="text-[10px] px-2 py-0.5 rounded-full bg-white hover:bg-blue-100 text-slate-700 border border-slate-200 cursor-pointer"
+                  >
+                    + {tag}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={iRemarks}
+                onChange={e => setIRemarks(e.target.value)}
+                rows={2}
+                className="w-full text-xs p-2 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none mt-1"
+                placeholder="Post-vaccine observation notes..."
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsNewImmunOpen(false)} className="text-xs rounded-xl">Cancel</Button>
+              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold gap-1 cursor-pointer rounded-xl px-4">
+                <Check size={13} /> Save Immunization Record
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Inventory Modal */}
+      <Dialog open={isInventoryOpen} onOpenChange={setIsInventoryOpen}>
+        <DialogContent className="bg-white max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900"><Package className="text-emerald-600" size={18} /> Add Inventory Item</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleAddInventory} className="space-y-3 py-2">
+            <div><Label className="text-xs font-semibold">Item Name <span className="text-red-500">*</span></Label><Input value={invName} onChange={e => setInvName(e.target.value)} placeholder="e.g. Pentavalent Vaccine" required className="h-9 text-xs mt-1 rounded-xl" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs font-semibold">Category</Label>
+                <Select value={invCat} onValueChange={setInvCat}>
+                  <SelectTrigger className="h-9 text-xs mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['Vaccine (EPI)', 'Maternal Vitamin', 'Essential Medicine', 'Pediatric Supply', 'Family Planning', 'TB-DOTS Supply', 'Other'].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div><Label className="text-xs font-semibold">Unit</Label>
+                <Select value={invUnit} onValueChange={setInvUnit}>
+                  <SelectTrigger className="h-9 text-xs mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['vials', 'tablets', 'capsules', 'packets', 'bottles', 'ampoules', 'units'].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs font-semibold">Stock Quantity <span className="text-red-500">*</span></Label><Input type="number" min="0" value={invStock} onChange={e => setInvStock(e.target.value)} placeholder="e.g. 45" required className="h-9 text-xs mt-1 rounded-xl" /></div>
+              <div><Label className="text-xs font-semibold">Expiry Date</Label><Input type="date" value={invExpiry} onChange={e => setInvExpiry(e.target.value)} className="h-9 text-xs mt-1 rounded-xl" /></div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsInventoryOpen(false)} className="text-xs rounded-xl">Cancel</Button>
+              <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1 font-bold cursor-pointer rounded-xl"><Check size={13} /> Save Item</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post Weekly Schedule Modal */}
+      <Dialog open={isScheduleOpen} onOpenChange={setIsScheduleOpen}>
+        <DialogContent className="bg-white max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900"><CalendarCheck className="text-violet-600" size={18} /> Post Weekly Clinic Schedule</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handlePostSchedule} className="space-y-3 py-2">
+            <div><Label className="text-xs font-semibold">Clinic Title <span className="text-red-500">*</span></Label><Input value={sTitle} onChange={e => setSTitle(e.target.value)} placeholder="e.g. Prenatal Care Clinic" required className="h-9 text-xs mt-1 rounded-xl" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs font-semibold">Service Type</Label>
+                <Select value={sService} onValueChange={setSService}>
+                  <SelectTrigger className="h-9 text-xs mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['Prenatal Care', 'Child Immunization', 'General Consultation', 'Adolescent Health', 'Family Planning'].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div><Label className="text-xs font-semibold">Day of Week</Label>
+                <Select value={sDay} onValueChange={setSDay}>
+                  <SelectTrigger className="h-9 text-xs mt-1 rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['Every Monday', 'Every Tuesday', 'Every Wednesday', 'Every Thursday', 'Every Friday', 'Every Monday & Thursday', 'Every Tuesday & Friday'].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div><Label className="text-xs font-semibold">Operating Hours / Time Slot</Label><Input value={sTime} onChange={e => setSTime(e.target.value)} placeholder="8:00 AM – 12:00 PM" className="h-9 text-xs mt-1 rounded-xl" /></div>
+            <div><Label className="text-xs font-semibold">Location</Label><Input value={sLocation} onChange={e => setSLocation(e.target.value)} className="h-9 text-xs mt-1 rounded-xl" /></div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsScheduleOpen(false)} className="text-xs rounded-xl">Cancel</Button>
+              <Button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1 font-bold cursor-pointer rounded-xl"><Check size={13} /> Post Schedule</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Schedule Modal */}
+      <Dialog open={isEditScheduleOpen} onOpenChange={setIsEditScheduleOpen}>
+        <DialogContent className="bg-white max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900"><Edit2 className="text-violet-600" size={18} /> Edit Clinic Operating Hours</DialogTitle>
+          </DialogHeader>
+          {editingSchedule && (
+            <form onSubmit={handleUpdateSchedule} className="space-y-3 py-2">
+              <div><Label className="text-xs font-semibold">Title</Label><Input value={editingSchedule.title} onChange={e => setEditingSchedule({ ...editingSchedule, title: e.target.value })} className="h-9 text-xs mt-1 rounded-xl" /></div>
+              <div><Label className="text-xs font-semibold">Day</Label><Input value={editingSchedule.day} onChange={e => setEditingSchedule({ ...editingSchedule, day: e.target.value })} className="h-9 text-xs mt-1 rounded-xl" /></div>
+              <div><Label className="text-xs font-semibold">Operating Hours</Label><Input value={editingSchedule.time_slot} onChange={e => setEditingSchedule({ ...editingSchedule, time_slot: e.target.value })} className="h-9 text-xs mt-1 rounded-xl" /></div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setIsEditScheduleOpen(false)} className="text-xs rounded-xl">Cancel</Button>
+                <Button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1 font-bold cursor-pointer rounded-xl"><Save size={13} /> Save Changes</Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Compose Custom SMS Alert Modal */}
+      <Dialog open={isSendSmsModalOpen} onOpenChange={setIsSendSmsModalOpen}>
+        <DialogContent className="bg-white max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900">
+              <Send className="text-teal-600" size={18} /> Compose SMS Alert
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSendCustomSms} className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs font-semibold">Recipient Patient Name <span className="text-red-500">*</span></Label>
+              <Input value={composeRecipient} onChange={e => setComposeRecipient(e.target.value)} placeholder="e.g. Maria Clara Santos" required className="h-9 text-xs mt-1 rounded-xl" />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Mobile Phone (11 Digits) <span className="text-red-500">*</span></Label>
+              <Input value={composePhone} onChange={e => setComposePhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09XXXXXXXXX" required maxLength={11} className="h-9 text-xs font-mono mt-1 rounded-xl" />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Message Text <span className="text-red-500">*</span></Label>
+              <textarea value={composeMessage} onChange={e => setComposeMessage(e.target.value)} rows={3} required placeholder="Barangay Health Center: Reminder regarding your clinic appointment..." className="w-full border border-slate-200 rounded-xl p-2.5 text-xs focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsSendSmsModalOpen(false)} className="text-xs rounded-xl">Cancel</Button>
+              <Button type="submit" className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold gap-1.5 cursor-pointer rounded-xl">
+                <Send size={13} /> Dispatch SMS
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

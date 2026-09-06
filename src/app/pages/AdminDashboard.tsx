@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import {
   FileText,
@@ -61,6 +61,7 @@ import {
   Layers,
   Server,
   Copy,
+  ExternalLink,
   UserCog
 } from 'lucide-react';
 import { apiService, DocumentRequest, Resident, SystemUser, PendingResident, ActivityLog, ClinicSchedule, HealthAppointment, PopulationStats, BarangayOverviewItem, HouseholdGroup, CensusAnalytics } from '../../services/api';
@@ -72,6 +73,7 @@ import DocumentPrintModal from '../components/DocumentPrintModal';
 import DocumentInfoModal from '../components/DocumentInfoModal';
 import PendingApplicantReviewModal from '../components/PendingApplicantReviewModal';
 import ImageViewerModal from '../components/ImageViewerModal';
+import ProfileSettingsView from '../components/ProfileSettingsView';
 import { exportToCsv, printOfficialReport, downloadOfficialPdf } from '../../utils/exportCsv';
 import { BUTUAN_BARANGAYS, getBarangayContact, getBarangayEmail } from '../../utils/barangays';
 import { PIANING_LOGO_BASE64, BUTUAN_LOGO_BASE64 } from '../components/officialLogos';
@@ -138,6 +140,15 @@ export default function AdminDashboard() {
     if (hour < 18) return 'Good afternoon';
     return 'Good evening';
   };
+
+  // Global Profile Update Listener
+  useEffect(() => {
+    const handleProfileSync = (e: any) => {
+      if (e.detail) setUser(e.detail);
+    };
+    window.addEventListener('user-profile-updated', handleProfileSync);
+    return () => window.removeEventListener('user-profile-updated', handleProfileSync);
+  }, []);
 
   // Dynamic Data States
   const [documents, setDocuments] = useState<DocumentRequest[]>([]);
@@ -206,7 +217,9 @@ export default function AdminDashboard() {
   // Search & Filter
   const [docSearch, setDocSearch] = useState('');
   const [docStatusFilter, setDocStatusFilter] = useState('all');
+  const [docTypeFilter, setDocTypeFilter] = useState('all');
   const [residentSearch, setResidentSearch] = useState('');
+  const [approvalSearch, setApprovalSearch] = useState('');
 
   // Activity Logs & Audit Trail State
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -347,6 +360,7 @@ export default function AdminDashboard() {
 
   // Staff Info Viewer Modal State (When admin clicks staff name)
   const [selectedStaffInfo, setSelectedStaffInfo] = useState<SystemUser | null>(null);
+  const staffFileInputRef = useRef<HTMLInputElement>(null);
 
   // SMS Correction Notice Modal State (Notify applicant regarding ID, Birthday, Name, or Address discrepancy)
   const [smsApplicantModal, setSmsApplicantModal] = useState<PendingResident | null>(null);
@@ -1584,6 +1598,183 @@ export default function AdminDashboard() {
     }
   };
 
+  const getStaffRoleConfig = (role?: string) => {
+    const r = (role || '').toLowerCase();
+    if (r === 'superadmin') {
+      return {
+        badge: 'bg-purple-50 text-purple-800 border-purple-200',
+        accent: 'text-purple-600',
+        bgAccent: 'bg-purple-50 border-purple-200 text-purple-800',
+        btn: 'bg-purple-600 hover:bg-purple-700',
+        title: 'Super Administrator',
+        station: 'Central Governance Dock',
+        tier: 'Tier 1 Central Administration'
+      };
+    }
+    if (r === 'admin') {
+      return {
+        badge: 'bg-blue-50 text-blue-800 border-blue-200',
+        accent: 'text-blue-600',
+        bgAccent: 'bg-blue-50 border-blue-200 text-blue-800',
+        btn: 'bg-blue-600 hover:bg-blue-700',
+        title: 'Barangay Administrator',
+        station: 'Executive Hall Station',
+        tier: 'Tier 2 Executive Governance'
+      };
+    }
+    if (r === 'nurse') {
+      return {
+        badge: 'bg-teal-50 text-teal-800 border-teal-200',
+        accent: 'text-teal-600',
+        bgAccent: 'bg-teal-50 border-teal-200 text-teal-800',
+        btn: 'bg-teal-600 hover:bg-teal-700',
+        title: 'Public Health Nurse (EHR)',
+        station: 'Health Center Clinic',
+        tier: 'Tier 3 Clinical Healthcare'
+      };
+    }
+    if (r === 'bhw') {
+      return {
+        badge: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+        accent: 'text-emerald-600',
+        bgAccent: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+        btn: 'bg-emerald-600 hover:bg-emerald-700',
+        title: 'Barangay Health Worker',
+        station: 'Community Health Unit',
+        tier: 'Tier 3 Field Community Health'
+      };
+    }
+    if (r === 'resident') {
+      return {
+        badge: 'bg-sky-50 text-sky-800 border-sky-200',
+        accent: 'text-sky-600',
+        bgAccent: 'bg-sky-50 border-sky-200 text-sky-800',
+        btn: 'bg-sky-600 hover:bg-sky-700',
+        title: 'Barangay Resident Citizen',
+        station: 'Community Resident Registry',
+        tier: 'Resident Citizen Portal'
+      };
+    }
+    return {
+      badge: 'bg-amber-50 text-amber-800 border-amber-200',
+      accent: 'text-amber-600',
+      bgAccent: 'bg-amber-50 border-amber-200 text-amber-800',
+      btn: 'bg-amber-600 hover:bg-amber-700',
+      title: 'Barangay Staff Officer',
+      station: 'Municipal Front Desk',
+      tier: 'Tier 4 Administrative Operations'
+    };
+  };
+
+  const handleOpenUserProfile = (u: SystemUser) => {
+    let userDetails: any = { ...u };
+    const matchingRes = residents.find(r => 
+      (u.id && r.id === u.id) || 
+      (r.email && u.email && r.email.toLowerCase().trim() === u.email.toLowerCase().trim())
+    );
+    if (matchingRes) {
+      userDetails = {
+        ...matchingRes,
+        ...u,
+        first_name: u.first_name || matchingRes.first_name,
+        middle_name: u.middle_name || matchingRes.middle_name,
+        last_name: u.last_name || matchingRes.last_name,
+        address: u.address || matchingRes.address,
+        phone: u.phone || matchingRes.phone,
+        date_of_birth: u.date_of_birth || matchingRes.date_of_birth,
+        gender: u.gender || matchingRes.gender,
+        civil_status: u.civil_status || matchingRes.civil_status,
+        purok: u.purok || matchingRes.purok,
+        household_number: u.household_number || matchingRes.household_number,
+        submitted_id: u.submitted_id || matchingRes.submitted_id,
+        verification_status: u.verification_status || matchingRes.verification_status,
+        profile_photo: u.profile_photo || (matchingRes as any).profile_photo || null
+      };
+    }
+    setSelectedStaffInfo(userDetails);
+  };
+
+  const handleStaffPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedStaffInfo) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload a valid image file (PNG, JPG, WEBP).');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Selected image file is too large (max 10MB).');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (uploadEvent) => {
+      const img = new Image();
+      img.onload = async () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const MAX_DIM = 400;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > MAX_DIM) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            }
+          } else {
+            if (height > MAX_DIM) {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Canvas context failure');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const optimizedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+          await apiService.updateUser(selectedStaffInfo.id, { profile_photo: optimizedDataUrl });
+          
+          setSelectedStaffInfo((prev: any) => prev ? { ...prev, profile_photo: optimizedDataUrl } : null);
+          setUsers(prev => prev.map(u => u.id === selectedStaffInfo.id ? { ...u, profile_photo: optimizedDataUrl } : u));
+          
+          if (user && user.id === selectedStaffInfo.id) {
+            const updatedSelf = { ...user, profile_photo: optimizedDataUrl };
+            setUser(updatedSelf);
+            window.dispatchEvent(new CustomEvent('user-profile-updated', { detail: updatedSelf }));
+          }
+
+          toast.success(`Profile photo updated for ${selectedStaffInfo.name}!`);
+        } catch (err) {
+          toast.error('Failed to process and update profile photo.');
+        }
+      };
+      img.src = uploadEvent.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleRemoveStaffPhoto = async () => {
+    if (!selectedStaffInfo) return;
+    try {
+      await apiService.updateUser(selectedStaffInfo.id, { profile_photo: null });
+      setSelectedStaffInfo((prev: any) => prev ? { ...prev, profile_photo: null } : null);
+      setUsers(prev => prev.map(u => u.id === selectedStaffInfo.id ? { ...u, profile_photo: null } : u));
+      
+      if (user && user.id === selectedStaffInfo.id) {
+        const updatedSelf = { ...user, profile_photo: null };
+        setUser(updatedSelf);
+        window.dispatchEvent(new CustomEvent('user-profile-updated', { detail: updatedSelf }));
+      }
+      toast.success(`Profile photo removed for ${selectedStaffInfo.name}.`);
+    } catch {
+      toast.error('Failed to remove profile photo.');
+    }
+  };
+
   const handleOpenEditUser = (u: SystemUser) => {
     setEditingUser(u);
     setEditUserName(u.name);
@@ -1833,7 +2024,9 @@ export default function AdminDashboard() {
     const matchesSearch = doc.resident_name.toLowerCase().includes(docSearch.toLowerCase()) ||
                           doc.request_code.toLowerCase().includes(docSearch.toLowerCase()) ||
                           doc.document_type.toLowerCase().includes(docSearch.toLowerCase());
-    return matchesSearch;
+    const matchesType = docTypeFilter === 'all' || doc.document_type.toLowerCase().includes(docTypeFilter.toLowerCase());
+    const matchesStatus = docStatusFilter === 'all' || doc.status.toLowerCase() === docStatusFilter.toLowerCase();
+    return matchesSearch && matchesType && matchesStatus;
   });
 
   // Archive lists — processed/completed records that moved out of the active queue
@@ -1862,7 +2055,18 @@ export default function AdminDashboard() {
   );
 
   // Pending resident approvals — strictly isolated by barangay
-  const myPendingResidents = pendingResidents.filter(res => belongsToMyBarangay(res.address || (res as any).barangay, res.email, (res as any).barangay));
+  const myPendingResidents = pendingResidents
+    .filter(res => belongsToMyBarangay(res.address || (res as any).barangay, res.email, (res as any).barangay))
+    .filter(res => {
+      if (!approvalSearch.trim()) return true;
+      const q = approvalSearch.toLowerCase();
+      return (
+        (res.name || `${res.first_name || ''} ${res.last_name || ''}`).toLowerCase().includes(q) ||
+        String(res.id).includes(q) ||
+        (res.email || '').toLowerCase().includes(q) ||
+        (res.address || '').toLowerCase().includes(q)
+      );
+    });
 
   // Dynamic Barangay-scoped Stats
   const brgyPendingDocsCount = barangayDocs.filter(d => d.status === 'Pending' || d.status === 'Processing' || d.status === 'Ready for Pickup').length;
@@ -1885,6 +2089,7 @@ export default function AdminDashboard() {
     ...(isSuperAdmin ? [{ id: 'logs', label: 'System Audit & History Logs', icon: History }] : []),
     ...(isSuperAdmin ? [{ id: 'categories', label: 'Category Manager', icon: Tag }] : []),
     ...(isSuperAdmin ? [{ id: 'system', label: 'System & Backup', icon: Database }] : []),
+    { id: 'profile-settings', label: 'Profile Settings', icon: UserCircle },
   ];
 
   return (
@@ -1966,19 +2171,16 @@ export default function AdminDashboard() {
             {/* User Avatar Profile Menu */}
             <div className="relative flex items-center gap-1.5 pl-2 border-l border-slate-200">
               <button
-                onClick={() => {
-                  setProfileName(user?.name || '');
-                  setProfilePhone(user?.phone || '');
-                  setProfileCurrentPassword('');
-                  setProfileNewPassword('');
-                  setProfileConfirmPassword('');
-                  setIsAdminProfileOpen(true);
-                }}
+                onClick={() => setActiveTab('profile-settings')}
                 className="flex items-center gap-2 p-1 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer group"
                 title="Admin Profile Settings"
               >
-                <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 group-hover:border-blue-400">
-                  <User size={18} />
+                <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 group-hover:border-blue-400 overflow-hidden shrink-0">
+                  {user?.profile_photo ? (
+                    <img src={user.profile_photo} alt={user?.name || 'Admin'} className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={18} />
+                  )}
                 </div>
                 <div className="hidden md:block text-left">
                   <span className="text-xs font-bold text-slate-900 block leading-tight">{user?.name || 'Barangay Admin'}</span>
@@ -2032,7 +2234,9 @@ export default function AdminDashboard() {
                 key={item.id}
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  if ((item as any).isRoute) {
+                  if ((item as any).action) {
+                    (item as any).action();
+                  } else if ((item as any).isRoute) {
                     navigate((item as any).isRoute);
                   } else {
                     setActiveTab(item.id);
@@ -2088,7 +2292,9 @@ export default function AdminDashboard() {
                 <button
                   key={item.id}
                   onClick={() => {
-                    if ((item as any).isRoute) {
+                    if ((item as any).action) {
+                      (item as any).action();
+                    } else if ((item as any).isRoute) {
                       navigate((item as any).isRoute);
                     } else {
                       setActiveTab(item.id);
@@ -2750,123 +2956,209 @@ export default function AdminDashboard() {
           {/* TAB: PENDING APPROVALS */}
           {activeTab === 'approvals' && (
             <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Resident Account Approvals</h2>
-                    <Badge className="bg-amber-500 text-white text-xs">{myPendingResidents.length} Pending</Badge>
+              {/* Executive Command Header Banner with Live Verification Metrics */}
+              <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-2xl shadow-lg border border-indigo-500/30 space-y-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-amber-500/20 border border-amber-400/30 rounded-xl backdrop-blur-sm shrink-0">
+                      <UserCheck size={26} className="text-amber-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                          Barangay {user?.barangay || 'Pianing'} — Citizen Identity Verification Desk
+                        </h2>
+                        <Badge className="bg-amber-500/20 text-amber-300 border border-amber-400/40 text-[10px] uppercase font-bold tracking-wider">
+                          {myPendingResidents.length} Pending Review
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-slate-300 max-w-2xl mt-1 leading-relaxed">
+                        Review submitted Government IDs from residents of Barangay {user?.barangay || 'Pianing'} who registered an account. Once approved, citizens can request clearances, track processing, and book clinic services.
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Review submitted Government IDs from residents of Barangay {user?.barangay || 'Pianing'} who created an account. Approve to unlock online certificate & clearance requests.
-                  </p>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleManualRefresh}
+                      disabled={isRefreshing || loading}
+                      className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs gap-1.5 cursor-pointer h-9 px-3 rounded-xl transition-all"
+                    >
+                      <RefreshCcw size={13} className={isRefreshing || loading ? "animate-spin text-amber-400" : ""} />
+                      <span>{isRefreshing ? 'Refreshing...' : 'Refresh List'}</span>
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleManualRefresh}
-                  disabled={isRefreshing || loading}
-                  className="gap-1.5 text-xs cursor-pointer hover:bg-slate-50 border-slate-200 shadow-xs"
-                >
-                  <RefreshCcw size={13} className={isRefreshing || loading ? "animate-spin text-indigo-600" : ""} />
-                  <span>{isRefreshing ? 'Refreshing...' : 'Refresh List'}</span>
-                </Button>
+
+                {/* KPI Summary Counter Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 border-t border-white/10">
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <p className="text-[11px] text-amber-300 font-medium">Pending Review</p>
+                    <p className="text-2xl font-bold text-amber-400 mt-0.5">{myPendingResidents.length}</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <p className="text-[11px] text-emerald-300 font-medium">Verified Citizens</p>
+                    <p className="text-2xl font-bold text-emerald-400 mt-0.5">{verifiedAccountsCount}</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3 col-span-2 sm:col-span-1">
+                    <p className="text-[11px] text-indigo-300 font-medium">Barangay Census Records</p>
+                    <p className="text-2xl font-bold text-indigo-300 mt-0.5">{residents.length}</p>
+                  </div>
+                </div>
               </div>
 
+              {/* Action Bar: Search Input & Quick Controls */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                <div className="relative flex-1 w-full sm:max-w-md">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    placeholder="Search applicant name, reference code, email, or address..."
+                    value={approvalSearch}
+                    onChange={e => setApprovalSearch(e.target.value)}
+                    className="pl-9 h-9 text-xs bg-slate-50 border-slate-200 rounded-xl"
+                  />
+                  {approvalSearch && (
+                    <button
+                      onClick={() => setApprovalSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                  <span>Showing <strong>{myPendingResidents.length}</strong> applicant{myPendingResidents.length !== 1 ? 's' : ''} in queue</span>
+                </div>
+              </div>
 
-              <Card className="border-slate-200 bg-white dark:bg-slate-900 shadow-xs">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-bold flex items-center gap-2">
-                    <UserCheck className="text-amber-600" size={18} />
-                    Pending Resident Verification Requests
-                  </CardTitle>
-                </CardHeader>
+              {/* Refined Resident Verification Table */}
+              <Card className="border-slate-200 bg-white shadow-xs rounded-2xl overflow-hidden">
                 <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50 dark:bg-slate-800/50">
-                        <TableHead className="text-xs">Applicant Name</TableHead>
-                        <TableHead className="text-xs">Application ID</TableHead>
-                        <TableHead className="text-xs">Submitted Date</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {myPendingResidents.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-center text-xs py-12 text-slate-400">
-                            <CheckCircle size={32} className="mx-auto mb-2 text-emerald-500 opacity-80" />
-                            No pending resident applications! All registrations have been reviewed.
-                          </TableCell>
+                  <div className="overflow-x-auto">
+                    <Table className="w-full text-left min-w-[760px]">
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/90 border-b border-slate-200">
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 pl-4 py-3.5">Applicant Citizen</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-3.5">Application Ref</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-3.5">Submitted Date</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-3.5">Government ID Document</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-3.5">Verification Status</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 pr-4 py-3.5 text-right">Review Actions</TableHead>
                         </TableRow>
-                      ) : (
-                        myPendingResidents.map((r, idx) => (
-                          <TableRow key={`pending-res-${r.id}-${idx}`} className="text-xs hover:bg-slate-50/50">
-                            <TableCell className="font-semibold text-slate-900 dark:text-white">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold text-xs flex items-center justify-center shrink-0">
-                                  {(r.name || r.first_name || 'R').charAt(0).toUpperCase()}
+                      </TableHeader>
+                      <TableBody className="divide-y divide-slate-100">
+                        {myPendingResidents.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-16">
+                              <div className="flex flex-col items-center justify-center max-w-md mx-auto text-slate-400">
+                                <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3 shadow-xs border border-emerald-100">
+                                  <CheckCircle size={28} />
                                 </div>
-                                <div>
-                                  <span className="font-semibold text-slate-900 dark:text-white block">
-                                    {r.name || `${r.first_name || ''} ${r.last_name || ''}`}
-                                  </span>
-                                  {(r.claimed_at || (r as any).is_claimed || (r as any).linked_user_id) && (
-                                    <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[9px] font-bold px-1.5 py-0.5 rounded shadow-2xs" title="Offline resident census record linked and claimed">
-                                      Census Record Linked
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="font-mono text-slate-500 text-xs font-semibold">
-                              APP-#{r.id}
-                            </TableCell>
-                            <TableCell className="font-mono text-slate-500 text-[11px]">
-                              {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Recent'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-semibold">
-                                Pending Review
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openApplicantReview(r)}
-                                  className="h-7 text-[11px] gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold cursor-pointer"
-                                  title="Preview complete applicant profile, contact details, address, and submitted ID"
-                                >
-                                  <Eye size={12} />
-                                  Preview Info
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleApproveResident(r.id)}
-                                  className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs font-semibold cursor-pointer"
-                                  title="Approve and verify resident account"
-                                >
-                                  <Check size={12} />
-                                  Approve
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handlePurgeResident(r.id)}
-                                  className="h-7 text-red-600 hover:bg-red-50 dark:hover:bg-red-950 cursor-pointer"
-                                  title="Permanently delete fake or spam account"
-                                >
-                                  <Trash2 size={13} />
-                                </Button>
+                                <h4 className="text-sm font-bold text-slate-800">All Citizen Verifications Completed!</h4>
+                                <p className="text-xs text-slate-500 mt-1 text-center leading-relaxed">
+                                  {approvalSearch ? `No applicants match your search "${approvalSearch}".` : 'There are currently zero pending resident identity verifications for this barangay. New registrations will automatically appear here in real time.'}
+                                </p>
+                                {approvalSearch && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setApprovalSearch('')}
+                                    className="mt-3 text-xs h-8 border-slate-300 hover:bg-slate-50 cursor-pointer"
+                                  >
+                                    Clear Search
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
+                        ) : (
+                          myPendingResidents.map((r, idx) => (
+                            <TableRow key={`pending-res-${r.id}-${idx}`} className="text-xs hover:bg-slate-50/80 transition-colors">
+                              <TableCell className="pl-4 py-3">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                                    {(r.name || r.first_name || 'R').charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <span className="font-bold text-slate-900 block text-xs">
+                                      {r.name || `${r.first_name || ''} ${r.last_name || ''}`}
+                                    </span>
+                                    <span className="text-[11px] text-slate-500 block truncate max-w-[200px]">
+                                      {r.email || r.address || 'Resident Applicant'}
+                                    </span>
+                                    {(r.claimed_at || (r as any).is_claimed || (r as any).linked_user_id) && (
+                                      <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold px-1.5 py-0.2 rounded mt-0.5">
+                                        ✓ Census Record Linked
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="font-mono text-slate-600 text-xs font-bold">
+                                <span className="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-md">
+                                  APP-#{r.id}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-slate-600 text-[11px]">
+                                {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Recent'}
+                              </TableCell>
+                              <TableCell>
+                                <button
+                                  type="button"
+                                  onClick={() => openApplicantReview(r)}
+                                  className="inline-flex items-center gap-1.5 text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer"
+                                  title="Click to view submitted ID photo"
+                                >
+                                  <Eye size={12} />
+                                  <span>View Gov ID</span>
+                                </button>
+                              </TableCell>
+                              <TableCell>
+                                <Badge className="bg-amber-50 text-amber-700 border-amber-300 text-[10px] font-bold px-2 py-0.5 flex items-center gap-1 w-fit">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                  Pending Review
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="pr-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => openApplicantReview(r)}
+                                    className="h-8 px-3 text-xs gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-semibold rounded-xl cursor-pointer shadow-2xs"
+                                    title="Preview complete applicant profile, contact details, address, and submitted ID"
+                                  >
+                                    <Eye size={13} />
+                                    <span>Preview Info</span>
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleApproveResident(r.id)}
+                                    className="h-8 px-3.5 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
+                                    title="Approve and verify resident account"
+                                  >
+                                    <Check size={13} />
+                                    <span>Approve</span>
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handlePurgeResident(r.id)}
+                                    className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer"
+                                    title="Permanently delete fake or spam account"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -2875,22 +3167,60 @@ export default function AdminDashboard() {
           {/* TAB 2: DOCUMENT PROCESSING — Active (Pending/Processing) only */}
           {activeTab === 'documents' && (
             <div className="space-y-6">
-              {/* Active Queue Banner */}
-              <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-2xl">
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
-                  <InboxIcon size={22} />
+              {/* Executive Document Services Command Banner with Live Processing Metrics */}
+              <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-2xl shadow-lg border border-indigo-500/30 space-y-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-blue-600/30 border border-blue-400/30 rounded-xl backdrop-blur-sm shrink-0">
+                      <InboxIcon size={26} className="text-blue-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                          Barangay {user?.barangay || 'Pianing'} — Document Clearance &amp; Issuance Desk
+                        </h2>
+                        <Badge className="bg-blue-500/20 text-blue-300 border border-blue-400/40 text-[10px] uppercase font-bold tracking-wider">
+                          {activeDocuments.length} In Active Queue
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-slate-300 max-w-2xl mt-1 leading-relaxed">
+                        Process official constituent requests for Barangay Clearance, Certificate of Residency, Indigency, and Business Permits. Once certified and claimed, records move automatically to the <button onClick={() => setActiveTab('archive')} className="underline font-bold text-blue-300 hover:text-white cursor-pointer">Archive Repository</button>.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-indigo-900">Active Document Queue</h3>
-                  <p className="text-xs text-indigo-700 mt-0.5">
-                    Showing <strong>{activeDocuments.length}</strong> active request{activeDocuments.length !== 1 ? 's' : ''} (Pending, In Preparation &amp; Ready for Pickup). Once signed and claimed, documents move to the <button onClick={() => setActiveTab('archive')} className="underline font-semibold hover:text-indigo-900 cursor-pointer">Archive tab</button>.
-                  </p>
+
+                {/* KPI Summary Counter Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-white/10">
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <p className="text-[11px] text-blue-300 font-medium">Total Active Queue</p>
+                    <p className="text-2xl font-bold text-white mt-0.5">{activeDocuments.length}</p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <p className="text-[11px] text-amber-300 font-medium">Pending Review</p>
+                    <p className="text-2xl font-bold text-amber-400 mt-0.5">
+                      {activeDocuments.filter(d => d.status === 'Pending').length}
+                    </p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <p className="text-[11px] text-indigo-300 font-medium">In Preparation</p>
+                    <p className="text-2xl font-bold text-indigo-300 mt-0.5">
+                      {activeDocuments.filter(d => d.status === 'Processing').length}
+                    </p>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <p className="text-[11px] text-emerald-300 font-medium">Ready for Pickup</p>
+                    <p className="text-2xl font-bold text-emerald-400 mt-0.5">
+                      {activeDocuments.filter(d => d.status === 'Ready for Pickup').length}
+                    </p>
+                  </div>
                 </div>
               </div>
+
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Document Clearance &amp; Permits</h2>
-                  <p className="text-xs text-slate-500">Manage and approve active barangay clearances, residency certificates, and business permits.</p>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Active Document Applications</h2>
+                  <p className="text-xs text-slate-500">Manage and certify active barangay clearances, residency certificates, and business permits.</p>
                 </div>
 
                 <Dialog open={isAddDocOpen} onOpenChange={setIsAddDocOpen}>
@@ -3192,63 +3522,121 @@ export default function AdminDashboard() {
                 </Dialog>
               </div>
 
-              {/* Filters — Active queue only (no Completed filter needed) */}
-              <div className="flex flex-col sm:flex-row gap-3 bg-white p-3 rounded-xl border border-slate-200 justify-between items-center">
-                <div className="flex flex-1 flex-col sm:flex-row gap-3 w-full">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+              {/* Action Bar: Category Pills, Search, and PDF Export */}
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                {/* Document Type Category Filter Pills */}
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl flex-wrap">
+                  {[
+                    { id: 'all', label: 'All Documents', count: activeDocuments.length },
+                    { id: 'Clearance', label: 'Clearance', count: activeDocuments.filter(d => d.document_type.includes('Clearance')).length },
+                    { id: 'Residency', label: 'Residency', count: activeDocuments.filter(d => d.document_type.includes('Residency')).length },
+                    { id: 'Indigency', label: 'Indigency', count: activeDocuments.filter(d => d.document_type.includes('Indigency')).length },
+                    { id: 'Business', label: 'Business', count: activeDocuments.filter(d => d.document_type.includes('Business')).length }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setDocTypeFilter(tab.id)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        docTypeFilter === tab.id
+                          ? 'bg-white text-blue-700 shadow-xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                        docTypeFilter === tab.id ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {tab.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search Bar & PDF Export */}
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                  <div className="relative flex-1 md:w-64">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <Input
-                      placeholder="Search by Resident Name or Request Code..."
+                      placeholder="Search code or resident name..."
                       value={docSearch}
                       onChange={e => setDocSearch(e.target.value)}
-                      className="pl-9 h-9 text-xs"
+                      className="pl-9 h-9 text-xs bg-slate-50 border-slate-200 rounded-xl"
                     />
+                    {docSearch && (
+                      <button
+                        onClick={() => setDocSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
+
+                  <Button
+                    onClick={() => {
+                      downloadOfficialPdf({
+                        title: 'Active Document Requests',
+                        subtitle: `Barangay ${user?.barangay || 'Pianing'} — Active Clearance Queue`,
+                        filename: `Barangay_Clearance_Requests_${new Date().toISOString().slice(0, 10)}`,
+                        preparedBy: user?.name || 'Admin',
+                        preparedByTitle: 'Barangay Administrator',
+                        tables: [{
+                          title: 'Document Requests Queue',
+                          headers: ['Code', 'Resident', 'Document Type', 'Purpose', 'Status', 'Requested At'],
+                          rows: filteredDocuments.map(d => [d.request_code || '-', d.resident_name || '-', d.document_type || '-', d.purpose || '-', d.status || '-', d.requested_at || '-'])
+                        }]
+                      });
+                      toast.success('Document requests PDF downloaded');
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50 rounded-xl cursor-pointer shrink-0"
+                  >
+                    <Download size={14} /> Download PDF
+                  </Button>
                 </div>
-                <Button
-                  onClick={() => {
-                    downloadOfficialPdf({
-                      title: 'Active Document Requests',
-                      subtitle: `Barangay ${user?.barangay || 'Pianing'} — Active Clearance Queue`,
-                      filename: `Barangay_Clearance_Requests_${new Date().toISOString().slice(0, 10)}`,
-                      preparedBy: user?.name || 'Admin',
-                      preparedByTitle: 'Barangay Administrator',
-                      tables: [{
-                        title: 'Document Requests Queue',
-                        headers: ['Code', 'Resident', 'Document Type', 'Purpose', 'Status', 'Requested At'],
-                        rows: filteredDocuments.map(d => [d.request_code || '-', d.resident_name || '-', d.document_type || '-', d.purpose || '-', d.status || '-', d.requested_at || '-'])
-                      }]
-                    });
-                    toast.success('Document requests PDF downloaded');
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="text-xs gap-1.5 h-9 border-slate-300 hover:bg-slate-50"
-                >
-                  <Download size={14} /> Download PDF
-                </Button>
               </div>
 
               {/* Full Document Table */}
-              <Card className="border-slate-200 bg-white shadow-xs rounded-xl overflow-hidden">
+              <Card className="border-slate-200 bg-white shadow-xs rounded-2xl overflow-hidden">
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <Table className="w-full text-left border-collapse min-w-[760px]">
                       <TableHeader>
-                        <TableRow className="bg-slate-50/80 border-b border-slate-200">
-                          <TableHead className="w-28 pl-4 text-xs font-semibold text-slate-600">Request Code</TableHead>
-                          <TableHead className="w-44 text-xs font-semibold text-slate-600">Resident Name</TableHead>
-                          <TableHead className="min-w-[180px] text-xs font-semibold text-slate-600">Document Type</TableHead>
-                          <TableHead className="w-28 text-xs font-semibold text-slate-600">Status</TableHead>
-                          <TableHead className="w-28 text-xs font-semibold text-slate-600">Date</TableHead>
-                          <TableHead className="w-44 text-xs font-semibold text-slate-600 text-right pr-4">Actions</TableHead>
+                        <TableRow className="bg-slate-50/90 border-b border-slate-200">
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 pl-4 py-3.5 w-32">Request Code</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-3.5 w-48">Resident Name</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-3.5 min-w-[180px]">Document Type</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-3.5 w-32">Lifecycle Status</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-3.5 w-28">Requested Date</TableHead>
+                          <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 pr-4 py-3.5 text-right w-44">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody className="divide-y divide-slate-100">
                         {filteredDocuments.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={6} className="text-center text-xs py-10 text-slate-400">
-                              No document requests found matching filter.
+                            <TableCell colSpan={6} className="text-center py-16">
+                              <div className="flex flex-col items-center justify-center max-w-md mx-auto text-slate-400">
+                                <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3 shadow-xs border border-blue-100">
+                                  <InboxIcon size={28} />
+                                </div>
+                                <h4 className="text-sm font-bold text-slate-800">No active document requests</h4>
+                                <p className="text-xs text-slate-500 mt-1 text-center leading-relaxed">
+                                  {docSearch || docTypeFilter !== 'all'
+                                    ? 'No document requests matched your active filters or search term.'
+                                    : 'The active clearance queue is completely clear! Any new document requests submitted by citizens will appear here in real time.'}
+                                </p>
+                                {(docSearch || docTypeFilter !== 'all') && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => { setDocSearch(''); setDocTypeFilter('all'); }}
+                                    className="mt-3 text-xs h-8 border-slate-300 hover:bg-slate-50 cursor-pointer"
+                                  >
+                                    Clear Filters
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -3266,33 +3654,49 @@ export default function AdminDashboard() {
 
                             return (
                               <TableRow key={`filter-doc-${doc.id}-${idx}`} className="text-xs hover:bg-slate-50/80 transition-colors">
-                                <TableCell className="pl-4 font-mono font-bold text-blue-600">
+                                <TableCell className="pl-4 py-3 font-mono font-bold text-blue-600">
                                   <button
                                     onClick={() => openDocInfo(doc)}
-                                    className="hover:underline cursor-pointer flex items-center gap-1"
+                                    className="hover:underline cursor-pointer flex items-center gap-1 font-mono font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-md text-[11px]"
                                     title="Click to view full details"
                                   >
                                     {doc.request_code}
                                   </button>
                                 </TableCell>
                                 <TableCell className="font-semibold text-slate-900">
-                                  <button
-                                    onClick={() => openDocInfo(doc)}
-                                    className="hover:text-blue-600 hover:underline text-left cursor-pointer"
-                                  >
-                                    {doc.resident_name}
-                                  </button>
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-[11px] flex items-center justify-center shrink-0 border border-slate-200">
+                                      {doc.resident_name ? doc.resident_name.charAt(0).toUpperCase() : 'R'}
+                                    </div>
+                                    <button
+                                      onClick={() => openDocInfo(doc)}
+                                      className="hover:text-blue-600 hover:underline text-left cursor-pointer font-bold text-xs"
+                                    >
+                                      {doc.resident_name}
+                                    </button>
+                                  </div>
                                 </TableCell>
                                 <TableCell className="text-slate-700 font-medium">
-                                  {doc.document_type}
+                                  <span className="font-semibold text-slate-800">{doc.document_type}</span>
+                                  {doc.purpose && (
+                                    <span className="block text-[11px] text-slate-400 truncate max-w-[240px]">
+                                      {doc.purpose}
+                                    </span>
+                                  )}
                                 </TableCell>
                                 <TableCell>
                                   <Badge className={
-                                    doc.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                                    doc.status === 'Ready for Pickup' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                                    doc.status === 'Processing' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                    'bg-orange-50 text-orange-700 border border-orange-200'
+                                    doc.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 font-semibold' :
+                                    doc.status === 'Ready for Pickup' ? 'bg-blue-50 text-blue-700 border border-blue-300 font-semibold flex items-center gap-1 w-fit' :
+                                    doc.status === 'Processing' ? 'bg-indigo-50 text-indigo-700 border border-indigo-300 font-semibold flex items-center gap-1 w-fit' :
+                                    'bg-amber-50 text-amber-700 border border-amber-300 font-semibold flex items-center gap-1 w-fit'
                                   }>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${
+                                      doc.status === 'Completed' ? 'bg-emerald-500' :
+                                      doc.status === 'Ready for Pickup' ? 'bg-blue-500 animate-pulse' :
+                                      doc.status === 'Processing' ? 'bg-indigo-500 animate-pulse' :
+                                      'bg-amber-500 animate-pulse'
+                                    }`} />
                                     {doc.status}
                                   </Badge>
                                 </TableCell>
@@ -3305,7 +3709,7 @@ export default function AdminDashboard() {
                                       size="sm"
                                       variant="outline"
                                       onClick={() => openDocInfo(doc)}
-                                      className="h-7 px-2.5 text-xs font-semibold text-blue-600 border-blue-200 hover:bg-blue-50 gap-1 rounded-lg cursor-pointer"
+                                      className="h-8 px-2.5 text-xs font-semibold text-blue-600 border-blue-200 hover:bg-blue-50 gap-1 rounded-xl cursor-pointer shadow-2xs"
                                       title="View details & update status"
                                     >
                                       <Eye size={12} /> View Info
@@ -3314,7 +3718,7 @@ export default function AdminDashboard() {
                                       size="sm"
                                       variant="outline"
                                       onClick={() => openPrintModal(doc)}
-                                      className="h-7 w-7 p-0 text-slate-500 hover:text-slate-900 border-slate-200 rounded-lg cursor-pointer"
+                                      className="h-8 w-8 p-0 text-slate-600 hover:text-slate-900 border-slate-200 hover:bg-slate-50 rounded-xl cursor-pointer"
                                       title="Print Certificate"
                                     >
                                       <Printer size={13} />
@@ -3323,7 +3727,7 @@ export default function AdminDashboard() {
                                       size="sm"
                                       variant="ghost"
                                       onClick={() => handleArchiveDoc(doc.id)}
-                                      className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                      className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer"
                                       title="Archive request"
                                     >
                                       <Archive size={13} />
@@ -4667,39 +5071,43 @@ export default function AdminDashboard() {
           {/* TAB 4: USER DIRECTORY & SYSTEM ACCOUNTS CONTROL */}
           {activeTab === 'users' && (
             <div className="space-y-6">
-              {/* Super Admin Control Header */}
-              {isSuperAdmin && (
-                <div className="bg-gradient-to-r from-violet-900 via-indigo-900 to-slate-900 text-white p-5 rounded-2xl shadow-lg space-y-4">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+              {/* Executive Header Banner - Dynamic for Super Admin or Barangay Admin */}
+              {isSuperAdmin ? (
+                <div className="bg-gradient-to-r from-violet-900 via-indigo-950 to-slate-900 text-white p-5 rounded-2xl shadow-lg border border-violet-500/30 space-y-4">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 bg-violet-600/30 border border-violet-400/30 rounded-xl backdrop-blur-sm">
-                        <ShieldCheck size={24} className="text-violet-300" />
+                      <div className="p-2.5 bg-violet-600/30 border border-violet-400/30 rounded-xl backdrop-blur-sm shrink-0">
+                        <ShieldCheck size={26} className="text-violet-300" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-bold flex items-center gap-2">
-                          Super Admin Control Center
-                          <Badge className="bg-violet-500/30 text-violet-200 border border-violet-400/40 text-[10px] uppercase tracking-wider">Full System Control</Badge>
-                        </h2>
-                        <p className="text-xs text-violet-200/80">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-lg sm:text-xl font-bold flex items-center gap-2 text-white">
+                            Super Admin Control Center
+                          </h2>
+                          <Badge className="bg-violet-500/30 text-violet-200 border border-violet-400/40 text-[10px] uppercase font-bold tracking-wider">
+                            Citywide Control
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-violet-200/80 max-w-2xl mt-1 leading-relaxed">
                           Complete directory of all personnel and residents across all barangays. Manage permissions, reset credentials, and track login records.
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
                       <Button
                         size="sm"
                         onClick={handleExportUsersCsv}
                         variant="outline"
-                        className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs gap-1.5 cursor-pointer"
+                        className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs gap-1.5 cursor-pointer h-9 px-3 rounded-xl transition-all"
                       >
                         <Download size={14} />
                         Export Directory (CSV)
                       </Button>
                       <Button
                         size="sm"
-                        onClick={loadData}
+                        onClick={() => loadData()}
                         variant="outline"
-                        className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs gap-1.5 cursor-pointer"
+                        className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs gap-1.5 cursor-pointer h-9 px-3 rounded-xl transition-all"
                       >
                         <RefreshCcw size={14} />
                         Refresh
@@ -4708,40 +5116,113 @@ export default function AdminDashboard() {
                   </div>
 
                   {/* Summary Metric Counters */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-white/10">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-white/10">
                     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
                       <p className="text-[11px] text-violet-300 font-medium">Total Accounts</p>
-                      <p className="text-xl font-bold text-white mt-0.5">{users.length}</p>
+                      <p className="text-2xl font-bold text-white mt-0.5">{users.length}</p>
                     </div>
                     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
                       <p className="text-[11px] text-indigo-300 font-medium">Officials & Staff</p>
-                      <p className="text-xl font-bold text-indigo-200 mt-0.5">
-                        {users.filter(u => u.role === 'admin' || u.role === 'staff' || u.role === 'bhw' || u.role === 'superadmin').length}
+                      <p className="text-2xl font-bold text-indigo-200 mt-0.5">
+                        {users.filter(u => u.role === 'admin' || u.role === 'staff' || u.role === 'bhw' || u.role === 'nurse' || u.role === 'superadmin').length}
                       </p>
                     </div>
                     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
                       <p className="text-[11px] text-emerald-300 font-medium">Registered Residents</p>
-                      <p className="text-xl font-bold text-emerald-200 mt-0.5">
+                      <p className="text-2xl font-bold text-emerald-200 mt-0.5">
                         {users.filter(u => u.role === 'resident').length}
                       </p>
                     </div>
                     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
                       <p className="text-[11px] text-amber-300 font-medium">Active Accounts</p>
-                      <p className="text-xl font-bold text-amber-200 mt-0.5">
+                      <p className="text-2xl font-bold text-amber-200 mt-0.5">
                         {users.filter(u => u.status === 'Active').length}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-2xl shadow-lg border border-indigo-500/30 space-y-4">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-indigo-500/20 border border-indigo-400/30 rounded-xl backdrop-blur-sm shrink-0">
+                        <UserCog size={26} className="text-indigo-400" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                            Barangay {user?.barangay || 'Pianing'} — User & Personnel Directory
+                          </h2>
+                          <Badge className="bg-indigo-500/20 text-indigo-300 border border-indigo-400/40 text-[10px] uppercase font-bold tracking-wider">
+                            Local Registry
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-slate-300 max-w-2xl mt-1 leading-relaxed">
+                          Official directory of barangay officials, clerks, health workers, and registered citizens for Barangay {user?.barangay || 'Pianing'}. Manage roles, status, and system access.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
+                      <Button
+                        size="sm"
+                        onClick={handleExportUsersCsv}
+                        variant="outline"
+                        className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs gap-1.5 cursor-pointer h-9 px-3 rounded-xl transition-all"
+                      >
+                        <Download size={14} />
+                        Export Directory (CSV)
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleManualRefresh}
+                        disabled={isRefreshing || loading}
+                        variant="outline"
+                        className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs gap-1.5 cursor-pointer h-9 px-3 rounded-xl transition-all"
+                      >
+                        <RefreshCcw size={13} className={isRefreshing || loading ? "animate-spin text-indigo-400" : ""} />
+                        <span>{isRefreshing ? 'Refreshing...' : 'Refresh List'}</span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Summary Metric Counters for Barangay Admin */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-white/10">
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                      <p className="text-[11px] text-indigo-300 font-medium">Total Barangay Accounts</p>
+                      <p className="text-2xl font-bold text-white mt-0.5">
+                        {users.filter(u => isUserForAdmin(u) && u.status !== 'Archived').length}
+                      </p>
+                    </div>
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                      <p className="text-[11px] text-blue-300 font-medium">Officials & Staff</p>
+                      <p className="text-2xl font-bold text-blue-300 mt-0.5">
+                        {users.filter(u => isUserForAdmin(u) && u.status !== 'Archived' && (u.role === 'admin' || u.role === 'staff' || u.role === 'bhw' || u.role === 'nurse')).length}
+                      </p>
+                    </div>
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                      <p className="text-[11px] text-emerald-300 font-medium">Registered Residents</p>
+                      <p className="text-2xl font-bold text-emerald-300 mt-0.5">
+                        {users.filter(u => isUserForAdmin(u) && u.status !== 'Archived' && u.role === 'resident').length}
+                      </p>
+                    </div>
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                      <p className="text-[11px] text-amber-300 font-medium">Active Status</p>
+                      <p className="text-2xl font-bold text-amber-300 mt-0.5">
+                        {users.filter(u => isUserForAdmin(u) && u.status === 'Active').length}
                       </p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Action Bar: Specific Tabs / Segregation Pills & Search & Add User */}
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              {/* Action Bar: Category Segregation Tabs, Search & Filters */}
+              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
                 {/* Specific Category Tabs for Users */}
-                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg flex-wrap">
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl flex-wrap w-full lg:w-auto">
                   <button
                     onClick={() => setUserCategoryTab('all')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                       userCategoryTab === 'all'
                         ? 'bg-white text-indigo-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -4749,27 +5230,27 @@ export default function AdminDashboard() {
                   >
                     <Users size={14} />
                     All Active
-                    <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 font-mono">
+                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 font-mono font-bold">
                       {users.filter(u => isUserForAdmin(u) && u.status !== 'Archived').length}
                     </span>
                   </button>
                   <button
                     onClick={() => setUserCategoryTab('officials')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                       userCategoryTab === 'officials'
                         ? 'bg-white text-indigo-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <Building2 size={14} />
-                    Barangay Officials & Staff
-                    <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-800 font-mono">
-                      {users.filter(u => isUserForAdmin(u) && u.status !== 'Archived' && (u.role === 'admin' || u.role === 'staff' || u.role === 'bhw' || u.role === 'superadmin')).length}
+                    Officials & Staff
+                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-mono font-bold">
+                      {users.filter(u => isUserForAdmin(u) && u.status !== 'Archived' && (u.role === 'admin' || u.role === 'staff' || u.role === 'bhw' || u.role === 'nurse' || u.role === 'superadmin')).length}
                     </span>
                   </button>
                   <button
                     onClick={() => setUserCategoryTab('residents')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                       userCategoryTab === 'residents'
                         ? 'bg-white text-indigo-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -4777,13 +5258,13 @@ export default function AdminDashboard() {
                   >
                     <UserCircle size={14} />
                     Residents
-                    <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-mono">
+                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono font-bold">
                       {users.filter(u => isUserForAdmin(u) && u.status !== 'Archived' && u.role === 'resident').length}
                     </span>
                   </button>
                   <button
                     onClick={() => setUserCategoryTab('archived')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                       userCategoryTab === 'archived'
                         ? 'bg-white text-rose-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -4791,23 +5272,33 @@ export default function AdminDashboard() {
                   >
                     <Archive size={14} />
                     Archived Accounts
-                    <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 font-mono">
+                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-mono font-bold">
                       {users.filter(u => isUserForAdmin(u) && u.status === 'Archived').length}
                     </span>
                   </button>
                 </div>
 
                 {/* Filters & Add Button */}
-                <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
+                <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto">
                   {/* Search Bar */}
-                  <div className="relative flex-1 sm:w-48">
-                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <div className="relative flex-1 sm:w-56">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <Input
-                      placeholder="Search name, email..."
+                      placeholder="Search name, email, phone..."
                       value={userSearchText}
                       onChange={e => setUserSearchText(e.target.value)}
-                      className="pl-8 h-8 text-xs bg-slate-50"
+                      className="pl-9 pr-7 h-8.5 text-xs bg-slate-50 border-slate-200 rounded-xl focus:bg-white transition-all"
                     />
+                    {userSearchText && (
+                      <button
+                        type="button"
+                        onClick={() => setUserSearchText('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                        title="Clear search"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
                   </div>
 
                   {/* Searchable Barangay Filter (Super Admin) */}
@@ -4818,7 +5309,7 @@ export default function AdminDashboard() {
                         placeholder="Search Barangay..."
                         value={userBarangayFilter === 'all' ? '' : userBarangayFilter}
                         onChange={e => setUserBarangayFilter(e.target.value.trim() || 'all')}
-                        className="h-8 text-xs w-48 bg-slate-50 border-slate-200"
+                        className="h-8.5 text-xs w-44 bg-slate-50 border-slate-200 rounded-xl"
                       />
                       <datalist id="user-accounts-barangay-list">
                         <option value="all">All Barangays</option>
@@ -5064,270 +5555,308 @@ export default function AdminDashboard() {
               </div>
 
               {/* Interactive User Table */}
-              <Card className="border-slate-200 bg-white shadow-xs">
+              <Card className="border-slate-200/80 bg-white shadow-xs rounded-2xl overflow-hidden">
                 <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs w-16">ID</TableHead>
-                        <TableHead className="text-xs">Account Name</TableHead>
-                        <TableHead className="text-xs">Email Address</TableHead>
-                        <TableHead className="text-xs">Role</TableHead>
-                        <TableHead className="text-xs">Barangay</TableHead>
-                        <TableHead className="text-xs">Contact Phone</TableHead>
-                        <TableHead className="text-xs">Verification</TableHead>
-                        <TableHead className="text-xs">Last Login</TableHead>
-                        <TableHead className="text-xs">Status</TableHead>
-                        <TableHead className="text-xs text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {users
-                        .filter(u => {
-                          // 1. Role & Barangay permission check
-                          if (!isUserForAdmin(u)) return false;
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/80 border-b border-slate-200 hover:bg-slate-50/80">
+                          <TableHead className="text-xs font-bold text-slate-700 w-16">ID</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700">Account Name</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700">Email Address</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700">Role</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700">Barangay</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700">Contact Phone</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700">Verification</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700">Last Login</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700">Status</TableHead>
+                          <TableHead className="text-xs font-bold text-slate-700 text-right pr-4">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(() => {
+                          const filtered = users.filter(u => {
+                            // 1. Role & Barangay permission check
+                            if (!isUserForAdmin(u)) return false;
 
-                          // 2. Category Tab filter
-                          if (userCategoryTab === 'archived') {
-                            if (u.status !== 'Archived') return false;
-                          } else {
-                            if (u.status === 'Archived') return false;
-                            if (userCategoryTab === 'officials' && u.role === 'resident') return false;
-                            if (userCategoryTab === 'residents' && u.role !== 'resident') return false;
+                            // 2. Category Tab filter
+                            if (userCategoryTab === 'archived') {
+                              if (u.status !== 'Archived') return false;
+                            } else {
+                              if (u.status === 'Archived') return false;
+                              if (userCategoryTab === 'officials' && u.role === 'resident') return false;
+                              if (userCategoryTab === 'residents' && u.role !== 'resident') return false;
+                            }
+
+                            // 3. Super Admin Barangay dropdown filter
+                            if (isSuperAdmin && userBarangayFilter !== 'all') {
+                              const uBrgy = (u.barangay || '').toLowerCase();
+                              if (!uBrgy.includes(userBarangayFilter.toLowerCase())) return false;
+                            }
+
+                            // 4. Search text filter
+                            if (userSearchText.trim()) {
+                              const q = userSearchText.toLowerCase();
+                              const matchName = u.name?.toLowerCase().includes(q);
+                              const matchEmail = u.email?.toLowerCase().includes(q);
+                              const matchPhone = u.phone?.toLowerCase().includes(q);
+                              if (!matchName && !matchEmail && !matchPhone) return false;
+                            }
+
+                            return true;
+                          });
+
+                          if (filtered.length === 0) {
+                            return (
+                              <TableRow>
+                                <TableCell colSpan={10} className="py-14 text-center">
+                                  <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-500 shadow-xs">
+                                      <Users size={22} />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <h4 className="text-sm font-bold text-slate-800">No user accounts found</h4>
+                                      <p className="text-xs text-slate-500 leading-relaxed">
+                                        {userSearchText.trim()
+                                          ? `No records matching "${userSearchText}". Try checking for spelling errors or clearing your search.`
+                                          : userCategoryTab === 'archived'
+                                          ? "There are no archived accounts. Deleted or deactivated personnel will be listed here."
+                                          : "No user accounts registered under this category yet."}
+                                      </p>
+                                    </div>
+                                    {userSearchText.trim() && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setUserSearchText('')}
+                                        className="text-xs h-8 px-3 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer"
+                                      >
+                                        Clear Search Filter
+                                      </Button>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
                           }
 
-                          // 3. Super Admin Barangay dropdown filter
-                          if (isSuperAdmin && userBarangayFilter !== 'all') {
-                            const uBrgy = (u.barangay || '').toLowerCase();
-                            if (!uBrgy.includes(userBarangayFilter.toLowerCase())) return false;
-                          }
-
-                          // 4. Search text filter
-                          if (userSearchText.trim()) {
-                            const q = userSearchText.toLowerCase();
-                            const matchName = u.name?.toLowerCase().includes(q);
-                            const matchEmail = u.email?.toLowerCase().includes(q);
-                            const matchPhone = u.phone?.toLowerCase().includes(q);
-                            if (!matchName && !matchEmail && !matchPhone) return false;
-                          }
-
-                          return true;
-                        })
-                        .map((u, idx) => (
-                          <TableRow key={`user-${u.id}-${u.email}-${idx}`} className={`text-xs hover:bg-slate-50/80 ${u.status === 'Archived' ? 'bg-rose-50/40 opacity-80' : ''}`}>
-                            <TableCell className="font-mono text-slate-400 font-semibold">#{u.id}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${
-                                  u.role === 'superadmin' ? 'bg-violet-100 text-violet-700' :
-                                  u.role === 'admin' ? 'bg-indigo-100 text-indigo-700' :
-                                  u.role === 'bhw' ? 'bg-emerald-100 text-emerald-700' :
-                                  u.role === 'staff' ? 'bg-blue-100 text-blue-700' :
-                                  'bg-slate-100 text-slate-700'
-                                }`}>
-                                  {u.name ? u.name.charAt(0).toUpperCase() : 'U'}
-                                </div>
-                                <div>
-                                  <button
-                                    onClick={() => {
-                                      if (u.role === 'resident') {
-                                        const matchingRes = residents.find(r => r.id === u.id || (r.email && r.email.toLowerCase() === u.email.toLowerCase()));
-                                        if (matchingRes) {
-                                          setSelectedStaffInfo({
-                                            ...u,
-                                            first_name: u.first_name || matchingRes.first_name,
-                                            middle_name: u.middle_name || matchingRes.middle_name,
-                                            last_name: u.last_name || matchingRes.last_name,
-                                            address: u.address || matchingRes.address,
-                                            phone: u.phone || matchingRes.phone,
-                                            date_of_birth: u.date_of_birth || matchingRes.date_of_birth,
-                                            gender: u.gender || matchingRes.gender,
-                                            civil_status: u.civil_status || matchingRes.civil_status,
-                                            purok: u.purok || matchingRes.purok,
-                                            household_number: u.household_number || matchingRes.household_number,
-                                            submitted_id: u.submitted_id || matchingRes.submitted_id,
-                                            verification_status: u.verification_status || matchingRes.verification_status
-                                          });
-                                          return;
-                                        }
-                                      }
-                                      setSelectedStaffInfo(u);
-                                    }}
-                                    className="font-semibold text-slate-900 hover:text-indigo-600 transition-colors text-left block cursor-pointer"
+                          return filtered.map((u, idx) => (
+                            <TableRow key={`user-${u.id}-${u.email}-${idx}`} className={`text-xs hover:bg-slate-50/80 transition-colors ${u.status === 'Archived' ? 'bg-rose-50/30 opacity-80' : ''}`}>
+                              <TableCell className="font-mono text-slate-400 font-bold">#{u.id}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2.5">
+                                  <div
+                                    onClick={() => handleOpenUserProfile(u)}
+                                    className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-xs border overflow-hidden cursor-pointer hover:ring-2 hover:ring-indigo-400 hover:scale-105 transition-all ${
+                                      u.role === 'superadmin' ? 'bg-violet-100 text-violet-700 border-violet-200' :
+                                      u.role === 'admin' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' :
+                                      u.role === 'nurse' ? 'bg-teal-100 text-teal-700 border-teal-200' :
+                                      u.role === 'bhw' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                                      u.role === 'staff' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                                      'bg-slate-100 text-slate-700 border-slate-200'
+                                    }`}
+                                    title="Click to view full user profile & dossier"
                                   >
-                                    {u.name}
-                                  </button>
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {u.employee_id && (
-                                      <span className="text-[9px] bg-slate-100 text-slate-700 font-mono px-1 rounded font-bold border border-slate-200">
-                                        {u.employee_id}
-                                      </span>
+                                    {u.profile_photo ? (
+                                      <img src={u.profile_photo} alt={u.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      u.name ? u.name.charAt(0).toUpperCase() : 'U'
                                     )}
-                                    {u.job_title && (
-                                      <span className="text-[10px] text-slate-500 font-medium">
-                                        {u.job_title}
-                                      </span>
-                                    )}
-                                    {u.role === 'superadmin' && <span className="text-[10px] text-violet-600 font-medium">City Administrator</span>}
+                                  </div>
+                                  <div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenUserProfile(u)}
+                                      className="font-bold text-slate-900 hover:text-indigo-600 transition-colors text-left block cursor-pointer"
+                                      title="Click to view full user profile & dossier"
+                                    >
+                                      {u.name}
+                                    </button>
+                                    <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                      {u.employee_id && (
+                                        <span className="text-[9px] bg-slate-100 text-slate-700 font-mono px-1.5 py-0.2 rounded font-bold border border-slate-200">
+                                          {u.employee_id}
+                                        </span>
+                                      )}
+                                      {u.job_title && (
+                                        <span className="text-[10px] text-slate-500 font-medium">
+                                          {u.job_title}
+                                        </span>
+                                      )}
+                                      {u.role === 'superadmin' && <span className="text-[10px] text-violet-600 font-medium">City Administrator</span>}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="font-mono text-slate-600">{u.email}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={
-                                u.role === 'superadmin' ? 'border-violet-500 text-violet-700 bg-violet-50 font-semibold' :
-                                u.role === 'admin' ? 'border-indigo-500 text-indigo-700 bg-indigo-50 font-semibold' :
-                                u.role === 'nurse' ? 'border-teal-500 text-teal-700 bg-teal-50 font-semibold' :
-                                u.role === 'bhw' ? 'border-emerald-500 text-emerald-700 bg-emerald-50 font-semibold' :
-                                u.role === 'staff' ? 'border-blue-500 text-blue-700 bg-blue-50 font-semibold' :
-                                'border-slate-300 text-slate-700 bg-slate-50'
-                              }>
-                                {u.role === 'superadmin' ? 'SUPER ADMIN' : u.role === 'admin' ? 'BARANGAY ADMIN' : u.role === 'nurse' ? 'HEALTH NURSE' : u.role === 'bhw' ? 'BHW WORKER' : u.role === 'staff' ? 'STAFF / CLERK' : 'RESIDENT'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <span className="inline-flex items-center gap-1 font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md text-[11px]">
-                                <MapPin size={11} className="text-indigo-600" />
-                                {u.barangay || 'Pianing'}
-                              </span>
-                            </TableCell>
-                            <TableCell className="font-mono text-slate-600">
-                              {u.phone && !u.phone.includes('@') ? u.phone : '—'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={
-                                (u as any).verification_status === 'Verified' ? 'bg-emerald-600 text-white text-[10px]' :
-                                (u as any).verification_status === 'Rejected' ? 'bg-red-100 text-red-700 border border-red-300 text-[10px]' :
-                                (u as any).verification_status === 'Pending_Review' || (u as any).verification_status === 'Unverified' ? 'bg-amber-100 text-amber-800 border border-amber-300 text-[10px]' :
-                                'bg-emerald-600 text-white text-[10px]'
-                              }>
-                                {(u as any).verification_status === 'Pending_Review' || (u as any).verification_status === 'Unverified' ? 'Pending' : (u as any).verification_status || 'Verified'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <span className="text-[11px] font-mono text-slate-500">
-                                {(u as any).last_login && (u as any).last_login !== 'Never'
-                                  ? new Date((u as any).last_login).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                                  : 'Never'}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              <button
-                                onClick={() => (isSuperAdmin || user?.role === 'admin') && handleToggleUserStatus(u)}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                                  u.status === 'Active'
-                                    ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300'
-                                    : u.status === 'Archived'
-                                    ? 'bg-violet-100 text-violet-800 hover:bg-violet-200 border border-violet-300'
-                                    : 'bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300'
-                                }`}
-                                title="Click to toggle Active / Inactive status"
-                              >
-                                <span className={`w-2 h-2 rounded-full ${
-                                  u.status === 'Active' ? 'bg-emerald-500 animate-pulse' :
-                                  u.status === 'Archived' ? 'bg-violet-500' : 'bg-amber-500'
-                                }`} />
-                                {u.status || 'Active'}
-                              </button>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1 flex-wrap">
-                                {/* Edit User Button */}
-                                {(isSuperAdmin || (user?.role === 'admin' && (u.role === 'staff' || u.role === 'bhw'))) && (
+                              </TableCell>
+                              <TableCell className="font-mono text-slate-600">{u.email}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={
+                                  u.role === 'superadmin' ? 'border-violet-300 text-violet-700 bg-violet-50 font-bold text-[10px]' :
+                                  u.role === 'admin' ? 'border-indigo-300 text-indigo-700 bg-indigo-50 font-bold text-[10px]' :
+                                  u.role === 'nurse' ? 'border-teal-300 text-teal-700 bg-teal-50 font-bold text-[10px]' :
+                                  u.role === 'bhw' ? 'border-emerald-300 text-emerald-700 bg-emerald-50 font-bold text-[10px]' :
+                                  u.role === 'staff' ? 'border-blue-300 text-blue-700 bg-blue-50 font-bold text-[10px]' :
+                                  'border-slate-300 text-slate-700 bg-slate-50 font-semibold text-[10px]'
+                                }>
+                                  {u.role === 'superadmin' ? 'SUPER ADMIN' : u.role === 'admin' ? 'BARANGAY ADMIN' : u.role === 'nurse' ? 'HEALTH NURSE' : u.role === 'bhw' ? 'BHW WORKER' : u.role === 'staff' ? 'STAFF / CLERK' : 'RESIDENT'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <span className="inline-flex items-center gap-1 font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-lg text-[11px] border border-slate-200/60">
+                                  <MapPin size={11} className="text-indigo-600 shrink-0" />
+                                  {u.barangay || 'Pianing'}
+                                </span>
+                              </TableCell>
+                              <TableCell className="font-mono text-slate-600">
+                                {u.phone && !u.phone.includes('@') ? u.phone : '—'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={
+                                  (u as any).verification_status === 'Verified' ? 'bg-emerald-600 text-white text-[10px] font-bold' :
+                                  (u as any).verification_status === 'Rejected' ? 'bg-red-100 text-red-700 border border-red-300 text-[10px]' :
+                                  (u as any).verification_status === 'Pending_Review' || (u as any).verification_status === 'Unverified' ? 'bg-amber-100 text-amber-800 border border-amber-300 text-[10px]' :
+                                  'bg-emerald-600 text-white text-[10px] font-bold'
+                                }>
+                                  {(u as any).verification_status === 'Pending_Review' || (u as any).verification_status === 'Unverified' ? 'Pending' : (u as any).verification_status || 'Verified'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <span className="text-[11px] font-mono text-slate-500">
+                                  {(u as any).last_login && (u as any).last_login !== 'Never'
+                                    ? new Date((u as any).last_login).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                    : 'Never'}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <button
+                                  onClick={() => (isSuperAdmin || user?.role === 'admin') && handleToggleUserStatus(u)}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
+                                    u.status === 'Active'
+                                      ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                                      : u.status === 'Archived'
+                                      ? 'bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200'
+                                      : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                                  }`}
+                                  title="Click to toggle Active / Inactive status"
+                                >
+                                  <span className={`w-2 h-2 rounded-full ${
+                                    u.status === 'Active' ? 'bg-emerald-500 animate-pulse' :
+                                    u.status === 'Archived' ? 'bg-violet-500' : 'bg-amber-500'
+                                  }`} />
+                                  {u.status || 'Active'}
+                                </button>
+                              </TableCell>
+                              <TableCell className="text-right pr-4">
+                                <div className="flex items-center justify-end gap-1 flex-wrap">
+                                  {/* View Profile Button */}
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    onClick={() => handleOpenEditUser(u)}
-                                    className="h-7 px-2 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer text-[11px] gap-1"
-                                    title="Edit user details"
+                                    onClick={() => handleOpenUserProfile(u)}
+                                    className="h-7 px-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 cursor-pointer text-[11px] font-semibold gap-1 rounded-lg border border-indigo-100"
+                                    title="View full user profile & credentials"
                                   >
-                                    <Edit3 size={12} />
-                                    <span className="hidden xl:inline">Edit</span>
+                                    <Eye size={12} />
+                                    <span className="hidden sm:inline">Profile</span>
                                   </Button>
-                                )}
 
-                                {/* Reset Password Button */}
-                                {(isSuperAdmin || (user?.role === 'admin' && (u.role === 'staff' || u.role === 'bhw'))) && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleOpenResetPassword(u)}
-                                    className="h-7 px-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 cursor-pointer text-[11px] gap-1"
-                                    title="Reset user password"
-                                  >
-                                    <Key size={12} />
-                                    <span className="hidden xl:inline">Reset</span>
-                                  </Button>
-                                )}
-
-                                {/* Activate / Deactivate Button */}
-                                {(isSuperAdmin || (user?.role === 'admin' && (u.role === 'staff' || u.role === 'bhw'))) && (
-                                  u.status === 'Active' ? (
+                                  {/* Edit User Button */}
+                                  {(isSuperAdmin || (user?.role === 'admin' && (u.role === 'staff' || u.role === 'bhw'))) && (
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      onClick={() => handleDeactivateUser(u)}
-                                      className="h-7 px-2 text-amber-700 hover:text-amber-800 hover:bg-amber-100/60 cursor-pointer text-[11px] font-semibold gap-1"
-                                      title="Deactivate account (disable login)"
+                                      onClick={() => handleOpenEditUser(u)}
+                                      className="h-7 px-2 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer text-[11px] gap-1 rounded-lg"
+                                      title="Edit user details"
                                     >
-                                      <UserX size={12} />
-                                      Deactivate
+                                      <Edit3 size={12} />
+                                      <span className="hidden xl:inline">Edit</span>
                                     </Button>
+                                  )}
+
+                                  {/* Reset Password Button */}
+                                  {(isSuperAdmin || (user?.role === 'admin' && (u.role === 'staff' || u.role === 'bhw'))) && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleOpenResetPassword(u)}
+                                      className="h-7 px-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 cursor-pointer text-[11px] gap-1 rounded-lg"
+                                      title="Reset user password"
+                                    >
+                                      <Key size={12} />
+                                      <span className="hidden xl:inline">Reset</span>
+                                    </Button>
+                                  )}
+
+                                  {/* Activate / Deactivate Button */}
+                                  {(isSuperAdmin || (user?.role === 'admin' && (u.role === 'staff' || u.role === 'bhw'))) && (
+                                    u.status === 'Active' ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleDeactivateUser(u)}
+                                        className="h-7 px-2 text-amber-700 hover:text-amber-800 hover:bg-amber-100/60 cursor-pointer text-[11px] font-semibold gap-1 rounded-lg"
+                                        title="Deactivate account (disable login)"
+                                      >
+                                        <UserX size={12} />
+                                        Deactivate
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleActivateUser(u)}
+                                        className="h-7 px-2 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-100/60 cursor-pointer text-[11px] font-semibold gap-1 rounded-lg"
+                                        title="Activate account (enable login)"
+                                      >
+                                        <UserCheck size={12} />
+                                        Activate
+                                      </Button>
+                                    )
+                                  )}
+
+                                  {/* Archive / Restore Button */}
+                                  {(isSuperAdmin || (user?.role === 'admin' && u.role !== 'superadmin')) ? (
+                                    u.status === 'Archived' ? (
+                                      <Button
+                                        size="sm"
+                                        variant={userCategoryTab === 'archived' ? 'default' : 'ghost'}
+                                        onClick={() => handleArchiveUser(u)}
+                                        className={userCategoryTab === 'archived'
+                                          ? 'h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer text-[11px] font-bold gap-1.5 shadow-xs rounded-lg'
+                                          : 'h-7 px-2 text-indigo-600 hover:bg-indigo-50 cursor-pointer text-[11px] font-semibold gap-1 rounded-lg'}
+                                        title="Restore user account to Active"
+                                      >
+                                        <RotateCcw size={12} />
+                                        Restore Account
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          if (confirm(`Move ${u.name} (${u.email}) to Archived? Login access will be disabled and the record will be preserved.`)) {
+                                            handleArchiveUser(u);
+                                          }
+                                        }}
+                                        className="h-7 px-2 text-rose-600 hover:bg-rose-50 cursor-pointer text-[11px] font-semibold gap-1 rounded-lg"
+                                        title="Archive user account"
+                                      >
+                                        <Archive size={12} />
+                                        Archive
+                                      </Button>
+                                    )
                                   ) : (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => handleActivateUser(u)}
-                                      className="h-7 px-2 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-100/60 cursor-pointer text-[11px] font-semibold gap-1"
-                                      title="Activate account (enable login)"
-                                    >
-                                      <UserCheck size={12} />
-                                      Activate
-                                    </Button>
-                                  )
-                                )}
-
-                                {/* Archive / Restore Button */}
-                                {(isSuperAdmin || (user?.role === 'admin' && u.role !== 'superadmin')) ? (
-                                  u.status === 'Archived' ? (
-                                    <Button
-                                      size="sm"
-                                      variant={userCategoryTab === 'archived' ? 'default' : 'ghost'}
-                                      onClick={() => handleArchiveUser(u)}
-                                      className={userCategoryTab === 'archived'
-                                        ? 'h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer text-[11px] font-bold gap-1.5 shadow-sm'
-                                        : 'h-7 px-2 text-indigo-600 hover:bg-indigo-50 cursor-pointer text-[11px] font-semibold gap-1'}
-                                      title="Restore user account to Active"
-                                    >
-                                      <RotateCcw size={12} />
-                                      Restore Account
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => {
-                                        if (confirm(`Move ${u.name} (${u.email}) to Archived? Login access will be disabled and the record will be preserved.`)) {
-                                          handleArchiveUser(u);
-                                        }
-                                      }}
-                                      className="h-7 px-2 text-rose-600 hover:bg-rose-50 cursor-pointer text-[11px] font-semibold gap-1"
-                                      title="Archive user account"
-                                    >
-                                      <Archive size={12} />
-                                      Archive
-                                    </Button>
-                                  )
-                                ) : (
-                                  <span className="text-slate-300 text-[10px] italic pr-1">Protected</span>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
+                                    <span className="text-slate-300 text-[10px] italic pr-1">Protected</span>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ));
+                        })()}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -5838,7 +6367,7 @@ export default function AdminDashboard() {
                       <PlusCircle size={14} /> Add Category
                     </Button>
                     <Button
-                      onClick={loadData}
+                      onClick={() => loadData()}
                       variant="outline"
                       size="sm"
                       className="h-8 text-xs gap-1.5 border-slate-300 cursor-pointer"
@@ -6871,6 +7400,14 @@ export default function AdminDashboard() {
 
 
 
+          {/* Dedicated Profile Settings Tab View */}
+          {activeTab === 'profile-settings' && (
+            <ProfileSettingsView
+              user={user}
+              onProfileUpdated={(updated) => setUser(updated)}
+            />
+          )}
+
         </main>
       </div>
 
@@ -6917,370 +7454,565 @@ export default function AdminDashboard() {
         fileName="resident-submitted-id.png"
       />
 
-      {/* Admin Profile & Security Modal */}
-      <Dialog open={isAdminProfileOpen} onOpenChange={setIsAdminProfileOpen}>
-        <DialogContent className="bg-white max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900">
-              <UserCircle className="text-indigo-600" size={20} />
-              Admin Profile &amp; Security
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              Update your display name, contact number, or change your login password.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleUpdateAdminProfile} className="space-y-4 py-2">
-            {/* Identity Info */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
-              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Account Info</p>
-              <div>
-                <Label className="text-xs font-semibold text-slate-700">Full Name</Label>
-                <Input
-                  value={profileName}
-                  onChange={e => setProfileName(e.target.value)}
-                  placeholder="Your official name"
-                  className="h-9 text-sm mt-1"
-                  required
-                />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                  <Phone size={12} /> Mobile Phone Number
-                </Label>
-                <Input
-                  value={profilePhone}
-                  onChange={e => setProfilePhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                  placeholder="09XXXXXXXXX"
-                  maxLength={11}
-                  inputMode="numeric"
-                  className="h-9 text-sm font-mono mt-1"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs font-semibold text-slate-700">Assigned Barangay</Label>
-                <Input
-                  value={user?.barangay || (user?.role === 'superadmin' ? 'Butuan City' : 'Pianing')}
-                  disabled
-                  className="h-9 text-sm bg-slate-100 text-slate-600 mt-1"
-                />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold text-slate-700">Role</Label>
-                <Input
-                  value={user?.role === 'superadmin' ? 'Super Administrator (City-Wide)' : user?.role === 'admin' ? 'Barangay Administrator' : (user?.role || '').toUpperCase()}
-                  disabled
-                  className="h-9 text-sm bg-slate-100 text-slate-600 mt-1"
-                />
-              </div>
-            </div>
-
-            {/* Password Change Section */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
-              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
-                <KeyRound size={12} /> Change Password (optional)
-              </p>
-              <div>
-                <Label className="text-xs font-semibold text-slate-700">Current Password</Label>
-                <div className="relative mt-1">
-                  <Input
-                    type={showProfilePass ? 'text' : 'password'}
-                    value={profileCurrentPassword}
-                    onChange={e => setProfileCurrentPassword(e.target.value)}
-                    placeholder="Enter your current password"
-                    className="h-9 text-sm pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowProfilePass(p => !p)}
-                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700"
-                  >
-                    {showProfilePass ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-xs font-semibold text-slate-700">New Password</Label>
-                  <Input
-                    type="password"
-                    value={profileNewPassword}
-                    onChange={e => setProfileNewPassword(e.target.value)}
-                    placeholder="Min 4 characters"
-                    className="h-9 text-sm mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs font-semibold text-slate-700">Confirm New</Label>
-                  <Input
-                    type="password"
-                    value={profileConfirmPassword}
-                    onChange={e => setProfileConfirmPassword(e.target.value)}
-                    placeholder="Repeat new password"
-                    className="h-9 text-sm mt-1"
-                  />
-                </div>
-              </div>
-              {profileNewPassword && profileConfirmPassword && profileNewPassword !== profileConfirmPassword && (
-                <p className="text-xs text-red-500 flex items-center gap-1">
-                  <AlertCircle size={12} /> Passwords do not match
-                </p>
-              )}
-            </div>
-
-            <DialogFooter className="gap-2 flex-wrap sm:justify-between items-center">
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={handleLogout}
-                className="text-xs bg-rose-600 hover:bg-rose-700 text-white mr-auto gap-1.5 cursor-pointer shadow-xs"
-              >
-                <LogOut size={13} />
-                Sign Out
-              </Button>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsAdminProfileOpen(false)}
-                  className="text-xs cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs cursor-pointer"
-                >
-                  Save Profile Changes
-                </Button>
-              </div>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* User / Staff / Resident Account Information Modal */}
+      {/* ═══ FULL USER & OFFICIAL EXECUTIVE PROFILE MODAL ════════════════════ */}
       <Dialog open={!!selectedStaffInfo} onOpenChange={(open) => !open && setSelectedStaffInfo(null)}>
-        <DialogContent className="bg-white dark:bg-slate-900 max-w-lg rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6">
-          <DialogHeader className="border-b border-slate-100 dark:border-slate-800 pb-3">
-            <DialogTitle className="text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white">
-              {selectedStaffInfo?.role === 'resident' ? (
-                <>
-                  <User className="text-blue-600" size={18} />
-                  Resident Account Profile
-                </>
-              ) : (
-                <>
-                  <Shield className="text-indigo-600" size={18} />
-                  Barangay Staff &amp; Official Profile
-                </>
-              )}
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              {selectedStaffInfo?.role === 'resident'
-                ? 'Registered resident demographic details and identity status.'
-                : 'Assigned system credentials, role access, and municipal operational jurisdiction.'}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="bg-white max-w-3xl max-h-[90vh] overflow-y-auto p-0 rounded-3xl border border-slate-200 shadow-2xl">
+          {selectedStaffInfo && (() => {
+            const roleCfg = getStaffRoleConfig(selectedStaffInfo.role);
+            const userInitials = selectedStaffInfo.name
+              ? selectedStaffInfo.name.split(' ').map((n: string) => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
+              : 'U';
+            const fullName = selectedStaffInfo.first_name
+              ? `${selectedStaffInfo.first_name} ${selectedStaffInfo.middle_name ? selectedStaffInfo.middle_name + ' ' : ''}${selectedStaffInfo.last_name || ''}`
+              : selectedStaffInfo.name;
 
-          {selectedStaffInfo && (
-            <div className="space-y-4 py-2 text-xs">
-              {/* Top Banner Card */}
-              <div className="flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700">
-                <div className={`w-11 h-11 rounded-xl ${
-                  selectedStaffInfo.role === 'resident' ? 'bg-blue-600' :
-                  selectedStaffInfo.role === 'superadmin' ? 'bg-violet-600' :
-                  selectedStaffInfo.role === 'admin' ? 'bg-indigo-600' :
-                  selectedStaffInfo.role === 'bhw' ? 'bg-emerald-600' :
-                  selectedStaffInfo.role === 'nurse' ? 'bg-teal-600' :
-                  'bg-blue-600'
-                } text-white font-bold text-sm flex items-center justify-center shadow-xs shrink-0`}>
-                  {selectedStaffInfo.name ? selectedStaffInfo.name.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() : 'U'}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{selectedStaffInfo.name}</h4>
-                  <p className="text-slate-500 font-mono text-[11px] truncate">{selectedStaffInfo.email}</p>
-                  <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                    <Badge variant="outline" className={
-                      selectedStaffInfo.role === 'superadmin' ? 'border-violet-300 text-violet-700 bg-violet-50 font-bold' :
-                      selectedStaffInfo.role === 'admin' ? 'border-indigo-300 text-indigo-700 bg-indigo-50 font-bold' :
-                      selectedStaffInfo.role === 'bhw' ? 'border-emerald-300 text-emerald-700 bg-emerald-50 font-bold' :
-                      selectedStaffInfo.role === 'nurse' ? 'border-teal-300 text-teal-700 bg-teal-50 font-bold' :
-                      selectedStaffInfo.role === 'resident' ? 'border-blue-300 text-blue-700 bg-blue-50 font-bold' :
-                      'border-slate-300 text-slate-700 bg-slate-50 font-bold'
-                    }>
-                      {selectedStaffInfo.role === 'superadmin' ? 'SUPER ADMIN' :
-                       selectedStaffInfo.role === 'admin' ? 'BARANGAY ADMIN' :
-                       selectedStaffInfo.role === 'bhw' ? 'BHW HEALTH WORKER' :
-                       selectedStaffInfo.role === 'nurse' ? 'HEALTH CENTER NURSE' :
-                       selectedStaffInfo.role === 'resident' ? 'RESIDENT' :
-                       'BARANGAY STAFF / CLERK'}
-                    </Badge>
-                    <Badge className={selectedStaffInfo.status === 'Active' ? 'bg-emerald-600 text-white' : 'bg-slate-400 text-white'}>
-                      {selectedStaffInfo.status}
-                    </Badge>
-                    {selectedStaffInfo.role === 'resident' && (
-                      <Badge variant="outline" className="border-emerald-300 text-emerald-700 bg-emerald-50 text-[10px] font-semibold">
-                        {selectedStaffInfo.verification_status || 'Verified'}
-                      </Badge>
-                    )}
+            const canEdit = isSuperAdmin || (user?.role === 'admin' && (selectedStaffInfo.role === 'staff' || selectedStaffInfo.role === 'bhw' || selectedStaffInfo.role === 'resident'));
+
+            const copyText = (val: string, label: string) => {
+              if (!val) return;
+              navigator.clipboard.writeText(val);
+              toast.success(`${label} copied to clipboard!`);
+            };
+
+            return (
+              <div className="flex flex-col">
+                {/* Modal Header */}
+                <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`p-2 rounded-xl border ${roleCfg.bgAccent}`}>
+                      {selectedStaffInfo.role === 'superadmin' ? <Shield size={18} /> :
+                       selectedStaffInfo.role === 'admin' ? <Building2 size={18} /> :
+                       selectedStaffInfo.role === 'nurse' ? <Heart size={18} /> :
+                       selectedStaffInfo.role === 'bhw' ? <Activity size={18} /> :
+                       selectedStaffInfo.role === 'resident' ? <UserCircle size={18} /> :
+                       <FileText size={18} />}
+                    </div>
+                    <div>
+                      <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        {selectedStaffInfo.role === 'resident' ? 'Resident Citizen Profile' : 'Personnel & Official Profile'}
+                      </DialogTitle>
+                      <DialogDescription className="text-xs text-slate-500">
+                        {selectedStaffInfo.role === 'resident'
+                          ? 'Official demographic record, civil status, and residency identification.'
+                          : 'Operational credentials, municipal jurisdiction, and assigned authorities.'}
+                      </DialogDescription>
+                    </div>
                   </div>
+                  <Badge variant="outline" className={`text-xs font-semibold px-2.5 py-0.5 border ${roleCfg.badge}`}>
+                    {selectedStaffInfo.role === 'superadmin' ? 'SUPER ADMIN' :
+                     selectedStaffInfo.role === 'admin' ? 'BARANGAY ADMIN' :
+                     selectedStaffInfo.role === 'nurse' ? 'HEALTH NURSE' :
+                     selectedStaffInfo.role === 'bhw' ? 'BHW WORKER' :
+                     selectedStaffInfo.role === 'staff' ? 'STAFF / CLERK' : 'RESIDENT'}
+                  </Badge>
                 </div>
-              </div>
 
-              {/* Conditional Content: Resident vs Staff */}
-              {selectedStaffInfo.role === 'resident' ? (
-                /* RESIDENT DETAILS */
-                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2">
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Full Legal Name</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                        {selectedStaffInfo.first_name || selectedStaffInfo.name} {selectedStaffInfo.middle_name ? selectedStaffInfo.middle_name + ' ' : ''}{selectedStaffInfo.last_name || ''}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Date of Birth</span>
-                      <span className="font-medium text-slate-800 dark:text-slate-200 text-xs">
-                        {selectedStaffInfo.date_of_birth ? new Date(selectedStaffInfo.date_of_birth).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not specified'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Gender &amp; Civil Status</span>
-                      <span className="font-medium text-slate-800 dark:text-slate-200 text-xs">
-                        {selectedStaffInfo.gender || 'Not specified'} • {selectedStaffInfo.civil_status || 'Single'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Mobile Phone</span>
-                      <span className="font-mono font-medium text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1">
-                        <Phone size={11} className="text-emerald-600" />
-                        {selectedStaffInfo.phone || 'None provided'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Purok / Zone</span>
-                      <span className="font-medium text-slate-800 dark:text-slate-200 text-xs">
-                        {selectedStaffInfo.purok ? (selectedStaffInfo.purok.startsWith('Purok') ? selectedStaffInfo.purok : `Purok ${selectedStaffInfo.purok}`) : 'Purok 1'}
-                      </span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Residential Address</span>
-                      <span className="font-medium text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1 mt-0.5">
-                        <MapPin size={11} className="text-rose-500 shrink-0" />
-                        {selectedStaffInfo.address || `Barangay ${selectedStaffInfo.barangay || 'Pianing'}, Butuan City`}
-                      </span>
-                    </div>
-                    {selectedStaffInfo.household_number && (
-                      <div>
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Household #</span>
-                        <span className="font-mono text-slate-700 dark:text-slate-300 text-xs">{selectedStaffInfo.household_number}</span>
+                <div className="p-5 sm:p-6 space-y-5 text-xs">
+                  {/* ── Executive Hero Card ── */}
+                  <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-xs relative overflow-hidden">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5">
+                      {/* Photo / Avatar & Info */}
+                      <div className="flex items-center gap-4 sm:gap-5">
+                        <div className="relative group/avatar shrink-0">
+                          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl overflow-hidden bg-slate-50 border-2 border-slate-200 shadow-sm flex items-center justify-center">
+                            {selectedStaffInfo.profile_photo ? (
+                              <img
+                                src={selectedStaffInfo.profile_photo}
+                                alt={selectedStaffInfo.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className={`w-full h-full flex items-center justify-center text-2xl font-bold tracking-wider ${roleCfg.bgAccent}`}>
+                                {userInitials}
+                              </div>
+                            )}
+                          </div>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => staffFileInputRef.current?.click()}
+                              className="absolute inset-0 bg-slate-900/40 text-white flex flex-col items-center justify-center rounded-3xl opacity-0 group-hover/avatar:opacity-100 transition-opacity cursor-pointer backdrop-blur-[2px]"
+                              title="Upload or change profile photo"
+                            >
+                              <Camera size={18} />
+                              <span className="text-[10px] font-semibold mt-0.5">Change</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
+                              {fullName}
+                            </h3>
+                            <Badge className={
+                              selectedStaffInfo.status === 'Active'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 font-bold'
+                                : selectedStaffInfo.status === 'Archived'
+                                ? 'bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 font-bold'
+                                : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 font-bold'
+                            }>
+                              <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                                selectedStaffInfo.status === 'Active' ? 'bg-emerald-500 animate-pulse' :
+                                selectedStaffInfo.status === 'Archived' ? 'bg-violet-500' : 'bg-amber-500'
+                              }`} />
+                              {selectedStaffInfo.status || 'Active'}
+                            </Badge>
+                            {selectedStaffInfo.role === 'resident' && (
+                              <Badge variant="outline" className={
+                                selectedStaffInfo.verification_status === 'Verified' ? 'border-emerald-300 text-emerald-700 bg-emerald-50 font-semibold' :
+                                selectedStaffInfo.verification_status === 'Rejected' ? 'border-rose-300 text-rose-700 bg-rose-50 font-semibold' :
+                                'border-amber-300 text-amber-800 bg-amber-50 font-semibold'
+                              }>
+                                {selectedStaffInfo.verification_status || 'Verified'}
+                              </Badge>
+                            )}
+                          </div>
+
+                          {/* Quick Photo Upload Actions */}
+                          {canEdit && (
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <button
+                                type="button"
+                                onClick={() => staffFileInputRef.current?.click()}
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+                                title="Upload or change profile photo"
+                              >
+                                <Camera size={11} />
+                                <span>{selectedStaffInfo.profile_photo ? 'Change Photo' : 'Upload Photo'}</span>
+                              </button>
+                              {selectedStaffInfo.profile_photo && (
+                                <button
+                                  type="button"
+                                  onClick={handleRemoveStaffPhoto}
+                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+                                  title="Remove profile photo"
+                                >
+                                  <Trash2 size={11} />
+                                  <span>Remove</span>
+                                </button>
+                              )}
+                              <input
+                                ref={staffFileInputRef}
+                                type="file"
+                                accept="image/png, image/jpeg, image/jpg, image/webp"
+                                onChange={handleStaffPhotoUpload}
+                                className="hidden"
+                              />
+                            </div>
+                          )}
+
+                          <div className="text-xs text-slate-500 mt-2 flex items-center gap-2.5 flex-wrap font-medium">
+                            <button
+                              type="button"
+                              onClick={() => copyText(selectedStaffInfo.email, 'Email')}
+                              className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors cursor-pointer bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200/80"
+                              title="Click to copy email"
+                            >
+                              <Mail size={12} className="text-slate-400" />
+                              <span className="font-mono">{selectedStaffInfo.email}</span>
+                              <Copy size={10} className="text-slate-400 ml-0.5" />
+                            </button>
+
+                            {selectedStaffInfo.phone && !selectedStaffInfo.phone.includes('@') && (
+                              <button
+                                type="button"
+                                onClick={() => copyText(selectedStaffInfo.phone || '', 'Phone')}
+                                className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors cursor-pointer bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200/80"
+                                title="Click to copy phone"
+                              >
+                                <Phone size={12} className="text-slate-400" />
+                                <span className="font-mono">{selectedStaffInfo.phone}</span>
+                                <Copy size={10} className="text-slate-400 ml-0.5" />
+                              </button>
+                            )}
+
+                            <span className="inline-flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200/80">
+                              <MapPin size={12} className="text-slate-400" />
+                              <span>Barangay {selectedStaffInfo.barangay || 'Pianing'}</span>
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Account ID</span>
-                      <span className="font-mono text-slate-700 dark:text-slate-300 text-xs">#{selectedStaffInfo.id}</span>
+
+                      {/* Top Right Badge / Clearance Pill */}
+                      <div className="text-xs text-slate-500 bg-slate-50 px-3.5 py-2.5 rounded-2xl border border-slate-200/80 shrink-0 space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                          <ShieldCheck size={14} className={roleCfg.accent} />
+                          <span>Badge #{selectedStaffInfo.employee_id || selectedStaffInfo.id || 'N/A'}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 flex items-center gap-1">
+                          <CheckCircle size={12} className="text-emerald-600" />
+                          <span>Official System Profile</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 4-Tile Quick Highlights Bar */}
+                    <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                      <div className="p-2.5 bg-slate-50/70 rounded-xl border border-slate-200/70">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Official Designation</span>
+                        <span className="font-bold text-slate-800 mt-0.5 block truncate">{selectedStaffInfo.job_title || roleCfg.title}</span>
+                      </div>
+                      <div className="p-2.5 bg-slate-50/70 rounded-xl border border-slate-200/70">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
+                        <span className="font-bold text-slate-800 mt-0.5 block truncate">Brgy. {selectedStaffInfo.barangay || 'Pianing'} {roleCfg.station}</span>
+                      </div>
+                      <div className="p-2.5 bg-slate-50/70 rounded-xl border border-slate-200/70">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Clearance Level</span>
+                        <span className="font-bold text-slate-800 mt-0.5 block truncate">{roleCfg.tier}</span>
+                      </div>
+                      <div className="p-2.5 bg-slate-50/70 rounded-xl border border-slate-200/70">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Security Status</span>
+                        <span className="font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
+                          <CheckCircle size={12} /> {selectedStaffInfo.status === 'Active' ? 'Active & Protected' : selectedStaffInfo.status || 'Active'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {selectedStaffInfo.submitted_id && (
-                    <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between">
-                      <span className="text-[11px] text-slate-500 font-medium">Government ID Document</span>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedIdPreview(selectedStaffInfo.submitted_id || null)}
-                        className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-900"
-                      >
-                        <Eye size={12} /> View ID Photo
-                      </button>
+                  {/* ── Official Profile Credentials Card ── */}
+                  <Card className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                    <div className="border-b border-slate-100 px-4 py-3 bg-slate-50/40 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${roleCfg.bgAccent}`}>
+                          <UserCircle size={15} />
+                        </div>
+                        <h4 className="font-bold text-slate-900 text-xs">Official Profile Credentials &amp; Identifiers</h4>
+                      </div>
+                      <span className="font-mono text-slate-400 text-[10px]">ID #{selectedStaffInfo.id}</span>
                     </div>
+
+                    <CardContent className="p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Full Legal Name</span>
+                          <span className="font-bold text-slate-800 text-xs block mt-0.5">{fullName}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Official Email</span>
+                          <span className="font-mono font-medium text-slate-800 text-xs block mt-0.5 truncate">{selectedStaffInfo.email}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Contact Mobile</span>
+                          <span className="font-mono font-medium text-slate-800 text-xs block mt-0.5">
+                            {selectedStaffInfo.phone && !selectedStaffInfo.phone.includes('@') ? selectedStaffInfo.phone : 'None specified'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Assigned Barangay</span>
+                          <span className="font-medium text-slate-800 text-xs block mt-0.5">Barangay {selectedStaffInfo.barangay || 'Pianing'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Employee Badge #</span>
+                          <span className="font-mono font-medium text-slate-800 text-xs block mt-0.5">
+                            {selectedStaffInfo.employee_id || 'N/A'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Last Active Session</span>
+                          <span className="font-mono font-medium text-slate-700 text-xs block mt-0.5">
+                            {selectedStaffInfo.last_login && selectedStaffInfo.last_login !== 'Never'
+                              ? new Date(selectedStaffInfo.last_login).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                              : 'Never logged in'}
+                          </span>
+                        </div>
+                        {selectedStaffInfo.address && (
+                          <div className="sm:col-span-2 md:col-span-3">
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Station / Registered Address</span>
+                            <span className="font-medium text-slate-800 text-xs block mt-0.5">{selectedStaffInfo.address}</span>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* ── Operational Responsibilities OR Resident Demographics ── */}
+                  {selectedStaffInfo.role === 'resident' ? (
+                    <Card className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                      <div className="border-b border-slate-100 px-4 py-3 bg-slate-50/40 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-sky-50 text-sky-700 border border-sky-200">
+                            <User size={15} />
+                          </div>
+                          <h4 className="font-bold text-slate-900 text-xs">Civil &amp; Demographic Details</h4>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] border-sky-200 text-sky-700 bg-sky-50">
+                          {selectedStaffInfo.purok ? (selectedStaffInfo.purok.startsWith('Purok') ? selectedStaffInfo.purok : `Purok ${selectedStaffInfo.purok}`) : 'Purok 1'}
+                        </Badge>
+                      </div>
+
+                      <CardContent className="p-4 space-y-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div>
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Date of Birth</span>
+                            <span className="font-medium text-slate-800 text-xs block mt-0.5">
+                              {selectedStaffInfo.date_of_birth
+                                ? `${new Date(selectedStaffInfo.date_of_birth).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}${(() => {
+                                    const d = new Date(selectedStaffInfo.date_of_birth);
+                                    if (isNaN(d.getTime())) return '';
+                                    const diff = Date.now() - d.getTime();
+                                    const age = Math.abs(new Date(diff).getUTCFullYear() - 1970);
+                                    return ` (${age} yrs old)`;
+                                  })()}`
+                                : 'Not specified'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Gender</span>
+                            <span className="font-medium text-slate-800 text-xs block mt-0.5">{selectedStaffInfo.gender || 'Not specified'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Civil Status</span>
+                            <span className="font-medium text-slate-800 text-xs block mt-0.5">{selectedStaffInfo.civil_status || 'Single'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Household #</span>
+                            <span className="font-mono font-medium text-slate-800 text-xs block mt-0.5">{selectedStaffInfo.household_number || 'N/A'}</span>
+                          </div>
+                        </div>
+
+                        {/* Government ID Preview Row */}
+                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-600 font-medium">Government ID Document:</span>
+                            {selectedStaffInfo.submitted_id ? (
+                              <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                                Uploaded &amp; Available
+                              </Badge>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">No ID photo attached</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {selectedStaffInfo.submitted_id && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                type="button"
+                                onClick={() => setSelectedIdPreview(selectedStaffInfo.submitted_id || null)}
+                                className="h-8 text-xs font-semibold rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50 cursor-pointer gap-1.5"
+                              >
+                                <Eye size={13} />
+                                <span>View ID Document</span>
+                              </Button>
+                            )}
+
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              type="button"
+                              onClick={() => {
+                                const residentId = selectedStaffInfo.id;
+                                setSelectedStaffInfo(null);
+                                openResidentProfile(residentId);
+                              }}
+                              className="h-8 text-xs font-semibold rounded-xl border-indigo-200 text-indigo-700 hover:bg-indigo-50 cursor-pointer gap-1.5"
+                            >
+                              <ExternalLink size={13} />
+                              <span>Open 360° Resident Dossier</span>
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                      <div className="border-b border-slate-100 px-4 py-3 bg-slate-50/40 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-1.5 rounded-lg ${roleCfg.bgAccent}`}>
+                            <ShieldCheck size={15} />
+                          </div>
+                          <h4 className="font-bold text-slate-900 text-xs">Operational Scope &amp; Role Responsibilities</h4>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] border-slate-200 text-slate-600 bg-white">
+                          Official Scope
+                        </Badge>
+                      </div>
+
+                      <CardContent className="p-4">
+                        <ul className="space-y-2 text-xs text-slate-600">
+                          {selectedStaffInfo.role === 'superadmin' && (
+                            <>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-violet-600 shrink-0 mt-0.5" />
+                                <span>Full city-wide central governance across all 86 barangays in Butuan City.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-violet-600 shrink-0 mt-0.5" />
+                                <span>Create, authorize, and govern Barangay Executive Administrators.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-violet-600 shrink-0 mt-0.5" />
+                                <span>Master document template catalog, system audit logs, and city demographics.</span>
+                              </li>
+                            </>
+                          )}
+                          {selectedStaffInfo.role === 'admin' && (
+                            <>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-indigo-600 shrink-0 mt-0.5" />
+                                <span>Executive administration and operational jurisdiction over Barangay {selectedStaffInfo.barangay || 'Pianing'}.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-indigo-600 shrink-0 mt-0.5" />
+                                <span>Approve resident registrations, verify identity documents, and issue official clearances.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-indigo-600 shrink-0 mt-0.5" />
+                                <span>Direct oversight of Barangay Staff, clerks, and Barangay Health Workers (BHW).</span>
+                              </li>
+                            </>
+                          )}
+                          {selectedStaffInfo.role === 'staff' && (
+                            <>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-blue-600 shrink-0 mt-0.5" />
+                                <span>Process and issue official Barangay Clearances, Certificates of Residency, and Indigency.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-blue-600 shrink-0 mt-0.5" />
+                                <span>Register walk-in residents and verify demographic information in the census database.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-blue-600 shrink-0 mt-0.5" />
+                                <span>Operational communication and document dispatch via Barangay Staff Messenger.</span>
+                              </li>
+                            </>
+                          )}
+                          {selectedStaffInfo.role === 'bhw' && (
+                            <>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                                <span>Community health census mapping and family profiling for Barangay {selectedStaffInfo.barangay || 'Pianing'}.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                                <span>Field vital signs monitoring, maternal care follow-ups, and child immunization tracking.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                                <span>Coordinate medical referrals and community health schedules with the Health Center Nurse.</span>
+                              </li>
+                            </>
+                          )}
+                          {selectedStaffInfo.role === 'nurse' && (
+                            <>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-teal-600 shrink-0 mt-0.5" />
+                                <span>Health Center clinical intake, medical consultations, and EHR patient history records.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-teal-600 shrink-0 mt-0.5" />
+                                <span>Prenatal examinations, pediatric vaccine administration, and pharmacy inventory control.</span>
+                              </li>
+                              <li className="flex items-start gap-2">
+                                <CheckCircle size={14} className="text-teal-600 shrink-0 mt-0.5" />
+                                <span>Clinical appointment approvals, physician consultations, and health summary reporting.</span>
+                              </li>
+                            </>
+                          )}
+                        </ul>
+                      </CardContent>
+                    </Card>
                   )}
                 </div>
-              ) : (
-                /* STAFF / OFFICIAL DETAILS */
-                <>
-                  <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/30 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60">
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Assigned Barangay</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1 mt-0.5">
-                        <MapPin size={12} className="text-indigo-600" />
-                        Barangay {selectedStaffInfo.barangay || 'Pianing'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Mobile Phone</span>
-                      <span className="font-mono font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1 mt-0.5">
-                        <Phone size={12} className="text-indigo-600" />
-                        {selectedStaffInfo.phone && !selectedStaffInfo.phone.includes('@') ? selectedStaffInfo.phone : '09171234567'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Account ID</span>
-                      <span className="font-mono text-slate-700 dark:text-slate-300">#{selectedStaffInfo.id}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Last Active</span>
-                      <span className="text-slate-700 dark:text-slate-300">
-                        {selectedStaffInfo.last_login ? new Date(selectedStaffInfo.last_login).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never logged in'}
-                      </span>
-                    </div>
+
+                {/* Modal Footer / Actions */}
+                <div className="p-4 sm:p-5 border-t border-slate-100 bg-slate-50/60 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-500 font-mono">Account #{selectedStaffInfo.id}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="text-[11px] text-slate-500">
+                      Brgy. {selectedStaffInfo.barangay || 'Pianing'}
+                    </span>
                   </div>
 
-                  {/* Assigned Responsibilities */}
-                  <div className="p-3 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-1.5">
-                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">Key Responsibilities</span>
-                    <ul className="text-[11px] text-slate-600 dark:text-slate-400 list-disc list-inside space-y-1">
-                      {selectedStaffInfo.role === 'superadmin' && (
-                        <>
-                          <li>Full city-wide system governance across all 86 barangays.</li>
-                          <li>Create and manage Barangay Administrators.</li>
-                          <li>Global document catalog and demographic reporting.</li>
-                        </>
-                      )}
-                      {selectedStaffInfo.role === 'admin' && (
-                        <>
-                          <li>Full executive administration of Barangay {selectedStaffInfo.barangay || 'Pianing'}.</li>
-                          <li>Approve resident accounts, review IDs, and grant clearance documents.</li>
-                          <li>Manage Barangay Staff and BHW health personnel.</li>
-                        </>
-                      )}
-                      {selectedStaffInfo.role === 'staff' && (
-                        <>
-                          <li>Process and issue official Barangay Clearances, Residency, and Permits.</li>
-                          <li>Register walk-in residents and verify demographic information.</li>
-                          <li>Intra-barangay team communication via Staff Chat.</li>
-                        </>
-                      )}
-                      {selectedStaffInfo.role === 'bhw' && (
-                        <>
-                          <li>Health Center administration for Barangay {selectedStaffInfo.barangay || 'Pianing'}.</li>
-                          <li>Manage Maternal Care, Child Immunization, and Medical Consultations.</li>
-                        </>
-                      )}
-                      {selectedStaffInfo.role === 'nurse' && (
-                        <>
-                          <li>Clinical intake, medical examinations, and pharmacy inventory control.</li>
-                          <li>Healthcare scheduling and clinical history archive management.</li>
-                        </>
-                      )}
-                    </ul>
-                  </div>
-                </>
-              )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Edit User Button */}
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        onClick={() => {
+                          const target = selectedStaffInfo;
+                          setSelectedStaffInfo(null);
+                          handleOpenEditUser(target);
+                        }}
+                        className="h-8 text-xs font-semibold rounded-xl border-slate-200 text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer gap-1.5"
+                      >
+                        <Edit3 size={13} />
+                        <span>Edit Details</span>
+                      </Button>
+                    )}
 
-              <DialogFooter className="pt-2">
-                <Button size="sm" onClick={() => setSelectedStaffInfo(null)} className="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs cursor-pointer">
-                  Close
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
+                    {/* Reset Password Button */}
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        onClick={() => {
+                          const target = selectedStaffInfo;
+                          setSelectedStaffInfo(null);
+                          handleOpenResetPassword(target);
+                        }}
+                        className="h-8 text-xs font-semibold rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50 cursor-pointer gap-1.5"
+                      >
+                        <Key size={13} />
+                        <span>Reset Password</span>
+                      </Button>
+                    )}
+
+                    {/* Toggle Status Button */}
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        onClick={() => {
+                          const target = selectedStaffInfo;
+                          handleToggleUserStatus(target);
+                          setSelectedStaffInfo({
+                            ...target,
+                            status: target.status === 'Active' ? 'Inactive' : 'Active'
+                          });
+                        }}
+                        className={`h-8 text-xs font-semibold rounded-xl cursor-pointer gap-1.5 ${
+                          selectedStaffInfo.status === 'Active'
+                            ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
+                            : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                        }`}
+                      >
+                        {selectedStaffInfo.status === 'Active' ? (
+                          <>
+                            <UserX size={13} />
+                            <span>Deactivate</span>
+                          </>
+                        ) : (
+                          <>
+                            <UserCheck size={13} />
+                            <span>Activate</span>
+                          </>
+                        )}
+                      </Button>
+                    )}
+
+                    <Button
+                      size="sm"
+                      type="button"
+                      onClick={() => setSelectedStaffInfo(null)}
+                      className="h-8 px-4 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl cursor-pointer"
+                    >
+                      Close
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

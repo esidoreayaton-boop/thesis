@@ -9,6 +9,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
+import ImageViewerModal from './ImageViewerModal';
 
 interface ResidentProfileModalProps {
   residentId: number | null;
@@ -65,18 +66,39 @@ export default function ResidentProfileModal({ residentId, isOpen, onClose }: Re
     }
   };
 
+  const [selectedIdPreview, setSelectedIdPreview] = useState<string | null>(null);
+
   if (!isOpen) return null;
 
   const residentFullName = resident ? `${resident.first_name} ${resident.middle_name ? resident.middle_name + ' ' : ''}${resident.last_name}` : 'Resident Profile';
 
+  // Compute age from date_of_birth
+  const calculateAge = (dob?: string) => {
+    if (!dob) return null;
+    const birth = new Date(dob);
+    if (isNaN(birth.getTime())) return null;
+    const diff = Date.now() - birth.getTime();
+    const ageDate = new Date(diff);
+    return Math.abs(ageDate.getUTCFullYear() - 1970);
+  };
+
+  const computedAge = resident?.age || calculateAge(resident?.date_of_birth);
+
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="w-[96vw] max-w-7xl h-[90vh] max-h-[95vh] bg-white p-6 overflow-y-auto rounded-2xl border-0 shadow-2xl">
         <DialogHeader className="border-b pb-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg shrink-0">
-                {resident ? `${resident.first_name[0]}${resident.last_name[0]}` : <User size={24} />}
+            <div className="flex items-center gap-3.5">
+              <div className="w-14 h-14 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg shrink-0 overflow-hidden border border-blue-200 shadow-xs">
+                {resident?.profile_photo ? (
+                  <img src={resident.profile_photo} alt={residentFullName} className="w-full h-full object-cover" />
+                ) : resident ? (
+                  `${(resident.first_name[0] || '').toUpperCase()}${(resident.last_name[0] || '').toUpperCase()}`
+                ) : (
+                  <User size={24} />
+                )}
               </div>
               <div>
                 <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
@@ -85,22 +107,46 @@ export default function ResidentProfileModal({ residentId, isOpen, onClose }: Re
                     <ShieldCheck size={12} className="mr-1" />
                     Verified Resident
                   </Badge>
+                  {resident?.is_senior && (
+                    <Badge className="bg-amber-100 text-amber-800 text-[10px] font-bold">
+                      Senior Citizen
+                    </Badge>
+                  )}
+                  {resident?.is_child && (
+                    <Badge className="bg-sky-100 text-sky-800 text-[10px] font-bold">
+                      Child / Minor
+                    </Badge>
+                  )}
                 </DialogTitle>
                 <DialogDescription className="text-xs text-slate-500 flex flex-wrap items-center gap-3 mt-1">
-                  <span className="flex items-center gap-1"><MapPin size={12} /> {resident?.address || 'Zone 1'}</span>
+                  <span className="flex items-center gap-1"><MapPin size={12} /> {resident?.address || (resident?.purok ? `Purok ${resident.purok}` : 'Barangay Pianing')}</span>
                   <span className="flex items-center gap-1 font-mono"><Phone size={12} /> {resident?.phone || '09171234567'}</span>
+                  {resident?.email && <span className="text-slate-400 font-mono">({resident.email})</span>}
                 </DialogDescription>
               </div>
             </div>
 
-            <Button
-              size="sm"
-              onClick={() => setActiveTab('sms')}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-9 px-3 gap-1.5 shrink-0"
-            >
-              <MessageSquare size={14} />
-              Send Direct SMS
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              {resident?.submitted_id && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelectedIdPreview(resident.submitted_id || null)}
+                  className="border-blue-200 text-blue-700 hover:bg-blue-50 text-xs h-9 px-3 gap-1.5"
+                >
+                  <FileText size={14} />
+                  View Gov ID
+                </Button>
+              )}
+              <Button
+                size="sm"
+                onClick={() => setActiveTab('sms')}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-9 px-3 gap-1.5"
+              >
+                <MessageSquare size={14} />
+                Send Direct SMS
+              </Button>
+            </div>
           </div>
         </DialogHeader>
 
@@ -109,30 +155,54 @@ export default function ResidentProfileModal({ residentId, isOpen, onClose }: Re
         ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
             <TabsList className="grid grid-cols-4 bg-slate-100 p-1 rounded-xl">
-              <TabsTrigger value="overview" className="text-xs">Civil Info</TabsTrigger>
-              <TabsTrigger value="maternal" className="text-xs">Maternal Care</TabsTrigger>
-              <TabsTrigger value="immunization" className="text-xs">Child Vaccines</TabsTrigger>
+              <TabsTrigger value="overview" className="text-xs font-semibold">Civil Info</TabsTrigger>
+              <TabsTrigger value="maternal" className="text-xs font-semibold">Maternal Care</TabsTrigger>
+              <TabsTrigger value="immunization" className="text-xs font-semibold">Child Vaccines</TabsTrigger>
               <TabsTrigger value="sms" className="text-xs font-semibold text-indigo-700">Send SMS</TabsTrigger>
             </TabsList>
 
             {/* TAB 1: OVERVIEW & CLEARANCE HISTORY */}
             <TabsContent value="overview" className="space-y-4 mt-4">
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div>
-                  <span className="text-slate-500">Full Name:</span>
-                  <p className="font-semibold text-slate-900">{residentFullName}</p>
+                  <span className="text-[11px] text-slate-400 uppercase font-semibold block">Full Legal Name:</span>
+                  <p className="font-bold text-slate-900 mt-0.5">{residentFullName}</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Gender / Status:</span>
-                  <p className="font-semibold text-slate-900">{resident?.gender} • {resident?.civil_status || 'Single'}</p>
+                  <span className="text-[11px] text-slate-400 uppercase font-semibold block">Gender & Civil Status:</span>
+                  <p className="font-semibold text-slate-900 mt-0.5">{resident?.gender || 'N/A'} • {resident?.civil_status || 'Single'}</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Date of Birth (Birthday):</span>
-                  <p className="font-semibold text-indigo-700">{resident?.date_of_birth || '2000-01-01'}</p>
+                  <span className="text-[11px] text-slate-400 uppercase font-semibold block">Date of Birth:</span>
+                  <p className="font-semibold text-indigo-700 mt-0.5">
+                    {resident?.date_of_birth || '2000-01-01'}
+                    {computedAge && <span className="text-slate-500 font-normal"> ({computedAge} yrs old)</span>}
+                  </p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Contact Number:</span>
-                  <p className="font-mono text-slate-800">{resident?.phone || '09171234567'}</p>
+                  <span className="text-[11px] text-slate-400 uppercase font-semibold block">Contact Mobile:</span>
+                  <p className="font-mono font-semibold text-slate-800 mt-0.5">{resident?.phone || '09171234567'}</p>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase font-semibold block">Jurisdiction:</span>
+                  <p className="font-semibold text-slate-800 mt-0.5">Barangay {resident?.barangay || 'Pianing'}</p>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase font-semibold block">Purok Assignment:</span>
+                  <p className="font-semibold text-slate-800 mt-0.5">{resident?.purok ? (resident.purok.startsWith('Purok') ? resident.purok : `Purok ${resident.purok}`) : 'Purok 1'}</p>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase font-semibold block">Household & Family:</span>
+                  <p className="font-mono text-slate-800 font-medium mt-0.5">{resident?.household_number || `HH-P${resident?.purok || '1'}-${resident?.id || 1}`} ({resident?.family_name || resident?.last_name})</p>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 uppercase font-semibold block">Employment Status:</span>
+                  <p className="mt-0.5">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {resident?.employment_status || 'Employed'}
+                    </span>
+                  </p>
                 </div>
               </div>
 
@@ -259,5 +329,15 @@ export default function ResidentProfileModal({ residentId, isOpen, onClose }: Re
         )}
       </DialogContent>
     </Dialog>
+
+    <ImageViewerModal
+      isOpen={!!selectedIdPreview}
+      onClose={() => setSelectedIdPreview(null)}
+      imageUrl={selectedIdPreview}
+      title="Submitted Resident Government ID"
+      subtitle="Official Philippine Government ID / Cedula Verification Document"
+      fileName="resident-submitted-id.png"
+    />
+    </>
   );
 }

@@ -31,7 +31,10 @@ import {
   Sparkles,
   History,
   Check,
-  Edit2
+  Edit2,
+  Plus,
+  Trash2,
+  ShieldCheck
 } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { toast } from 'sonner';
@@ -39,10 +42,19 @@ import { toast } from 'sonner';
 interface SmartClinicalIntakeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (createdRecord?: any) => void;
   barangay?: string;
   attendingWorker?: string;
   workerRole?: string;
+}
+
+interface PrescribedItem {
+  id: string;
+  name: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions: string;
 }
 
 export default function SmartClinicalIntakeModal({
@@ -53,8 +65,6 @@ export default function SmartClinicalIntakeModal({
   attendingWorker = 'Healthcare Worker',
   workerRole = 'nurse'
 }: SmartClinicalIntakeModalProps) {
-  // Step State
-  const [step, setStep] = useState<'identify' | 'vitals' | 'program'>('identify');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -72,7 +82,7 @@ export default function SmartClinicalIntakeModal({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
 
-  // Vitals
+  // Triage Vitals
   const [bpSystolic, setBpSystolic] = useState('120');
   const [bpDiastolic, setBpDiastolic] = useState('80');
   const [temp, setTemp] = useState('36.5');
@@ -80,14 +90,41 @@ export default function SmartClinicalIntakeModal({
   const [height, setHeight] = useState('');
   const [heartRate, setHeartRate] = useState('75');
 
-  // Program Selection (1 of 4)
+  // Primary Program Selection
   const [selectedProgram, setSelectedProgram] = useState<'Consultation' | 'Prenatal' | 'Family Planning' | 'NIP Immunization'>('Consultation');
 
-  // Consultation fields
+  // Specialized Consultation Sub-Programs
+  const [consultProgram, setConsultProgram] = useState<
+    'General Consultation' | 'Adolescent Health' | 'Family Planning' | 'Teenage Pregnancy Prevention' | 'NTP (TB-DOTS)'
+  >('General Consultation');
+
+  // General Consultation
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
   const [treatment, setTreatment] = useState('');
-  const [prescribedMeds, setPrescribedMeds] = useState('');
+  const [prescribedList, setPrescribedList] = useState<PrescribedItem[]>([]);
+  const [medInputName, setMedInputName] = useState('');
+  const [medInputDosage, setMedInputDosage] = useState('500mg');
+  const [medInputFreq, setMedInputFreq] = useState('3x daily after meals');
+  const [medInputDuration, setMedInputDuration] = useState('7 days');
+  const [medInputInstructions, setMedInputInstructions] = useState('Take with a full glass of water');
+
+  // Adolescent Health Consultation fields
+  const [adolescentStage, setAdolescentStage] = useState('Mid Adolescent (15-17 yrs)');
+  const [adolescentFocus, setAdolescentFocus] = useState('Pubertal Guidance & Mental Wellness');
+  const [adolescentGuardian, setAdolescentGuardian] = useState('Accompanied by Parent/Guardian');
+  const [adolescentNotes, setAdolescentNotes] = useState('');
+
+  // Teenage Pregnancy Prevention fields
+  const [teenRiskAssessment, setTeenRiskAssessment] = useState('Low Risk / Preventive Counseling');
+  const [teenCounselingTopic, setTeenCounselingTopic] = useState('Abstinence & Dual Protection Counseling');
+  const [teenSupportReferred, setTeenSupportReferred] = useState('Barangay Youth Health Peer Group');
+
+  // NTP (TB-DOTS) fields
+  const [tbSputumStatus, setTbSputumStatus] = useState('GeneXpert / AFB Pending');
+  const [tbCategory, setTbCategory] = useState('Category I (New Pulmonary TB)');
+  const [tbPhase, setTbPhase] = useState('Intensive Phase (2 Months RHZE)');
+  const [tbAdherencePartner, setTbAdherencePartner] = useState('Assigned BHW Treatment Partner');
 
   // Prenatal fields
   const [lmp, setLmp] = useState('');
@@ -105,6 +142,7 @@ export default function SmartClinicalIntakeModal({
 
   // NIP Immunization fields
   const [vaccineName, setVaccineName] = useState('Pentavalent (DPT-HepB-Hib)');
+  const [customVaccine, setCustomVaccine] = useState('');
   const [doseNumber, setDoseNumber] = useState('1');
   const [nextDueDate, setNextDueDate] = useState('');
 
@@ -131,11 +169,8 @@ export default function SmartClinicalIntakeModal({
     if (lmp) {
       const lmpDate = new Date(lmp);
       if (!isNaN(lmpDate.getTime())) {
-        // Naegele's rule: LMP + 1 year - 3 months + 7 days = LMP + 280 days
         const eddDate = new Date(lmpDate.getTime() + 280 * 24 * 60 * 60 * 1000);
         setEdd(eddDate.toISOString().split('T')[0]);
-
-        // AOG weeks
         const diffDays = Math.floor((Date.now() - lmpDate.getTime()) / (1000 * 60 * 60 * 24));
         const weeks = Math.floor(diffDays / 7);
         setAogWeeks(weeks > 0 ? `${weeks} weeks` : '1 week');
@@ -169,12 +204,40 @@ export default function SmartClinicalIntakeModal({
     setPhone(p.phone || '');
     setEmail(p.email || '');
     setPreviousEncounter(p.previous_encounter || null);
-    setIsVerifiedSame(null); // ask verification
+    setIsVerifiedSame(null);
   };
 
-  const handleConfirmExisting = () => {
-    setIsVerifiedSame(true);
-    toast.success('Patient details confirmed! Proceeding to Vitals assessment.');
+  const getBpCategory = (sys: string, dia: string) => {
+    const s = parseInt(sys, 10);
+    const d = parseInt(dia, 10);
+    if (isNaN(s) || isNaN(d)) return { label: 'Incomplete', color: 'bg-slate-100 text-slate-700' };
+    if (s >= 180 || d >= 120) return { label: 'Hypertensive Alert', color: 'bg-red-600 text-white animate-pulse' };
+    if (s >= 140 || d >= 90) return { label: 'Stage 2 HTN', color: 'bg-red-100 text-red-800 font-bold' };
+    if (s >= 130 || d >= 80) return { label: 'Stage 1 HTN', color: 'bg-amber-100 text-amber-800 font-semibold' };
+    if (s >= 120 && d < 80) return { label: 'Elevated BP', color: 'bg-yellow-100 text-yellow-800' };
+    return { label: 'Normal BP', color: 'bg-emerald-100 text-emerald-800 font-semibold' };
+  };
+
+  const addPrescriptionItem = () => {
+    if (!medInputName.trim()) {
+      toast.error('Please enter or select medication name');
+      return;
+    }
+    const item: PrescribedItem = {
+      id: String(Date.now()),
+      name: medInputName.trim(),
+      dosage: medInputDosage.trim(),
+      frequency: medInputFreq.trim(),
+      duration: medInputDuration.trim(),
+      instructions: medInputInstructions.trim()
+    };
+    setPrescribedList(prev => [...prev, item]);
+    setMedInputName('');
+    toast.success(`Added ${item.name} to prescription`);
+  };
+
+  const removePrescriptionItem = (id: string) => {
+    setPrescribedList(prev => prev.filter(p => p.id !== id));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -186,7 +249,40 @@ export default function SmartClinicalIntakeModal({
 
     setIsSubmitting(true);
     try {
-      const bpValue = `${bpSystolic}/${bpDiastolic} mmHg`;
+      const cleanSys = bpSystolic.replace(/\D/g, '') || '120';
+      const cleanDia = bpDiastolic.replace(/\D/g, '') || '80';
+      const bpValue = `${cleanSys}/${cleanDia} mmHg`;
+
+      // Determine program label and diagnosis/treatment synthesis
+      const actualProgram = selectedProgram === 'Consultation' ? consultProgram : selectedProgram;
+
+      const formattedRx = prescribedList.length > 0
+        ? prescribedList.map(m => `${m.name} ${m.dosage} (${m.frequency}, ${m.duration})${m.instructions ? ` - ${m.instructions}` : ''}`).join('; ')
+        : treatment;
+
+      let finalChiefComplaint = chiefComplaint;
+      let finalDiagnosis = diagnosis;
+      let finalTreatment = formattedRx || treatment;
+
+      if (actualProgram === 'Adolescent Health') {
+        finalChiefComplaint = chiefComplaint || `Adolescent Health Check (${adolescentStage})`;
+        finalDiagnosis = diagnosis || `Adolescent Wellness Evaluation - ${adolescentFocus}`;
+        finalTreatment = treatment || `Guidance provided: ${adolescentFocus}. ${adolescentGuardian}. Notes: ${adolescentNotes}`;
+      } else if (actualProgram === 'Teenage Pregnancy Prevention') {
+        finalChiefComplaint = chiefComplaint || 'Adolescent Reproductive Health & Teenage Pregnancy Prevention';
+        finalDiagnosis = diagnosis || `Risk Assessment: ${teenRiskAssessment}`;
+        finalTreatment = treatment || `Counseling provided: ${teenCounselingTopic}. Peer Support: ${teenSupportReferred}`;
+      } else if (actualProgram === 'NTP (TB-DOTS)') {
+        finalChiefComplaint = chiefComplaint || 'Tuberculosis Clinical Evaluation & DOTS Adherence';
+        finalDiagnosis = diagnosis || `TB Status: ${tbSputumStatus} (${tbCategory})`;
+        finalTreatment = treatment || `Regimen: ${tbPhase}. Treatment Partner: ${tbAdherencePartner}`;
+      } else if (actualProgram === 'Family Planning') {
+        finalChiefComplaint = chiefComplaint || `Family Planning Service (${fpMethod})`;
+        finalDiagnosis = diagnosis || `FP Client Status: ${fpClientType}`;
+        finalTreatment = treatment || `Dispensed/Administered: ${fpMethod}. Next Resupply: ${fpNextSupply || nextVisitDate || 'Scheduled'}`;
+      }
+
+      const activeVaccine = customVaccine.trim() || vaccineName;
 
       const payload = {
         patient_name: patientName.trim(),
@@ -199,15 +295,14 @@ export default function SmartClinicalIntakeModal({
         email: email.trim(),
         bp: bpValue,
         temp,
-        weight,
-        height,
-        heart_rate: heartRate,
-        program_type: selectedProgram,
-        // Program specific
-        chief_complaint: chiefComplaint,
-        diagnosis: diagnosis,
-        treatment: treatment,
-        prescribed_meds: prescribedMeds,
+        weight: weight ? `${weight} kg` : '',
+        height: height ? `${height} cm` : '',
+        heart_rate: heartRate ? `${heartRate} bpm` : '',
+        program_type: actualProgram,
+        chief_complaint: finalChiefComplaint || 'Routine Health Visit',
+        diagnosis: finalDiagnosis || 'Assessment Complete',
+        treatment: finalTreatment || 'Routine health counseling advised.',
+        prescribed_meds: formattedRx || finalTreatment,
         lmp: lmp || undefined,
         edd: edd || undefined,
         aog_weeks: aogWeeks || undefined,
@@ -218,19 +313,39 @@ export default function SmartClinicalIntakeModal({
         method_chosen: fpMethod,
         client_type: fpClientType,
         next_supply_date: fpNextSupply || nextVisitDate || undefined,
-        vaccine_name: vaccineName,
+        vaccine_name: activeVaccine,
         dose_number: doseNumber,
         due_date: nextDueDate || nextVisitDate || undefined,
         next_visit_date: nextVisitDate || undefined,
         attending_worker: attendingWorker
       };
 
-      await apiService.submitClinicalIntake(payload);
+      const res = await apiService.submitClinicalIntake(payload);
+      const createdRecord = (res as any)?.record || {
+        id: Date.now(),
+        patient_name: patientName.trim(),
+        contact_number: phone.trim(),
+        age: age || '—',
+        gender,
+        barangay,
+        service_type: actualProgram,
+        bp: bpValue,
+        temp: `${temp} °C`,
+        weight: weight ? `${weight} kg` : '—',
+        heart_rate: heartRate ? `${heartRate} bpm` : '75 bpm',
+        chief_complaint: finalChiefComplaint,
+        diagnosis: finalDiagnosis,
+        treatment: finalTreatment,
+        attending_nurse: attendingWorker,
+        consultation_date: new Date().toISOString().split('T')[0],
+        status: 'Completed'
+      };
+
       toast.success(`Clinical intake for ${patientName} saved successfully!`, {
-        description: `Program: ${selectedProgram} | SMS confirmation dispatched to ${phone || 'patient'}`
+        description: `Program: ${actualProgram} | Instant sync to Health Registry`
       });
 
-      if (onSuccess) onSuccess();
+      if (onSuccess) onSuccess(createdRecord);
       handleReset();
       onClose();
     } catch (err: any) {
@@ -253,41 +368,44 @@ export default function SmartClinicalIntakeModal({
     setChiefComplaint('');
     setDiagnosis('');
     setTreatment('');
-    setPrescribedMeds('');
+    setPrescribedList([]);
     setNextVisitDate('');
   };
 
+  const bpStatus = getBpCategory(bpSystolic, bpDiastolic);
+
   return (
     <Dialog open={isOpen} onOpenChange={open => { if (!open) { handleReset(); onClose(); } }}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto bg-white p-6 shadow-2xl rounded-2xl">
-        <DialogHeader className="pb-3 border-b border-slate-100">
+      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto bg-white p-0 shadow-2xl rounded-2xl border border-slate-200">
+        {/* Clean White Clinical Header */}
+        <div className="p-5 border-b border-slate-100 bg-white">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="bg-teal-100 text-teal-800 border border-teal-300 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wide">
-                Clinical Health Intake
+              <span className="bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                EHR Clinical Intake
               </span>
-              <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+              <span className="text-[11px] text-slate-500 flex items-center gap-1 font-medium">
                 <MapPin size={12} className="text-teal-600" /> Barangay {barangay} Health Center
               </span>
             </div>
-            <span className="text-xs text-slate-400 font-mono">Attending: {attendingWorker}</span>
+            <span className="text-xs text-slate-400 font-medium">Attending: {attendingWorker}</span>
           </div>
-          <DialogTitle className="text-lg font-bold text-slate-900 mt-1 flex items-center gap-2">
+          <DialogTitle className="text-lg font-bold text-slate-900 mt-1.5 flex items-center gap-2">
             <Stethoscope className="text-teal-600" size={20} />
-            Patient Health Intake &amp; Program Registration
+            Patient Health Intake &amp; Program Registry
           </DialogTitle>
-          <DialogDescription className="text-xs text-slate-500">
-            Intake patient demographics, vital signs, and route to Consultation, Prenatal, Family Planning, or NIP.
+          <DialogDescription className="text-xs text-slate-500 mt-0.5">
+            Register patient demographics, record vital signs, and assign to General, Adolescent, Family Planning, or NIP.
           </DialogDescription>
-        </DialogHeader>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-2">
-          {/* ═══ SECTION 1: SEARCH & RETURNING PATIENT RECALL ═══ */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Quick Patient Search / Returning Recall */}
+          <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                 <Search size={14} className="text-teal-600" />
-                Quick Patient Search / Returning Patient Recall
+                Returning Patient Lookup / Record Recall
               </Label>
               <span className="text-[10px] text-slate-400">Search by Name or Mobile Phone</span>
             </div>
@@ -297,7 +415,7 @@ export default function SmartClinicalIntakeModal({
                 placeholder="Type name (e.g. Maria Santos) or phone to look up existing records..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="h-9 text-xs bg-white pr-8"
+                className="h-9 text-xs bg-white pr-8 rounded-xl border-slate-200"
               />
               {isSearching && (
                 <div className="absolute right-2.5 top-2.5">
@@ -306,9 +424,8 @@ export default function SmartClinicalIntakeModal({
               )}
             </div>
 
-            {/* Live Search Suggestions Dropdown */}
             {searchResults.length > 0 && !matchedPatient && (
-              <div className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y divide-slate-100">
+              <div className="bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto divide-y divide-slate-100 mt-1">
                 {searchResults.map(p => (
                   <div
                     key={p.id}
@@ -329,7 +446,6 @@ export default function SmartClinicalIntakeModal({
               </div>
             )}
 
-            {/* ═══ RETURNING PATIENT VERIFICATION CARD ═══ */}
             {matchedPatient && (
               <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between">
@@ -353,74 +469,52 @@ export default function SmartClinicalIntakeModal({
                       <Button
                         type="button"
                         size="sm"
-                        onClick={handleConfirmExisting}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 gap-1 font-semibold cursor-pointer"
+                        onClick={() => { setIsVerifiedSame(true); toast.success('Patient confirmed!'); }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 gap-1 font-semibold cursor-pointer rounded-lg"
                       >
-                        <Check size={12} /> Confirm &amp; Keep Info
+                        <Check size={12} /> Confirm &amp; Keep
                       </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
                         onClick={() => setIsVerifiedSame(false)}
-                        className="text-xs h-7 gap-1 border-slate-300 text-slate-600 cursor-pointer"
+                        className="text-xs h-7 gap-1 border-slate-300 text-slate-600 cursor-pointer rounded-lg"
                       >
-                        <Edit2 size={12} /> Update Details
+                        <Edit2 size={12} /> Edit Details
                       </Button>
                     </div>
                   </div>
-                ) : isVerifiedSame === true ? (
-                  <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
-                    <CheckCircle2 size={13} /> Patient information verified. No re-typing needed!
-                  </div>
                 ) : (
-                  <div className="text-[11px] text-amber-700 font-medium">
-                    You may edit the fields below to update the patient's record.
+                  <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                    <CheckCircle2 size={13} /> Details verified. Ready for clinical encounter.
                   </div>
                 )}
               </div>
             )}
-
-            {/* ═══ PREVIOUS VISIT SUMMARY (CLINICAL CONTINUITY) ═══ */}
-            {previousEncounter && (
-              <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 space-y-1 text-xs">
-                <div className="flex items-center justify-between font-bold text-blue-900">
-                  <span className="flex items-center gap-1.5">
-                    <History size={14} className="text-blue-600" />
-                    Previous Clinical Visit ({previousEncounter.encounter_date || 'Past Month'})
-                  </span>
-                  <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-300 text-[10px]">
-                    {previousEncounter.program_type || 'Consultation'}
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1 text-slate-700">
-                  <div><span className="text-slate-400 font-semibold">Prev BP:</span> {previousEncounter.bp || '120/80'}</div>
-                  <div><span className="text-slate-400 font-semibold">Prev Temp:</span> {previousEncounter.temp || '36.5'}°C</div>
-                  <div><span className="text-slate-400 font-semibold">Diagnosis:</span> {previousEncounter.diagnosis || 'Upper Resp Infection'}</div>
-                  <div><span className="text-slate-400 font-semibold">Rx:</span> {previousEncounter.prescribed_meds || 'Amoxicillin'}</div>
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* ═══ SECTION 2: PATIENT DEMOGRAPHICS ═══ */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">1. Patient Basic Information</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {/* Section 1: Demographics */}
+          <div className="space-y-2.5">
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+              <User size={14} className="text-teal-600" />
+              1. Patient Demographics &amp; Contact
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div className="sm:col-span-2">
-                <Label className="text-xs font-semibold">Full Patient Name <span className="text-red-500">*</span></Label>
+                <Label className="text-xs font-semibold text-slate-700">Full Patient Name <span className="text-red-500">*</span></Label>
                 <Input
                   value={patientName}
                   onChange={e => setPatientName(e.target.value)}
                   placeholder="e.g. Maria Clara Santos"
                   required
-                  className="h-9 text-xs mt-1 bg-white"
+                  className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"
                 />
               </div>
               <div>
-                <Label className="text-xs font-semibold">Gender <span className="text-red-500">*</span></Label>
+                <Label className="text-xs font-semibold text-slate-700">Gender <span className="text-red-500">*</span></Label>
                 <Select value={gender} onValueChange={(v: any) => setGender(v)}>
-                  <SelectTrigger className="h-9 text-xs mt-1 bg-white"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Female">Female</SelectItem>
                     <SelectItem value="Male">Male</SelectItem>
@@ -429,29 +523,29 @@ export default function SmartClinicalIntakeModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <div>
-                <Label className="text-xs font-semibold">Birthday</Label>
+                <Label className="text-xs font-semibold text-slate-700">Birthday</Label>
                 <Input
                   type="date"
                   value={birthday}
                   onChange={e => setBirthday(e.target.value)}
-                  className="h-9 text-xs mt-1 bg-white"
+                  className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"
                 />
               </div>
               <div>
-                <Label className="text-xs font-semibold">Age</Label>
+                <Label className="text-xs font-semibold text-slate-700">Age (Yrs)</Label>
                 <Input
                   value={age}
                   onChange={e => setAge(e.target.value)}
-                  placeholder="Computed age"
-                  className="h-9 text-xs mt-1 bg-slate-50 font-semibold"
+                  placeholder="Age"
+                  className="h-9 text-xs mt-1 bg-slate-50 font-semibold rounded-xl border-slate-200"
                 />
               </div>
               <div>
-                <Label className="text-xs font-semibold">Civil Status</Label>
+                <Label className="text-xs font-semibold text-slate-700">Civil Status</Label>
                 <Select value={civilStatus} onValueChange={setCivilStatus}>
-                  <SelectTrigger className="h-9 text-xs mt-1 bg-white"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Single">Single</SelectItem>
                     <SelectItem value="Married">Married</SelectItem>
@@ -461,9 +555,9 @@ export default function SmartClinicalIntakeModal({
                 </Select>
               </div>
               <div>
-                <Label className="text-xs font-semibold">Purok / Zone</Label>
+                <Label className="text-xs font-semibold text-slate-700">Purok / Zone</Label>
                 <Select value={purok} onValueChange={setPurok}>
-                  <SelectTrigger className="h-9 text-xs mt-1 bg-white"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {['Purok 1', 'Purok 2', 'Purok 3', 'Purok 4', 'Purok 5', 'Purok 6', 'Purok 7'].map(p => (
                       <SelectItem key={p} value={p}>{p}</SelectItem>
@@ -473,57 +567,62 @@ export default function SmartClinicalIntakeModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
-                <Label className="text-xs font-semibold">Contact Mobile Phone <span className="text-red-500">*</span></Label>
+                <Label className="text-xs font-semibold text-slate-700">Contact Mobile Phone <span className="text-red-500">*</span></Label>
                 <Input
                   value={phone}
                   onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
                   placeholder="09XXXXXXXXX (11 digits)"
                   required
                   maxLength={11}
-                  className="h-9 text-xs font-mono mt-1 bg-white"
+                  className="h-9 text-xs font-mono mt-1 bg-white rounded-xl border-slate-200"
                 />
               </div>
               <div>
-                <Label className="text-xs font-semibold">Email Address (Optional)</Label>
+                <Label className="text-xs font-semibold text-slate-700">Email Address (Optional)</Label>
                 <Input
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="e.g. patient@gmail.com"
-                  className="h-9 text-xs mt-1 bg-white"
+                  className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"
                 />
               </div>
             </div>
           </div>
 
-          {/* ═══ SECTION 3: TRIAGE VITAL SIGNS ═══ */}
+          {/* Section 2: Vitals with Dual BP Inputs */}
           <div className="space-y-2 pt-2 border-t border-slate-100">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
                 <Activity size={14} className="text-rose-500" />
-                2. Triage Vital Signs Assessment
+                2. Triage Vital Signs
               </h4>
-              <span className="text-[10px] text-slate-400">Physical Health Markers</span>
+              <Badge className={`text-[10px] border-0 ${bpStatus.color}`}>
+                {bpStatus.label}
+              </Badge>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {/* Dual BP input */}
               <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-                <Label className="text-[11px] font-semibold text-slate-600 block">Blood Pressure (BP)</Label>
+                <Label className="text-[11px] font-semibold text-slate-600 block">BP (Systolic / Diastolic)</Label>
                 <div className="flex items-center gap-1 mt-1">
                   <Input
                     value={bpSystolic}
-                    onChange={e => setBpSystolic(e.target.value)}
+                    onChange={e => setBpSystolic(e.target.value.replace(/\D/g, '').slice(0, 3))}
                     placeholder="120"
-                    className="h-8 text-xs font-mono text-center bg-white"
+                    maxLength={3}
+                    className="h-8 text-xs font-mono text-center bg-white rounded-lg border-slate-200"
                   />
-                  <span className="text-slate-400">/</span>
+                  <span className="text-slate-400 font-bold">/</span>
                   <Input
                     value={bpDiastolic}
-                    onChange={e => setBpDiastolic(e.target.value)}
+                    onChange={e => setBpDiastolic(e.target.value.replace(/\D/g, '').slice(0, 3))}
                     placeholder="80"
-                    className="h-8 text-xs font-mono text-center bg-white"
+                    maxLength={3}
+                    className="h-8 text-xs font-mono text-center bg-white rounded-lg border-slate-200"
                   />
                   <span className="text-[10px] text-slate-400">mmHg</span>
                 </div>
@@ -536,7 +635,7 @@ export default function SmartClinicalIntakeModal({
                     value={temp}
                     onChange={e => setTemp(e.target.value)}
                     placeholder="36.5"
-                    className="h-8 text-xs font-mono text-center bg-white"
+                    className="h-8 text-xs font-mono text-center bg-white rounded-lg border-slate-200"
                   />
                   <span className="text-[10px] text-slate-400">°C</span>
                 </div>
@@ -549,7 +648,7 @@ export default function SmartClinicalIntakeModal({
                     value={weight}
                     onChange={e => setWeight(e.target.value)}
                     placeholder="54"
-                    className="h-8 text-xs font-mono text-center bg-white"
+                    className="h-8 text-xs font-mono text-center bg-white rounded-lg border-slate-200"
                   />
                   <span className="text-[10px] text-slate-400">kg</span>
                 </div>
@@ -562,7 +661,7 @@ export default function SmartClinicalIntakeModal({
                     value={heartRate}
                     onChange={e => setHeartRate(e.target.value)}
                     placeholder="75"
-                    className="h-8 text-xs font-mono text-center bg-white"
+                    className="h-8 text-xs font-mono text-center bg-white rounded-lg border-slate-200"
                   />
                   <span className="text-[10px] text-slate-400">bpm</span>
                 </div>
@@ -570,18 +669,18 @@ export default function SmartClinicalIntakeModal({
             </div>
           </div>
 
-          {/* ═══ SECTION 4: 4 HEALTH PROGRAM SELECTOR ═══ */}
-          <div className="space-y-2 pt-2 border-t border-slate-100">
+          {/* Section 3: Primary Program Selection */}
+          <div className="space-y-2.5 pt-2 border-t border-slate-100">
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-              3. Purpose of Visit / Select Health Program
+              3. Purpose of Visit / Primary Health Program
             </h4>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { id: 'Consultation', label: 'Consultation', icon: Stethoscope, color: 'teal', desc: 'Check-up & Illness' },
-                { id: 'Prenatal', label: 'Prenatal Check', icon: Heart, color: 'pink', desc: 'Maternal Care' },
-                { id: 'Family Planning', label: 'Family Planning', icon: Pill, color: 'indigo', desc: 'FP Supplies & Depo' },
-                { id: 'NIP Immunization', label: 'NIP Vaccine', icon: Baby, color: 'blue', desc: 'Child Immunization' }
+                { id: 'Consultation', label: 'Consultation', icon: Stethoscope, desc: 'Medical & Specialized' },
+                { id: 'Prenatal', label: 'Prenatal Check', icon: Heart, desc: 'Maternal Care' },
+                { id: 'Family Planning', label: 'Family Planning', icon: Pill, desc: 'Supplies & Contraception' },
+                { id: 'NIP Immunization', label: 'NIP Vaccine', icon: Baby, desc: 'Child Immunization' }
               ].map(prog => {
                 const isSelected = selectedProgram === prog.id;
                 return (
@@ -608,51 +707,249 @@ export default function SmartClinicalIntakeModal({
               })}
             </div>
 
-            {/* ── PROGRAM 1: CONSULTATION EXPANDED ── */}
+            {/* If Consultation: Show Specialized Sub-Programs */}
             {selectedProgram === 'Consultation' && (
-              <div className="p-3.5 bg-teal-50/40 border border-teal-200 rounded-xl space-y-2 mt-2">
-                <div className="flex items-center gap-1.5 font-bold text-xs text-teal-900">
-                  <Stethoscope size={15} className="text-teal-700" />
-                  General Medical Consultation Assessment
+              <div className="p-3.5 bg-teal-50/50 border border-teal-200 rounded-2xl space-y-3 mt-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-teal-600" />
+                    Specialized Consultation Program
+                  </Label>
+                  <span className="text-[10px] text-teal-700 font-medium">Select matching clinical program</span>
                 </div>
 
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: 'General Consultation', label: 'General Consultation', color: 'teal' },
+                    { id: 'Adolescent Health', label: 'Adolescent Health', color: 'purple' },
+                    { id: 'Family Planning', label: 'Family Planning', color: 'emerald' },
+                    { id: 'Teenage Pregnancy Prevention', label: 'Teenage Prevention', color: 'rose' },
+                    { id: 'NTP (TB-DOTS)', label: 'NTP (TB-DOTS)', color: 'amber' }
+                  ].map(p => {
+                    const isSubSel = consultProgram === p.id;
+                    return (
+                      <button
+                        type="button"
+                        key={p.id}
+                        onClick={() => setConsultProgram(p.id as any)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold text-left transition-all cursor-pointer border ${
+                          isSubSel
+                            ? 'bg-white text-teal-900 border-teal-500 shadow-xs ring-2 ring-teal-500/20'
+                            : 'bg-teal-50/70 text-slate-700 border-teal-200/80 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>{p.label}</span>
+                          {isSubSel && <Check size={13} className="text-teal-600" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Sub-Program: Adolescent Health */}
+                {consultProgram === 'Adolescent Health' && (
+                  <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl space-y-2.5 text-xs">
+                    <p className="font-bold text-purple-900 flex items-center gap-1">
+                      <User size={13} className="text-purple-600" /> Adolescent Health Clinical Assessment
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[11px] font-semibold text-slate-700">Pubertal Stage</Label>
+                        <Select value={adolescentStage} onValueChange={setAdolescentStage}>
+                          <SelectTrigger className="h-8 text-xs bg-white mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Early Adolescent (10-14 yrs)">Early Adolescent (10-14 yrs)</SelectItem>
+                            <SelectItem value="Mid Adolescent (15-17 yrs)">Mid Adolescent (15-17 yrs)</SelectItem>
+                            <SelectItem value="Late Adolescent (18-24 yrs)">Late Adolescent (18-24 yrs)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-[11px] font-semibold text-slate-700">Counseling Focus</Label>
+                        <Select value={adolescentFocus} onValueChange={setAdolescentFocus}>
+                          <SelectTrigger className="h-8 text-xs bg-white mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pubertal Guidance & Mental Wellness">Pubertal Guidance &amp; Mental Wellness</SelectItem>
+                            <SelectItem value="Nutrition & Healthy Lifestyle">Nutrition &amp; Healthy Lifestyle</SelectItem>
+                            <SelectItem value="Substance Use Prevention">Substance Use Prevention</SelectItem>
+                            <SelectItem value="Stress & Peer Counseling">Stress &amp; Peer Counseling</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub-Program: Teenage Pregnancy Prevention */}
+                {consultProgram === 'Teenage Pregnancy Prevention' && (
+                  <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-2.5 text-xs">
+                    <p className="font-bold text-rose-900 flex items-center gap-1">
+                      <ShieldCheck size={13} className="text-rose-600" /> Teenage Pregnancy Prevention Counseling
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[11px] font-semibold text-slate-700">Risk Assessment</Label>
+                        <Select value={teenRiskAssessment} onValueChange={setTeenRiskAssessment}>
+                          <SelectTrigger className="h-8 text-xs bg-white mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Low Risk / Preventive Counseling">Low Risk / Preventive Counseling</SelectItem>
+                            <SelectItem value="Moderate Risk / Sexually Active Youth">Moderate Risk / Sexually Active</SelectItem>
+                            <SelectItem value="High Risk / Out of School Youth">High Risk / Out of School Youth</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-[11px] font-semibold text-slate-700">Counseling Given</Label>
+                        <Select value={teenCounselingTopic} onValueChange={setTeenCounselingTopic}>
+                          <SelectTrigger className="h-8 text-xs bg-white mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Abstinence & Dual Protection Counseling">Abstinence &amp; Dual Protection</SelectItem>
+                            <SelectItem value="Adolescent Reproductive Health Rights">Reproductive Health Education</SelectItem>
+                            <SelectItem value="Contraceptive Counseling for High-Risk">Contraceptive Counseling</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub-Program: NTP (TB-DOTS) */}
+                {consultProgram === 'NTP (TB-DOTS)' && (
+                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2.5 text-xs">
+                    <p className="font-bold text-amber-900 flex items-center gap-1">
+                      <Activity size={13} className="text-amber-600" /> National TB Control Program (NTP / TB-DOTS)
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[11px] font-semibold text-slate-700">Sputum / GeneXpert Status</Label>
+                        <Select value={tbSputumStatus} onValueChange={setTbSputumStatus}>
+                          <SelectTrigger className="h-8 text-xs bg-white mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="GeneXpert Positive (MTB Detected)">GeneXpert Positive (MTB Detected)</SelectItem>
+                            <SelectItem value="GeneXpert Negative (Not Detected)">GeneXpert Negative (Not Detected)</SelectItem>
+                            <SelectItem value="GeneXpert / AFB Pending">GeneXpert / AFB Pending</SelectItem>
+                            <SelectItem value="Clinically Diagnosed TB">Clinically Diagnosed TB</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-[11px] font-semibold text-slate-700">Treatment Phase</Label>
+                        <Select value={tbPhase} onValueChange={setTbPhase}>
+                          <SelectTrigger className="h-8 text-xs bg-white mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Intensive Phase (2 Months RHZE)">Intensive Phase (2 Mos RHZE)</SelectItem>
+                            <SelectItem value="Continuation Phase (4 Months RH)">Continuation Phase (4 Mos RH)</SelectItem>
+                            <SelectItem value="Preventive Therapy (TPT)">Preventive Therapy (TPT)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Chief Complaint & Diagnosis for Consultation */}
                 <div>
-                  <Label className="text-xs font-semibold">Chief Complaint / Symptoms <span className="text-red-500">*</span></Label>
+                  <Label className="text-xs font-semibold text-slate-700">Chief Complaint / Primary Symptoms <span className="text-red-500">*</span></Label>
                   <Input
                     value={chiefComplaint}
                     onChange={e => setChiefComplaint(e.target.value)}
-                    placeholder="e.g. High fever for 3 days, dry cough, headache"
+                    placeholder="e.g. Mild dry cough, fever for 3 days, headaches"
                     required={selectedProgram === 'Consultation'}
-                    className="h-9 text-xs mt-1 bg-white"
+                    className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-xs font-semibold">Clinical Diagnosis</Label>
-                    <Input
-                      value={diagnosis}
-                      onChange={e => setDiagnosis(e.target.value)}
-                      placeholder="e.g. Acute Upper Respiratory Tract Infection"
-                      className="h-9 text-xs mt-1 bg-white"
-                    />
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Clinical Assessment / Diagnosis</Label>
+                  <Input
+                    value={diagnosis}
+                    onChange={e => setDiagnosis(e.target.value)}
+                    placeholder="e.g. Acute Upper Respiratory Infection / Tension Headache"
+                    className="h-9 text-xs mt-1 bg-white rounded-xl border-slate-200"
+                  />
+                </div>
+
+                {/* Dynamic Multi-Medicine Prescription Builder */}
+                <div className="bg-white border border-teal-200/80 rounded-xl p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                      <Pill size={14} className="text-teal-600" />
+                      Dynamic Prescription Builder
+                    </Label>
+                    <span className="text-[10px] text-slate-400">Add multiple medications</span>
                   </div>
-                  <div>
-                    <Label className="text-xs font-semibold">Prescriptions &amp; Treatment</Label>
-                    <Input
-                      value={prescribedMeds}
-                      onChange={e => setPrescribedMeds(e.target.value)}
-                      placeholder="e.g. Paracetamol 500mg TID, Amoxicillin 500mg"
-                      className="h-9 text-xs mt-1 bg-white"
-                    />
+
+                  {/* Quick Select Pills */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {['Amoxicillin 500mg', 'Paracetamol 500mg', 'Mefenamic Acid 500mg', 'Cetirizine 10mg', 'Salbutamol', 'ORS Solution', 'Ferrous Sulfate'].map(med => (
+                      <button
+                        type="button"
+                        key={med}
+                        onClick={() => setMedInputName(med)}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 hover:bg-teal-100 text-slate-700 hover:text-teal-800 border border-slate-200 cursor-pointer transition-colors"
+                      >
+                        + {med}
+                      </button>
+                    ))}
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-1">
+                    <div className="sm:col-span-2">
+                      <Input
+                        value={medInputName}
+                        onChange={e => setMedInputName(e.target.value)}
+                        placeholder="Medication name..."
+                        className="h-8 text-xs bg-white rounded-lg border-slate-200"
+                      />
+                    </div>
+                    <div>
+                      <Input
+                        value={medInputDosage}
+                        onChange={e => setMedInputDosage(e.target.value)}
+                        placeholder="Dosage (500mg)"
+                        className="h-8 text-xs bg-white rounded-lg border-slate-200"
+                      />
+                    </div>
+                    <div>
+                      <Button
+                        type="button"
+                        onClick={addPrescriptionItem}
+                        size="sm"
+                        className="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs h-8 rounded-lg cursor-pointer gap-1"
+                      >
+                        <Plus size={12} /> Add Med
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Prescribed Items Table */}
+                  {prescribedList.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {prescribedList.map((item, idx) => (
+                        <div key={item.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs">
+                          <div>
+                            <span className="font-bold text-slate-800">{idx + 1}. {item.name} {item.dosage}</span>
+                            <span className="text-slate-500 text-[11px] block">{item.frequency} for {item.duration}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removePrescriptionItem(item.id)}
+                            className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* ── PROGRAM 2: PRENATAL EXPANDED ── */}
+            {/* Program 2: Prenatal Expanded */}
             {selectedProgram === 'Prenatal' && (
-              <div className="p-3.5 bg-pink-50/40 border border-pink-200 rounded-xl space-y-2 mt-2">
+              <div className="p-3.5 bg-pink-50/50 border border-pink-200 rounded-2xl space-y-2.5 mt-2">
                 <div className="flex items-center gap-1.5 font-bold text-xs text-pink-900">
                   <Heart size={15} className="text-pink-600" />
                   Maternal Health &amp; Prenatal Check-up Entry
@@ -666,7 +963,7 @@ export default function SmartClinicalIntakeModal({
                       value={lmp}
                       onChange={e => setLmp(e.target.value)}
                       required={selectedProgram === 'Prenatal'}
-                      className="h-9 text-xs mt-1 bg-white"
+                      className="h-9 text-xs mt-1 bg-white rounded-xl"
                     />
                   </div>
                   <div>
@@ -675,7 +972,7 @@ export default function SmartClinicalIntakeModal({
                       value={edd}
                       readOnly
                       placeholder="Auto computed"
-                      className="h-9 text-xs mt-1 bg-pink-50/70 font-semibold"
+                      className="h-9 text-xs mt-1 bg-pink-50/70 font-semibold rounded-xl"
                     />
                   </div>
                   <div>
@@ -684,7 +981,7 @@ export default function SmartClinicalIntakeModal({
                       value={aogWeeks}
                       readOnly
                       placeholder="Auto computed"
-                      className="h-9 text-xs mt-1 bg-pink-50/70 font-semibold"
+                      className="h-9 text-xs mt-1 bg-pink-50/70 font-semibold rounded-xl"
                     />
                   </div>
                 </div>
@@ -692,27 +989,27 @@ export default function SmartClinicalIntakeModal({
                 <div className="grid grid-cols-4 gap-2">
                   <div>
                     <Label className="text-xs font-semibold">Gravida (G)</Label>
-                    <Input value={gravida} onChange={e => setGravida(e.target.value)} className="h-9 text-xs mt-1 bg-white text-center font-mono" />
+                    <Input value={gravida} onChange={e => setGravida(e.target.value)} className="h-9 text-xs mt-1 bg-white text-center font-mono rounded-xl" />
                   </div>
                   <div>
                     <Label className="text-xs font-semibold">Para (P)</Label>
-                    <Input value={para} onChange={e => setPara(e.target.value)} className="h-9 text-xs mt-1 bg-white text-center font-mono" />
+                    <Input value={para} onChange={e => setPara(e.target.value)} className="h-9 text-xs mt-1 bg-white text-center font-mono rounded-xl" />
                   </div>
                   <div>
                     <Label className="text-xs font-semibold">Fetal Heart (bpm)</Label>
-                    <Input value={fetalHeartRate} onChange={e => setFetalHeartRate(e.target.value)} placeholder="140" className="h-9 text-xs mt-1 bg-white text-center font-mono" />
+                    <Input value={fetalHeartRate} onChange={e => setFetalHeartRate(e.target.value)} placeholder="140" className="h-9 text-xs mt-1 bg-white text-center font-mono rounded-xl" />
                   </div>
                   <div>
                     <Label className="text-xs font-semibold">Fundic Ht (cm)</Label>
-                    <Input value={fundicHeight} onChange={e => setFundicHeight(e.target.value)} placeholder="20" className="h-9 text-xs mt-1 bg-white text-center font-mono" />
+                    <Input value={fundicHeight} onChange={e => setFundicHeight(e.target.value)} placeholder="20" className="h-9 text-xs mt-1 bg-white text-center font-mono rounded-xl" />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* ── PROGRAM 3: FAMILY PLANNING EXPANDED ── */}
+            {/* Program 3: Family Planning Expanded */}
             {selectedProgram === 'Family Planning' && (
-              <div className="p-3.5 bg-indigo-50/40 border border-indigo-200 rounded-xl space-y-2 mt-2">
+              <div className="p-3.5 bg-indigo-50/50 border border-indigo-200 rounded-2xl space-y-2.5 mt-2">
                 <div className="flex items-center gap-1.5 font-bold text-xs text-indigo-900">
                   <Pill size={15} className="text-indigo-600" />
                   Family Planning (FP) Service Intake
@@ -722,26 +1019,25 @@ export default function SmartClinicalIntakeModal({
                   <div>
                     <Label className="text-xs font-semibold">FP Method Provided <span className="text-red-500">*</span></Label>
                     <Select value={fpMethod} onValueChange={setFpMethod}>
-                      <SelectTrigger className="h-9 text-xs mt-1 bg-white"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-xs mt-1 bg-white rounded-xl"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="DMPA Injectable (Depo)">DMPA Injectable (Depo-Provera 3-Month)</SelectItem>
                         <SelectItem value="Oral Contraceptive Pills (Combined)">Oral Contraceptive Pills (Combined)</SelectItem>
-                        <SelectItem value="Progestin-Only Pills (POP)">Progestin-Only Pills (POP for breastfeeding)</SelectItem>
+                        <SelectItem value="Progestin-Only Pills (POP)">Progestin-Only Pills (POP)</SelectItem>
                         <SelectItem value="Subdermal Implants (Implanon)">Subdermal Implants (3-Year Implanon)</SelectItem>
                         <SelectItem value="Intrauterine Device (IUD)">Intrauterine Device (IUD)</SelectItem>
                         <SelectItem value="Male Condoms">Male Condoms (Supply Distribution)</SelectItem>
-                        <SelectItem value="Standard Days Method (Natural)">Standard Days Method (Natural FP)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label className="text-xs font-semibold">Client Status</Label>
                     <Select value={fpClientType} onValueChange={setFpClientType}>
-                      <SelectTrigger className="h-9 text-xs mt-1 bg-white"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-xs mt-1 bg-white rounded-xl"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Current User">Current User (Resupply / Routine Injection)</SelectItem>
+                        <SelectItem value="Current User">Current User (Resupply / Routine)</SelectItem>
                         <SelectItem value="New Acceptor">New Acceptor (First Time)</SelectItem>
-                        <SelectItem value="Method Switch">Method Switch (Changing Contraceptive)</SelectItem>
+                        <SelectItem value="Method Switch">Method Switch</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -749,9 +1045,9 @@ export default function SmartClinicalIntakeModal({
               </div>
             )}
 
-            {/* ── PROGRAM 4: NIP IMMUNIZATION EXPANDED ── */}
+            {/* Program 4: NIP Immunization Expanded */}
             {selectedProgram === 'NIP Immunization' && (
-              <div className="p-3.5 bg-blue-50/40 border border-blue-200 rounded-xl space-y-2 mt-2">
+              <div className="p-3.5 bg-blue-50/50 border border-blue-200 rounded-2xl space-y-2.5 mt-2">
                 <div className="flex items-center gap-1.5 font-bold text-xs text-blue-900">
                   <Baby size={15} className="text-blue-600" />
                   National Immunization Program (NIP) Record
@@ -761,22 +1057,31 @@ export default function SmartClinicalIntakeModal({
                   <div>
                     <Label className="text-xs font-semibold">Vaccine Administered <span className="text-red-500">*</span></Label>
                     <Select value={vaccineName} onValueChange={setVaccineName}>
-                      <SelectTrigger className="h-9 text-xs mt-1 bg-white"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-xs mt-1 bg-white rounded-xl"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="BCG (Birth)">BCG (Tuberculosis - At Birth)</SelectItem>
+                        <SelectItem value="BCG (Birth)">BCG (Tuberculosis - Birth)</SelectItem>
                         <SelectItem value="Hepatitis B (Birth)">Hepatitis B (Birth Dose)</SelectItem>
                         <SelectItem value="Pentavalent (DPT-HepB-Hib)">Pentavalent (DPT-HepB-Hib)</SelectItem>
                         <SelectItem value="Oral Polio Vaccine (OPV)">Oral Polio Vaccine (OPV)</SelectItem>
                         <SelectItem value="Inactivated Polio (IPV)">Inactivated Polio (IPV)</SelectItem>
                         <SelectItem value="Pneumococcal Conjugate (PCV)">Pneumococcal Conjugate (PCV)</SelectItem>
                         <SelectItem value="Measles, Mumps, Rubella (MMR)">Measles, Mumps, Rubella (MMR)</SelectItem>
+                        <SelectItem value="Other">Other / Custom Vaccine</SelectItem>
                       </SelectContent>
                     </Select>
+                    {vaccineName === 'Other' && (
+                      <Input
+                        value={customVaccine}
+                        onChange={e => setCustomVaccine(e.target.value)}
+                        placeholder="Enter custom vaccine name..."
+                        className="h-8 text-xs mt-1.5 bg-white rounded-lg"
+                      />
+                    )}
                   </div>
                   <div>
                     <Label className="text-xs font-semibold">Dose Number</Label>
                     <Select value={doseNumber} onValueChange={setDoseNumber}>
-                      <SelectTrigger className="h-9 text-xs mt-1 bg-white"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-xs mt-1 bg-white rounded-xl"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="1">Dose 1</SelectItem>
                         <SelectItem value="2">Dose 2</SelectItem>
@@ -789,15 +1094,15 @@ export default function SmartClinicalIntakeModal({
               </div>
             )}
 
-            {/* ═══ SECTION 5: AUTOMATED FOLLOW-UP & 1-DAY SCHEDULER ═══ */}
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 mt-2">
+            {/* Section 4: Automated Next Visit Date */}
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 mt-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Calendar size={14} className="text-teal-600" />
-                  Next Revisit / Due Date (Automated 1-Day Scheduler)
+                  Next Revisit / Due Date (Automated 1-Day Reminder)
                 </Label>
-                <span className="text-[10px] bg-teal-100 text-teal-800 font-semibold px-2 py-0.5 rounded">
-                  SMS &amp; Email Ready
+                <span className="text-[10px] bg-teal-100 text-teal-800 font-semibold px-2 py-0.5 rounded-full">
+                  SMS Ready
                 </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -806,11 +1111,11 @@ export default function SmartClinicalIntakeModal({
                     type="date"
                     value={nextVisitDate}
                     onChange={e => setNextVisitDate(e.target.value)}
-                    className="h-9 text-xs bg-white"
+                    className="h-9 text-xs bg-white rounded-xl border-slate-200"
                   />
                 </div>
                 <div className="text-[11px] text-slate-500 flex items-center">
-                  <span>Patient will automatically receive an SMS &amp; Email reminder 1 day before this date.</span>
+                  <span>Patient will receive an automatic SMS reminder 1 day prior to revisit.</span>
                 </div>
               </div>
             </div>
@@ -820,13 +1125,13 @@ export default function SmartClinicalIntakeModal({
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold w-full h-10 shadow-sm cursor-pointer gap-2"
+              className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold w-full h-10 shadow-md cursor-pointer gap-2 rounded-xl"
             >
               {isSubmitting ? (
-                <span>Recording Encounter &amp; Sending Alerts...</span>
+                <span>Recording Clinical Intake...</span>
               ) : (
                 <>
-                  <Send size={14} /> Complete Clinical Intake &amp; Dispatch Alerts
+                  <Send size={14} /> Complete Clinical Intake &amp; Dispatch Record
                 </>
               )}
             </Button>

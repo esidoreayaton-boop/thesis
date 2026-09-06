@@ -151,8 +151,12 @@ export default function PendingApplicantReviewModal({
         <DialogHeader className="border-b border-slate-100 dark:border-slate-800 pb-3.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-900">
-                <UserCheck size={20} />
+              <div className="w-11 h-11 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-900 overflow-hidden shadow-xs">
+                {applicant.profile_photo ? (
+                  <img src={applicant.profile_photo} alt={fullName} className="w-full h-full object-cover" />
+                ) : (
+                  <UserCheck size={20} />
+                )}
               </div>
               <div>
                 <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">

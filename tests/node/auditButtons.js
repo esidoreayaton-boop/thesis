@@ -7,7 +7,18 @@ const files = [
   'src/app/pages/BhwDashboard.tsx',
   'src/app/pages/BarangayPortal.tsx',
   'src/app/pages/HealthCenterPortal.tsx',
-  'src/app/pages/ResidentPortal.tsx'
+  'src/app/pages/ResidentPortal.tsx',
+  'src/app/pages/LoginPage.tsx',
+  'src/app/pages/LandingPage.tsx',
+  'src/app/components/PendingApplicantReviewModal.tsx',
+  'src/app/components/ResidentProfileModal.tsx',
+  'src/app/components/ProfileSettingsView.tsx',
+  'src/app/components/PatientDetailModal.tsx',
+  'src/app/components/SmartClinicalIntakeModal.tsx',
+  'src/app/components/DocumentInfoModal.tsx',
+  'src/app/components/DocumentPrintModal.tsx',
+  'src/app/components/BatchSmsReminderModal.tsx',
+  'src/app/components/SystemMessenger.tsx'
 ];
 
 let totalButtons = 0;
@@ -30,7 +41,11 @@ for (const file of files) {
     const hasForm = /form\s*=/.test(attrs);
     const hasDialogTrigger = /DialogTrigger/.test(attrs);
 
-    if (!hasClick && !hasSubmit && !isAsChild && !hasForm && !hasDialogTrigger) {
+    // Check if the button tag is directly preceded by a DialogTrigger asChild
+    const beforeSnippet = content.slice(Math.max(0, m.index - 120), m.index);
+    const isInsideDialogTrigger = /<DialogTrigger[^>]*asChild[^>]*>\s*$/s.test(beforeSnippet);
+
+    if (!hasClick && !hasSubmit && !isAsChild && !hasForm && !hasDialogTrigger && !isInsideDialogTrigger) {
       fileWithout++;
       buttonsWithoutHandler++;
       const snippet = m[0].replace(/\s+/g, ' ').substring(0, 100);

@@ -50,6 +50,9 @@ export interface Resident {
   employment_status?: 'Employed' | 'Unemployed' | 'Self-Employed' | 'Student' | 'Retired' | 'Minor';
   is_senior?: boolean;
   is_child?: boolean;
+  profile_photo?: string | null;
+  years_of_residency?: string;
+  id_type?: string;
 }
 
 export interface HouseholdGroup {
@@ -123,6 +126,7 @@ export interface SystemUser {
   last_login?: string;
   created_at?: string;
   verification_status?: string;
+  profile_photo?: string | null;
 }
 
 export interface PendingResident {
@@ -144,6 +148,7 @@ export interface PendingResident {
   submitted_at?: string;
   verification_status: 'Pending_Review' | 'Verified' | 'Rejected';
   rejection_reason?: string;
+  profile_photo?: string | null;
 }
 
 export interface ServiceCategory {
@@ -581,8 +586,8 @@ export const apiService = {
     return json;
   },
 
-  // Update Profile (password, phone, name, address, date_of_birth)
-  async updateProfile(data: { id?: number; email?: string; password?: string; phone?: string; name?: string; address?: string; date_of_birth?: string }) {
+  // Update Profile (password, phone, name, address, date_of_birth, profile_photo)
+  async updateProfile(data: { id?: number; email?: string; password?: string; phone?: string; name?: string; address?: string; date_of_birth?: string; profile_photo?: string; avatar?: string }) {
     const res = await fetch(`${API_BASE}/users/profile`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

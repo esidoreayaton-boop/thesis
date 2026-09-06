@@ -280,7 +280,7 @@ export default function SystemMessenger({ currentUserRole, currentUserName, curr
       <button
         onClick={() => { setIsOpen(o => !o); if (!isOpen) { fetchMessages(); fetchMembers(); } }}
         className="fixed bottom-5 right-5 z-40 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white p-3.5 rounded-full shadow-2xl flex items-center gap-2 cursor-pointer transition-all hover:scale-105 active:scale-95"
-        title={`Barangay ${myBarangay} Staff Chat`}
+        title={`Barangay ${myBarangay} Chat`}
       >
         <div className="relative flex items-center justify-center">
           <MessageSquare size={22} />
@@ -290,7 +290,7 @@ export default function SystemMessenger({ currentUserRole, currentUserName, curr
             </span>
           )}
         </div>
-        <span className="text-xs font-bold hidden sm:inline">Staff Chat</span>
+        <span className="text-xs font-bold hidden sm:inline">Chat</span>
       </button>
 
       {/* Chat Popup Window */}

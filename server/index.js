@@ -92,9 +92,22 @@ let mockData = {
   ],
   residents: [],
   documents: [],
-  maternal: [],
-  immunizations: [],
-  consultations: [],
+  maternal: [
+    { id: 1, mother_name: 'Elena Ramos-Santos', patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', age: 28, barangay: 'Pianing', gravida: 2, para: 1, lmp: '2026-01-10', edd: '2026-10-17', aog_weeks: '24', bp: '118/76', weight: '56.4', temp: '36.5', fetal_heart_rate: '148', fundic_height: '22', next_visit: '2026-09-18', next_visit_date: '2026-09-18', notes: 'Routine 2nd Trimester Check-up', prescribed_meds: 'FeSO4 60mg + Folic Acid 400mcg', attending_nurse: 'Nurse Maria Santos', last_visit: '2026-08-20', visit_number: 2, risk_level: 'Low', pregnancy_status: 'Prenatal - 2nd Trimester', status: 'Active' },
+    { id: 2, mother_name: 'Maricel Bautista', patient_name: 'Maricel Bautista', contact_number: '09189876543', age: 34, barangay: 'Pianing', gravida: 4, para: 3, lmp: '2025-12-15', edd: '2026-09-22', aog_weeks: '36', bp: '135/88', weight: '68.2', temp: '36.6', fetal_heart_rate: '152', fundic_height: '34', next_visit: '2026-09-10', next_visit_date: '2026-09-10', notes: '3rd Trimester Monitoring — High Blood Pressure Check', prescribed_meds: 'Methyldopa 250mg BID, Calcium Carbonate 500mg', attending_nurse: 'Nurse Maria Santos', last_visit: '2026-09-01', visit_number: 4, risk_level: 'Moderate', pregnancy_status: 'Prenatal - 3rd Trimester', status: 'Active' }
+  ],
+  immunizations: [
+    { id: 1, child_name: 'Baby Liam Kenneth Diaz', parent_phone: '09151234567', contact_number: '09151234567', age_months: '6', gender: 'Male', guardian_name: 'Maria Diaz', barangay: 'Pianing', weight_kg: '7.8', height_cm: '66', vaccine_name: 'Pentavalent (DPT-HepB-Hib)', dose_number: 2, batch_lot: 'LOT-2026-X9', date_administered: '2026-08-15', date_given: '2026-08-15', due_date: '2026-09-15', next_due_date: '2026-09-15', remarks: 'Tolerated well, no adverse reactions', administered_by: 'Nurse Maria Santos', status: 'Completed' },
+    { id: 2, child_name: 'Baby Sofia Grace Reyes', parent_phone: '09281234567', contact_number: '09281234567', age_months: '2', gender: 'Female', guardian_name: 'Lyn Reyes', barangay: 'Pianing', weight_kg: '4.5', height_cm: '54', vaccine_name: 'BCG', dose_number: 1, batch_lot: 'LOT-2026-BCG1', date_administered: '2026-07-10', date_given: '2026-07-10', due_date: '2026-08-10', next_due_date: '2026-08-10', remarks: 'Scar forming on left deltoid', administered_by: 'Nurse Maria Santos', status: 'Completed' },
+    { id: 3, child_name: 'Baby Ethan Gabriel Tan', parent_phone: '09193334455', contact_number: '09193334455', age_months: '4', gender: 'Male', guardian_name: 'Sarah Tan', barangay: 'Pianing', weight_kg: '6.2', height_cm: '62', vaccine_name: 'Oral Polio Vaccine (OPV)', dose_number: 2, batch_lot: 'LOT-2026-OPV2', date_administered: '2026-08-01', date_given: '2026-08-01', due_date: '2026-09-08', next_due_date: '2026-09-08', remarks: 'Scheduled for 2nd visit dose', administered_by: 'Nurse Maria Santos', status: 'Scheduled' }
+  ],
+  consultations: [
+    { id: 1, patient_name: 'Elena Ramos-Santos', contact_number: '09171234567', phone: '09171234567', age: '28', gender: 'Female', civil_status: 'Married', barangay: 'Pianing', purok: 'Purok 1', program_type: 'Prenatal Care', service_type: 'Prenatal Care', bp: '118/76 mmHg', temp: '36.5 °C', weight: '56.4 kg', heart_rate: '78 bpm', chief_complaint: 'Routine 2nd Trimester follow-up checkup', diagnosis: 'IUP 24 Weeks AOG, Cephalic, Normal vitals', treatment: 'FeSO4 60mg + Folic Acid 400mcg daily', prescribed_meds: 'FeSO4 60mg + Folic Acid 400mcg', attending_nurse: 'Nurse Maria Santos', attending_worker: 'Nurse Maria Santos', consultation_date: '2026-09-04', encounter_date: '2026-09-04', status: 'Completed' },
+    { id: 2, patient_name: 'Roberto Manalo', contact_number: '09289876543', phone: '09289876543', age: '58', gender: 'Male', civil_status: 'Married', barangay: 'Pianing', purok: 'Purok 2', program_type: 'General Consultation', service_type: 'General Consultation', bp: '135/85 mmHg', temp: '36.7 °C', weight: '68.0 kg', heart_rate: '82 bpm', chief_complaint: 'Occipital headache and dizziness monitoring', diagnosis: 'Stage 1 Hypertension, well-controlled', treatment: 'Amlodipine 5mg OD, low-sodium dietary advice', prescribed_meds: 'Amlodipine 5mg OD x 30 days', attending_nurse: 'Nurse Maria Santos', attending_worker: 'Nurse Maria Santos', consultation_date: '2026-09-04', encounter_date: '2026-09-04', status: 'Completed' },
+    { id: 3, patient_name: 'Angelica Mae Cruz', contact_number: '09165556677', phone: '09165556677', age: '17', gender: 'Female', civil_status: 'Single', barangay: 'Pianing', purok: 'Purok 3', program_type: 'Adolescent Health', service_type: 'Adolescent Health Consultation', bp: '110/70 mmHg', temp: '36.4 °C', weight: '48.0 kg', heart_rate: '74 bpm', chief_complaint: 'Adolescent health wellness & nutritional guidance', diagnosis: 'Healthy adolescent, mild iron deficiency anemia risk', treatment: 'Health counseling on balanced diet and hydration', prescribed_meds: 'Multivitamins with Iron 1 tab OD', attending_nurse: 'Nurse Maria Santos', attending_worker: 'Nurse Maria Santos', consultation_date: '2026-09-03', encounter_date: '2026-09-03', status: 'Completed' },
+    { id: 4, patient_name: 'Clarissa Fernandez', contact_number: '09178889900', phone: '09178889900', age: '26', gender: 'Female', civil_status: 'Married', barangay: 'Pianing', purok: 'Purok 4', program_type: 'Family Planning', service_type: 'Family Planning Services', bp: '115/75 mmHg', temp: '36.5 °C', weight: '53.0 kg', heart_rate: '76 bpm', chief_complaint: 'DMPA Injectable 3-month contraceptive refill', diagnosis: 'Family Planning Acceptor — DMPA Depo-Provera', treatment: 'DMPA 150mg IM administered at right deltoid', prescribed_meds: 'DMPA Injectable 150mg/mL vial', attending_nurse: 'Nurse Maria Santos', attending_worker: 'Nurse Maria Santos', consultation_date: '2026-09-02', encounter_date: '2026-09-02', next_visit_date: '2026-12-02', status: 'Completed' },
+    { id: 5, patient_name: 'Danilo Villanueva', contact_number: '09224445566', phone: '09224445566', age: '46', gender: 'Male', civil_status: 'Married', barangay: 'Pianing', purok: 'Purok 1', program_type: 'NTP (TB-DOTS)', service_type: 'NTP (National TB-DOTS Program)', bp: '120/80 mmHg', temp: '37.1 °C', weight: '55.0 kg', heart_rate: '80 bpm', chief_complaint: 'Chronic productive cough for 3 weeks with night sweats', diagnosis: 'Presumptive Pulmonary Tuberculosis — Sputum GeneXpert requested', treatment: 'Specimen collected for GeneXpert, TB health protocol counseling', prescribed_meds: 'TB Diagnostic Evaluation / Sputum Specimen', attending_nurse: 'Nurse Maria Santos', attending_worker: 'Nurse Maria Santos', consultation_date: '2026-09-01', encounter_date: '2026-09-01', next_visit_date: '2026-09-08', status: 'Completed' }
+  ],
   logs: [
     { id: 1, user_name: 'Super Admin Rodrigo Lim', user_role: 'superadmin', action: 'System Security Audit & Baseline Validation', action_type: 'Security', barangay: 'All (City-Wide)', details: 'Validated active services and role isolation protocols across all 86 barangays.', timestamp: '09/04/2026 08:30 AM' },
     { id: 2, user_name: 'Barangay Captain Juan Dela Cruz', user_role: 'admin', action: 'Approved Resident Registration', action_type: 'Resident', barangay: 'Pianing', details: 'Verified resident account with government ID verification.', timestamp: '09/04/2026 09:15 AM' },
@@ -185,7 +198,9 @@ async function migrateDatabase() {
     await safeAddColumn(pool, 'users', 'address', "VARCHAR(255) DEFAULT ''");
     await safeAddColumn(pool, 'users', 'civil_status', "ENUM('Single', 'Married', 'Widowed', 'Separated') DEFAULT 'Single'");
     await safeAddColumn(pool, 'users', 'last_login', "DATETIME NULL");
+    await safeAddColumn(pool, 'users', 'profile_photo', "LONGTEXT NULL");
     await safeAddColumn(pool, 'residents', 'barangay', "VARCHAR(100) DEFAULT 'Pianing'");
+    await safeAddColumn(pool, 'residents', 'profile_photo', "LONGTEXT NULL");
     await safeAddColumn(pool, 'residents', 'first_name', "VARCHAR(50) NOT NULL DEFAULT ''");
     await safeAddColumn(pool, 'residents', 'middle_name', "VARCHAR(50) DEFAULT ''");
     await safeAddColumn(pool, 'residents', 'last_name', "VARCHAR(50) NOT NULL DEFAULT ''");
@@ -412,6 +427,42 @@ async function migrateDatabase() {
       await safeAddColumn(pool, 'maternal_records', 'next_visit_date', "DATE NULL");
     } catch (e) {
       console.warn('Immunizations/Maternal columns migration warning:', e.message);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Clinical Encounters & Consultations Table Migration
+    // ─────────────────────────────────────────────────────────────
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS clinical_encounters (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          patient_name VARCHAR(150) NOT NULL,
+          contact_number VARCHAR(50) DEFAULT '',
+          age VARCHAR(20) DEFAULT '—',
+          gender VARCHAR(20) DEFAULT 'Female',
+          civil_status VARCHAR(50) DEFAULT 'Single',
+          barangay VARCHAR(100) DEFAULT 'Pianing',
+          purok VARCHAR(100) DEFAULT 'Purok 1',
+          program_type VARCHAR(100) DEFAULT 'General Consultation',
+          bp VARCHAR(30) DEFAULT '120/80',
+          temp VARCHAR(20) DEFAULT '36.5',
+          weight VARCHAR(20) DEFAULT '',
+          height VARCHAR(20) DEFAULT '',
+          heart_rate VARCHAR(20) DEFAULT '',
+          chief_complaint VARCHAR(255) DEFAULT 'Routine Health Visit',
+          diagnosis TEXT NULL,
+          treatment TEXT NULL,
+          prescribed_meds TEXT NULL,
+          attending_worker VARCHAR(100) DEFAULT 'Nurse Maria Santos',
+          encounter_date DATE NULL,
+          next_visit_date DATE NULL,
+          status VARCHAR(50) DEFAULT 'Completed',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query("ALTER TABLE clinical_encounters MODIFY COLUMN program_type VARCHAR(100) DEFAULT 'General Consultation'");
+    } catch (e) {
+      console.warn('clinical_encounters migration warning:', e.message);
     }
   }
 }
@@ -1535,9 +1586,9 @@ app.delete('/api/residents/:id/purge', async (req, res) => {
   res.json({ success: true, message: 'Registration record permanently purged.' });
 });
 
-// PUT /api/users/profile - Resident Profile Settings (phone, address, name, password, gender, civil_status)
+// PUT /api/users/profile - Profile Settings (name, phone, photo, password, address, civil_status)
 app.put('/api/users/profile', async (req, res) => {
-  const { id, email, password, phone, address, name, first_name, middle_name, last_name, date_of_birth, gender, civil_status, submitted_id } = req.body;
+  const { id, email, password, phone, address, name, first_name, middle_name, last_name, date_of_birth, gender, civil_status, submitted_id, profile_photo } = req.body;
   const fullName = name || (first_name ? `${first_name} ${middle_name ? middle_name + ' ' : ''}${last_name || ''}`.trim() : undefined);
   
   if (password) {
@@ -1557,6 +1608,12 @@ app.put('/api/users/profile', async (req, res) => {
       if (fullName) {
         await pool.query("UPDATE users SET name = ? WHERE id = ? OR LOWER(email) = LOWER(?)", [fullName, id || 0, (email || '').toLowerCase()]);
       }
+      if (phone) {
+        await pool.query("UPDATE users SET phone = ? WHERE id = ? OR LOWER(email) = LOWER(?)", [phone, id || 0, (email || '').toLowerCase()]);
+      }
+      if (profile_photo !== undefined) {
+        await pool.query("UPDATE users SET profile_photo = ? WHERE id = ? OR LOWER(email) = LOWER(?)", [profile_photo || null, id || 0, (email || '').toLowerCase()]);
+      }
       // Update residents table
       const updates = [];
       const params = [];
@@ -1568,6 +1625,7 @@ app.put('/api/users/profile', async (req, res) => {
       if (civil_status) { updates.push('civil_status = ?'); params.push(civil_status); }
       if (phone) { updates.push('phone = ?'); params.push(phone); }
       if (address) { updates.push('address = ?'); params.push(address); }
+      if (profile_photo !== undefined) { updates.push('profile_photo = ?'); params.push(profile_photo || null); }
       // Handle submitted_id: only update when explicitly provided in payload
       // null = intentional removal; undefined (not in body) = do NOT touch existing value
       if ('submitted_id' in req.body) {
@@ -1590,6 +1648,7 @@ app.put('/api/users/profile', async (req, res) => {
       return res.json({ 
         success: true, 
         message: 'Profile settings updated successfully.',
+        profile_photo: profile_photo || null,
         date_of_birth,
         gender,
         civil_status,
@@ -1605,8 +1664,10 @@ app.put('/api/users/profile', async (req, res) => {
   if (user) {
     if (password) user.password_hash = password;
     if (fullName) user.name = fullName;
+    if (phone) user.phone = phone;
     if (date_of_birth) user.date_of_birth = date_of_birth;
     if ('submitted_id' in req.body) user.submitted_id = submitted_id;
+    if (profile_photo !== undefined) user.profile_photo = profile_photo || null;
   }
   const resident = mockData.residents.find(r => (id && r.id === id) || (email && r.email.toLowerCase() === email.toLowerCase()));
   if (resident) {
@@ -1617,8 +1678,9 @@ app.put('/api/users/profile', async (req, res) => {
     if (phone) resident.phone = phone;
     if (address) resident.address = address;
     if ('submitted_id' in req.body) resident.submitted_id = submitted_id;
+    if (profile_photo !== undefined) resident.profile_photo = profile_photo || null;
   }
-  res.json({ success: true, message: 'Profile settings updated successfully.' });
+  res.json({ success: true, profile_photo: profile_photo || null, message: 'Profile settings updated successfully.' });
 });
 
 // -------------------------------------------------------------
@@ -1637,6 +1699,7 @@ app.get('/api/users', async (req, res) => {
 
       const [rows] = await pool.query(`
         SELECT u.id, u.name, u.email, u.role, u.status, u.barangay, u.phone, u.employee_id, u.job_title, u.last_login, u.created_at,
+               COALESCE(u.profile_photo, r.profile_photo) AS profile_photo,
                COALESCE(r.verification_status, u.verification_status, 'Verified') AS verification_status,
                r.first_name, r.last_name, r.middle_name, r.address, r.date_of_birth,
                r.gender, r.civil_status, r.purok, r.household_number, r.submitted_id, r.years_of_residency
@@ -1664,6 +1727,7 @@ app.get('/api/users', async (req, res) => {
       job_title: u.job_title || null,
       last_login: u.last_login || null,
       created_at: u.created_at || new Date().toISOString(),
+      profile_photo: u.profile_photo || r?.profile_photo || null,
       verification_status: u.verification_status || (r?.verification_status || 'Verified'),
       first_name: r?.first_name || '',
       middle_name: r?.middle_name || '',
@@ -1829,7 +1893,7 @@ app.post('/api/users', async (req, res) => {
 
 app.put('/api/users/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, email, role, barangay, phone, status, verification_status, password, employee_id, job_title } = req.body;
+  const { name, email, role, barangay, phone, status, verification_status, password, employee_id, job_title, profile_photo } = req.body;
 
   if (password) {
     const passCheck = validatePasswordComplexity(password);
@@ -1852,6 +1916,7 @@ app.put('/api/users/:id', async (req, res) => {
       if (verification_status) { updates.push('verification_status = ?'); params.push(verification_status); }
       if (employee_id !== undefined) { updates.push('employee_id = ?'); params.push(employee_id); }
       if (job_title !== undefined) { updates.push('job_title = ?'); params.push(job_title); }
+      if (profile_photo !== undefined) { updates.push('profile_photo = ?'); params.push(profile_photo); }
       if (password) {
         const hashedPassword = await hashPassword(password);
         updates.push('password_hash = ?');
@@ -1863,8 +1928,8 @@ app.put('/api/users/:id', async (req, res) => {
         await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
       }
 
-      // Sync verification_status or phone to residents table if applicable
-      if (verification_status || phone || email) {
+      // Sync verification_status, phone, or profile_photo to residents table if applicable
+      if (verification_status || phone || email || profile_photo !== undefined) {
         const [uRows] = await pool.query("SELECT email FROM users WHERE id = ?", [id]);
         const targetEmail = email || uRows[0]?.email;
         if (targetEmail) {
@@ -1872,6 +1937,7 @@ app.put('/api/users/:id', async (req, res) => {
           const resParams = [];
           if (verification_status) { resUpdates.push('verification_status = ?'); resParams.push(verification_status); }
           if (phone) { resUpdates.push('phone = ?'); resParams.push(phone); }
+          if (profile_photo !== undefined) { resUpdates.push('profile_photo = ?'); resParams.push(profile_photo); }
           if (resUpdates.length > 0) {
             resParams.push(targetEmail.toLowerCase());
             await pool.query(`UPDATE residents SET ${resUpdates.join(', ')} WHERE LOWER(email) = LOWER(?)`, resParams);
@@ -1907,6 +1973,15 @@ app.put('/api/users/:id', async (req, res) => {
     if (password) user.password_hash = password;
     if (employee_id !== undefined) user.employee_id = employee_id;
     if (job_title !== undefined) user.job_title = job_title;
+    if (profile_photo !== undefined) user.profile_photo = profile_photo;
+
+    // Sync to resident mock data
+    if (user.email) {
+      const resRecord = (mockData.residents || []).find(r => (r.email || '').toLowerCase() === user.email.toLowerCase());
+      if (resRecord && profile_photo !== undefined) {
+        resRecord.profile_photo = profile_photo;
+      }
+    }
   }
 
   logActivity({
@@ -2094,6 +2169,14 @@ app.get('/api/residents/:id/full-profile', async (req, res) => {
     try {
       const [[resident]] = await pool.query("SELECT * FROM residents WHERE id = ?", [id]);
       if (resident) {
+        if (!resident.profile_photo && resident.email) {
+          try {
+            const [[userRow]] = await pool.query("SELECT profile_photo FROM users WHERE LOWER(email) = LOWER(?)", [resident.email]);
+            if (userRow?.profile_photo) {
+              resident.profile_photo = userRow.profile_photo;
+            }
+          } catch {}
+        }
         const [documents] = await pool.query("SELECT * FROM document_requests WHERE resident_id = ?", [id]);
         const [maternal] = await pool.query("SELECT * FROM maternal_records WHERE resident_id = ?", [id]);
         const [immunizations] = await pool.query("SELECT * FROM immunizations WHERE child_name LIKE ?", [`%${resident.first_name}%`]);
@@ -2105,6 +2188,12 @@ app.get('/api/residents/:id/full-profile', async (req, res) => {
   }
 
   const resident = mockData.residents.find(r => r.id === id) || mockData.residents[0];
+  if (resident && !resident.profile_photo && resident.email) {
+    const matchedUser = (mockData.users || []).find(u => (u.email || '').toLowerCase() === resident.email.toLowerCase());
+    if (matchedUser?.profile_photo) {
+      resident.profile_photo = matchedUser.profile_photo;
+    }
+  }
   const documents = mockData.documents.filter(d => d.resident_id === resident.id || d.resident_name.includes(resident.first_name));
   const maternal = mockData.maternal.filter(m => m.resident_id === resident.id || m.mother_name.includes(resident.first_name));
   const immunizations = mockData.immunizations.filter(i => i.child_name.includes(resident.first_name) || i.child_name.includes(resident.last_name));
@@ -3526,12 +3615,11 @@ app.post('/api/maternal', async (req, res) => {
     }
   }
 
-  const newMat = {
-    id: (mockData.maternal?.length || 0) + 1,
-    resident_id: 1,
-    mother_name: momName,
-    age: Number(age) || 25,
-    pregnancy_status: pregnancy_status || '1st Trimester',
+  const newMaternal = {
+    id: Date.now(),
+    mother_name,
+    age: age || 25,
+    pregnancy_status: pregnancy_status || 'Prenatal',
     expected_due_date: expected_due_date || edd || null,
     last_visit: lastVisit,
     next_visit: nextVisit,
@@ -3552,11 +3640,10 @@ app.post('/api/maternal', async (req, res) => {
     prescribed_meds,
     attending_nurse: nurse,
     next_visit_date: nextVisit,
-    auto_schedule: scheduleInfo,
   };
   if (!mockData.maternal) mockData.maternal = [];
-  mockData.maternal.unshift(newMat);
-  res.status(201).json(newMat);
+  mockData.maternal.unshift(newMaternal);
+  return res.status(201).json(newMaternal);
 });
 
 // -------------------------------------------------------------
@@ -3565,10 +3652,15 @@ app.post('/api/maternal', async (req, res) => {
 app.get('/api/consultations', async (req, res) => {
   const pool = getPool();
   const brgy = req.query.barangay;
+  const program = req.query.program_type;
   if (pool && getStatus().connected) {
     try {
-      let query = "SELECT * FROM clinical_encounters WHERE (program_type = 'Consultation' OR program_type IS NULL OR program_type = '')";
+      let query = "SELECT * FROM clinical_encounters WHERE 1=1";
       const params = [];
+      if (program && program !== 'All') {
+        query += " AND LOWER(program_type) = LOWER(?)";
+        params.push(program);
+      }
       if (brgy && brgy !== 'All' && !brgy.toLowerCase().includes('city-wide')) {
         query += " AND LOWER(barangay) = LOWER(?)";
         params.push(brgy);
@@ -3580,7 +3672,14 @@ app.get('/api/consultations', async (req, res) => {
       console.warn('MySQL consultations fetch error:', err.message);
     }
   }
-  res.json(mockData.consultations || []);
+  let results = mockData.consultations || [];
+  if (brgy && brgy !== 'All' && !brgy.toLowerCase().includes('city-wide')) {
+    results = results.filter(c => (c.barangay || '').toLowerCase() === brgy.toLowerCase());
+  }
+  if (program && program !== 'All') {
+    results = results.filter(c => (c.program_type || '').toLowerCase() === program.toLowerCase());
+  }
+  res.json(results);
 });
 
 app.post('/api/consultations', async (req, res) => {
@@ -3593,6 +3692,7 @@ app.post('/api/consultations', async (req, res) => {
     civil_status,
     barangay,
     purok,
+    program_type,
     service_type,
     bp,
     temp,
@@ -3620,56 +3720,7 @@ app.post('/api/consultations', async (req, res) => {
   const brgy = barangay || 'Pianing';
   const encDate = consultation_date || new Date().toISOString().split('T')[0];
   const stat = status || 'Completed';
-
-  const pool = getPool();
-  if (pool && getStatus().connected) {
-    try {
-      const [result] = await pool.query(`
-        INSERT INTO clinical_encounters
-        (patient_name, contact_number, age, gender, civil_status, barangay, purok, program_type, bp, temp, weight, height, heart_rate, chief_complaint, diagnosis, treatment, prescribed_meds, attending_worker, encounter_date, next_visit_date, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'Consultation', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        name, phoneNum, age || '—', gender || 'Female', civil_status || 'Single',
-        brgy, purok || 'Purok 1', bp || '120/80', temp || '36.5', weight || '', height || '', heart_rate || '',
-        chief_complaint || 'Routine Health Visit', diagnosis || 'Assessment Complete', treatment || 'Health counseling advised.',
-        prescribed_meds || '', worker, encDate, next_visit_date || null, stat
-      ]);
-
-      const newRecord = {
-        id: result.insertId,
-        patient_name: name,
-        contact_number: phoneNum,
-        age: age || '—',
-        gender: gender || 'Female',
-        civil_status: civil_status || 'Single',
-        barangay: brgy,
-        purok: purok || 'Purok 1',
-        program_type: 'Consultation',
-        service_type: service_type || 'General Consultation',
-        bp: bp || '120/80',
-        temp: temp || '36.5',
-        weight: weight || '',
-        height: height || '',
-        heart_rate: heart_rate || '',
-        chief_complaint: chief_complaint || 'Routine Health Visit',
-        diagnosis: diagnosis || 'Assessment Complete',
-        treatment: treatment || 'Health counseling advised.',
-        prescribed_meds: prescribed_meds || '',
-        attending_nurse: worker,
-        attending_worker: worker,
-        consultation_date: encDate,
-        encounter_date: encDate,
-        status: stat
-      };
-
-      if (!mockData.consultations) mockData.consultations = [];
-      mockData.consultations.unshift(newRecord);
-
-      return res.status(201).json(newRecord);
-    } catch (err) {
-      console.warn('MySQL consultation insert error:', err.message);
-    }
-  }
+  const progType = program_type || service_type || 'General Consultation';
 
   const newRecord = {
     id: Date.now(),
@@ -3680,8 +3731,8 @@ app.post('/api/consultations', async (req, res) => {
     civil_status: civil_status || 'Single',
     barangay: brgy,
     purok: purok || 'Purok 1',
-    program_type: 'Consultation',
-    service_type: service_type || 'General Consultation',
+    program_type: progType,
+    service_type: progType,
     bp: bp || '120/80',
     temp: temp || '36.5',
     weight: weight || '',
@@ -3695,11 +3746,33 @@ app.post('/api/consultations', async (req, res) => {
     attending_worker: worker,
     consultation_date: encDate,
     encounter_date: encDate,
+    next_visit_date: next_visit_date || null,
     status: stat
   };
+
+  const pool = getPool();
+  if (pool && getStatus().connected) {
+    try {
+      const [result] = await pool.query(`
+        INSERT INTO clinical_encounters 
+        (patient_name, contact_number, age, gender, civil_status, barangay, purok, program_type, bp, temp, weight, height, heart_rate, chief_complaint, diagnosis, treatment, prescribed_meds, attending_worker, encounter_date, next_visit_date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        name, phoneNum, age || '—', gender || 'Female', civil_status || 'Single',
+        brgy, purok || 'Purok 1', progType, bp || '120/80', temp || '36.5', weight || '', height || '', heart_rate || '',
+        chief_complaint || 'Routine Health Visit', diagnosis || 'Assessment Complete', treatment || 'Health counseling advised.',
+        prescribed_meds || '', worker, encDate, next_visit_date || null, stat
+      ]);
+      newRecord.id = result.insertId;
+    } catch (err) {
+      console.warn('MySQL consultation insert error:', err.message);
+    }
+  }
+
   if (!mockData.consultations) mockData.consultations = [];
   mockData.consultations.unshift(newRecord);
-  res.status(201).json(newRecord);
+
+  return res.status(201).json(newRecord);
 });
 
 // -------------------------------------------------------------
@@ -5257,9 +5330,42 @@ app.post('/api/patients/intake', async (req, res) => {
         ).catch(() => {});
       }
 
+      const newConsultationRecord = {
+        id: encounterId,
+        patient_name: patient_name.trim(),
+        contact_number: contact_number || '',
+        phone: contact_number || '',
+        age: age || '—',
+        gender: gender || 'Female',
+        civil_status: civil_status || 'Single',
+        barangay: brgy,
+        purok: purok || 'Purok 1',
+        program_type: program_type,
+        service_type: program_type,
+        bp: bp || '120/80',
+        temp: temp || '36.5',
+        weight: weight || '',
+        height: height || '',
+        heart_rate: heart_rate || '',
+        chief_complaint: chief_complaint || `${program_type} Intake`,
+        diagnosis: diagnosis || 'Clinical Evaluation Complete',
+        treatment: treatment || 'Routine care advised.',
+        prescribed_meds: prescribed_meds || '',
+        attending_nurse: worker,
+        attending_worker: worker,
+        consultation_date: new Date().toISOString().split('T')[0],
+        encounter_date: new Date().toISOString().split('T')[0],
+        next_visit_date: next_visit_date || null,
+        status: 'Completed'
+      };
+
+      if (!mockData.consultations) mockData.consultations = [];
+      mockData.consultations.unshift(newConsultationRecord);
+
       return res.status(201).json({
         success: true,
         encounterId,
+        record: newConsultationRecord,
         message: `Clinical intake for ${patient_name} completed successfully.`,
         patient_name,
         program_type
@@ -5270,9 +5376,85 @@ app.post('/api/patients/intake', async (req, res) => {
   }
 
   // In-memory fallback
+  const intakeFallbackEncounter = {
+    id: Date.now(),
+    patient_name: patient_name.trim(),
+    contact_number: contact_number || '',
+    phone: contact_number || '',
+    age: age || '—',
+    gender: gender || 'Female',
+    civil_status: civil_status || 'Single',
+    barangay: brgy,
+    purok: purok || 'Purok 1',
+    program_type: program_type,
+    service_type: program_type,
+    bp: bp || '120/80',
+    temp: temp || '36.5',
+    weight: weight || '',
+    height: height || '',
+    heart_rate: heart_rate || '',
+    chief_complaint: chief_complaint || `${program_type} Clinical Intake`,
+    diagnosis: diagnosis || 'Evaluation Complete',
+    treatment: treatment || 'Routine care advised.',
+    prescribed_meds: prescribed_meds || '',
+    attending_nurse: worker,
+    attending_worker: worker,
+    consultation_date: new Date().toISOString().split('T')[0],
+    encounter_date: new Date().toISOString().split('T')[0],
+    next_visit_date: next_visit_date || null,
+    status: 'Completed'
+  };
+
+  if (!mockData.consultations) mockData.consultations = [];
+  mockData.consultations.unshift(intakeFallbackEncounter);
+
+  if (program_type === 'Prenatal') {
+    if (!mockData.maternal) mockData.maternal = [];
+    mockData.maternal.unshift({
+      id: Date.now(),
+      patient_name: patient_name.trim(),
+      mother_name: patient_name.trim(),
+      contact_number: contact_number || '',
+      phone: contact_number || '',
+      age: age || 24,
+      barangay: brgy,
+      gravida: gravida || 1,
+      para: para || 0,
+      lmp: lmp || '2026-01-01',
+      edd: edd || '2026-10-01',
+      aog_weeks: aog_weeks || '16 weeks',
+      bp: bp || '115/75',
+      weight: weight || '55 kg',
+      temp: temp || '36.6°C',
+      fetal_heart_rate: fetal_heart_rate || '142 bpm',
+      fundic_height: fundic_height || '18 cm',
+      prescribed_meds: prescribed_meds || 'Ferrous Sulfate + Folic Acid 1 tab OD',
+      attending_nurse: worker,
+      next_visit_date: next_visit_date || '2026-04-10'
+    });
+  } else if (program_type === 'NIP Immunization') {
+    if (!mockData.immunizations) mockData.immunizations = [];
+    mockData.immunizations.unshift({
+      id: Date.now(),
+      patient_name: patient_name.trim(),
+      child_name: patient_name.trim(),
+      parent_phone: contact_number || '',
+      contact_number: contact_number || '',
+      vaccine_name: vaccine_name || 'Pentavalent',
+      dose_number: dose_number || 1,
+      status: 'Completed',
+      date_administered: new Date().toISOString().split('T')[0],
+      due_date: due_date || next_visit_date || '2026-04-15',
+      next_due_date: due_date || next_visit_date || '2026-04-15',
+      administered_by: worker,
+      remarks: 'Administered normally'
+    });
+  }
+
   res.status(201).json({
     success: true,
-    encounterId: Date.now(),
+    encounterId: intakeFallbackEncounter.id,
+    record: intakeFallbackEncounter,
     message: `Clinical intake for ${patient_name} recorded (in-memory mode).`,
     patient_name,
     program_type

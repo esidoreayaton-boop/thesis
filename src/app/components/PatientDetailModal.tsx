@@ -22,6 +22,7 @@ export interface PatientRecordData {
   address?: string;
   guardian?: string;
   date_of_birth?: string;
+  profile_photo?: string | null;
   weight?: string;
   height?: string;
   temp?: string;
@@ -112,33 +113,37 @@ export default function PatientDetailModal({ isOpen, onClose, patient, onSendSms
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="bg-white w-[96vw] max-w-7xl h-[92vh] max-h-[95vh] overflow-y-auto p-0 rounded-2xl border-0 shadow-2xl">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-teal-700 via-teal-800 to-slate-900 text-white p-6 relative rounded-t-2xl">
+        {/* Header - Clean, Soft & Eye-Friendly */}
+        <div className="bg-white border-b border-slate-200 text-slate-900 p-6 relative rounded-t-2xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white font-bold text-xl shadow-inner shrink-0">
-                {patient.name.charAt(0)}
+              <div className="w-14 h-14 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-800 font-bold text-xl shadow-xs shrink-0 overflow-hidden">
+                {patient.profile_photo ? (
+                  <img src={patient.profile_photo} alt={patient.name} className="w-full h-full object-cover" />
+                ) : (
+                  patient.name.charAt(0)
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-bold text-white">{patient.name}</h2>
+                  <h2 className="text-xl font-bold text-slate-900">{patient.name}</h2>
                   {patient.gender && (
-                    <Badge className="bg-teal-500/30 text-teal-100 border border-teal-400/40 text-[10px]">
+                    <Badge className="bg-teal-50 text-teal-800 border border-teal-200 text-[10px]">
                       {patient.gender}
                     </Badge>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-teal-100/90 mt-1 font-mono">
-                  {patient.age && <span>Age: <strong>{patient.age}</strong></span>}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 mt-1 font-mono">
+                  {patient.age && <span>Age: <strong className="text-slate-700">{patient.age}</strong></span>}
                   {patient.contact_number && (
                     <span className="flex items-center gap-1">
-                      <Phone size={12} className="text-teal-300" />
-                      <strong>{patient.contact_number}</strong>
+                      <Phone size={12} className="text-teal-600" />
+                      <strong className="text-slate-700">{patient.contact_number}</strong>
                     </span>
                   )}
                   {patient.barangay && (
                     <span className="flex items-center gap-1">
-                      <MapPin size={12} className="text-teal-300" />
+                      <MapPin size={12} className="text-teal-600" />
                       Barangay {patient.barangay}
                     </span>
                   )}
@@ -154,7 +159,7 @@ export default function PatientDetailModal({ isOpen, onClose, patient, onSendSms
                   onClose();
                   onLogReturnVisit(patient);
                 }}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer shrink-0 border border-emerald-400/40"
+                className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
               >
                 <Stethoscope size={15} />
                 + Log Return Visit
