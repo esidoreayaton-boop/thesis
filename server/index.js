@@ -87,8 +87,12 @@ if (fs.existsSync(distPath)) {
 // In-Memory Fallback Store (active if MySQL is unavailable)
 let mockData = {
   users: [
-    { id: 1, name: 'Super Admin', email: 'superadmin@barangay.gov', role: 'superadmin', status: 'Active', barangay: 'Pianing', phone: '09171112233', last_login: 'Never' },
-    { id: 2, name: 'Barangay Admin Juan Dela Cruz', email: 'admin@barangay.gov', role: 'admin', status: 'Active', barangay: 'Pianing', phone: '09171234567', last_login: 'Never' }
+    { id: 1, name: 'Super Admin Rodrigo Lim', email: 'superadmin@barangay.gov', role: 'superadmin', status: 'Active', barangay: 'Pianing', phone: '09171112233', password_hash: '123', last_login: 'Never' },
+    { id: 2, name: 'Barangay Admin Juan Dela Cruz', email: 'admin@barangay.gov', role: 'admin', status: 'Active', barangay: 'Pianing', phone: '09171234567', password_hash: '123', last_login: 'Never' },
+    { id: 3, name: 'BHW Maria Santos', email: 'bhw@barangay.gov', role: 'bhw', status: 'Active', barangay: 'Pianing', phone: '09181234567', password_hash: '123', last_login: 'Never' },
+    { id: 4, name: 'Staff Ana Reyes', email: 'staff@barangay.gov', role: 'staff', status: 'Active', barangay: 'Pianing', phone: '09191234567', password_hash: '123', last_login: 'Never' },
+    { id: 5, name: 'Nurse Ligaya Santos', email: 'nurse@barangay.gov', role: 'nurse', status: 'Active', barangay: 'Pianing', phone: '09201234567', password_hash: '123', last_login: 'Never' },
+    { id: 6, name: 'Resident Juan Dela Cruz', email: 'resident@gmail.com', role: 'resident', status: 'Active', barangay: 'Pianing', phone: '09211234567', verification_status: 'Verified', password_hash: '123', last_login: 'Never' }
   ],
   residents: [],
   documents: [],
@@ -844,11 +848,9 @@ app.post('/api/auth/login', async (req, res) => {
   const user = mockData.users.find(u => searchEmails.includes(u.email.toLowerCase()));
   if (user) {
     let isMatch = await verifyPassword(password, user.password_hash || '123');
-    // Master password override: 123 for admin and superadmin
-    if (!isMatch && (cleanPass === '123' || cleanPass === '123456' || cleanPass === 'Admin123!')) {
-      if (user.role === 'admin' || user.role === 'superadmin' || cleanEmail.includes('admin')) {
-        isMatch = true;
-      }
+    // Master password override: 123 for demo accounts
+    if (!isMatch && (cleanPass === '123' || cleanPass === '123456' || cleanPass === 'Admin123!' || cleanPass === 'Password123!')) {
+      isMatch = true;
     }
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid password. Please check your credentials.' });
